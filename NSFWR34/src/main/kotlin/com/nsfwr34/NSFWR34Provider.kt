@@ -23,12 +23,14 @@ class NSFWR34Provider : MainAPI() {
     override var lang = "en"
 
     // data 是分类路径（以 / 结尾），配合 page/N/ 做无限滚动
+    // 最后一行 "@tags" 是特殊栏目，由 getMainPage 单独处理
     override val mainPage = mainPageOf(
         "video/" to "Latest",
         "categories/4k/" to "4K",
         "categories/3d-porn/" to "3D Rule 34",
         "categories/2d-rule-34/" to "2D Rule 34",
         "categories/vertical-videos/" to "Vertical",
+        "@tags" to "按标签浏览",
     )
 
     companion object {
@@ -50,6 +52,41 @@ class NSFWR34Provider : MainAPI() {
     // ---------------------------------------------------------------- 首页
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        // 特殊栏目：把标签本身铺成一行卡片，点进去看该标签下的视频
+        if (request.data == "@tags") {
+            val tagList = listOf(
+                "hentai" to "Hentai",
+                "futa" to "FUTA",
+                "3d" to "3D",
+                "2d" to "2D",
+                "overwatch-porn" to "Overwatch",
+                "genshin-impact-porn" to "Genshin",
+                "2b-porn" to "2B",
+                "final-fantasy" to "Final Fantasy",
+                "league-of-legends-porn" to "LOL",
+                "my-hero-academia-rule-34" to "My Hero",
+                "nier-automata-porn" to "Nier",
+                "resident-evil-porn" to "Resident Evil",
+                "street-fighter-porn" to "Street Fighter",
+                "d-va-porn" to "D.VA",
+                "uncensored" to "Uncensored",
+                "creampie" to "Creampie",
+                "cowgirl" to "Cowgirl",
+                "big-ass" to "Big Ass",
+                "big-boobs" to "Big Boobs",
+                "anal" to "Anal",
+                "blowjob" to "Blowjob",
+                "short" to "Short",
+                "sound" to "Sound",
+                "music" to "Music",
+                "vam" to "VAM",
+            )
+            val cards = tagList.map { (slug, label) ->
+                newTvSeriesSearchResponse(label, "$mainUrl/video_tag/$slug/", TvType.TvSeries)
+            }
+            return newHomePageResponse(HomePageList(request.name, cards, true), hasNext = false)
+        }
+
         val suffix = if (page <= 1) "" else "page/$page/"
         // 越界页站点直接返回 404，捕获后当作「没有下一页」
         val items = runCatching {
@@ -59,7 +96,7 @@ class NSFWR34Provider : MainAPI() {
                 .distinctBy { it.url }
         }.getOrDefault(emptyList())
 
-                // 站点缩略图是 16:9 横版，第三个参数 true 让卡片按横版渲染，
+        // 站点缩略图是 16:9 横版，第三个参数 true 让卡片按横版渲染，
         // 否则 CloudStream 会按 2:3 竖版海报裁切
         return newHomePageResponse(
             HomePageList(request.name, items, true),
@@ -70,6 +107,11 @@ class NSFWR34Provider : MainAPI() {
     // ---------------------------------------------------------------- 详情
 
     override suspend fun load(url: String): LoadResponse {
+        // 标签页 / 分类页（不含 /video/）→ 当作一个「剧集」，每集就是一个视频
+        if (!url.contains("/video/")) {
+            return loadCollection(url)
+        }
+
         val doc = app.get(url).document
         val root = doc.selectFirst(".post-body.single-body") ?: doc
 
@@ -113,6 +155,30 @@ class NSFWR34Provider : MainAPI() {
             this.tags = tags
             this.recommendations = recommendations
             this.duration = duration
+        }
+    }
+
+    /** 把标签/分类页包装成一个「剧集」，每个视频是一集 */
+    private suspend fun loadCollection(url: String): LoadResponse {
+        val doc = app.get(url).document
+        val cards = doc.select("article[data-embed-url]")
+
+        val title = doc.selectFirst("h1")?.text()?.trim()?.takeIf { it.isNotBlank() }
+            ?: url.trimEnd('/').substringAfterLast('/')
+
+        val episodes = cards.mapIndexedNotNull { index, card ->
+            val item = card.toSearchResponse() ?: return@mapIndexedNotNull null
+            newEpisode(item.url) {
+                this.name = item.name
+                this.posterUrl = item.posterUrl
+                this.season = 1
+                this.episode = index + 1
+            }
+        }
+
+        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            this.posterUrl = fixUrlNull(episodes.firstOrNull()?.posterUrl)
+            this.plot = "共 ${episodes.size} 个视频"
         }
     }
 
