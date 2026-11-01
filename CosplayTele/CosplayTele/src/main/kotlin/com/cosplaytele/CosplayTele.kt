@@ -124,16 +124,40 @@ class CosplayTeleProvider : MainAPI() {
         return found
     }
 
+    /** 从 embed 页里取出并解密 m3u8 地址（不用正则/转义，避免粘贴出错） */
     private fun extractM3u8(html: String): String? {
-        val cipherText = Regex("""videoURL\s*=\s*'([A-Za-z0-9+/=]+)'""")
-            .find(html)?.groupValues?.get(1) ?: return null
+        val iVideo = html.indexOf("videoURL")
+        if (iVideo < 0) return null
 
-        val key = Regex("""decryptLink\(\s*videoURL\s*,\s*'([0-9a-fA-F]{32})'""")
-            .find(html)?.groupValues?.get(1) ?: return null
+        val q1 = html.indexOf("'", iVideo)
+        if (q1 < 0) return null
+        val q2 = html.indexOf("'", q1 + 1)
+        if (q2 < 0) return null
+        val cipherText = html.substring(q1 + 1, q2)
+
+        val iCall = html.indexOf("decryptLink(videoURL", iVideo)
+        if (iCall < 0) return null
+        val k1 = html.indexOf("'", iCall)
+        if (k1 < 0) return null
+        val k2 = html.indexOf("'", k1 + 1)
+        if (k2 < 0) return null
+        val key = html.substring(k1 + 1, k2)
+        if (key.length != 32) return null
 
         val plain = aesDecrypt(cipherText, key) ?: return null
 
-        return Regex("""https?://[^\s"'\\]+?\.m3u8[^\s"'\\]*""").find(plain)?.value
+        val start = plain.indexOf("https://")
+        if (start < 0) return null
+        val rest = plain.substring(start)
+        val m3u8 = rest.indexOf(".m3u8")
+        if (m3u8 < 0) return null
+
+        var end = m3u8 + 5
+        val allowed = "-._~:/?#[]@!$&()*+,;=%"
+        while (end < rest.length && (rest[end].isLetterOrDigit() || allowed.indexOf(rest[end]) >= 0)) {
+            end++
+        }
+        return rest.substring(0, end)
     }
 
     private fun aesDecrypt(cipherTextB64: String, key: String): String? {
