@@ -2,14 +2,14 @@
   {
     "internalName": "NSFWR34",
     "name": "NSFWR34",
-    "description": "nsfwr34.com provider",
+    "description": "nsfwr34.com provider | 31 rows",
     "authors": ["you"],
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 3,
+    "version": 4,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@builds/NSFWR34.cs3?v=4"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@2b49609e83b3d41a4b2b6be55aa6f7c1a19442d0/NSFWR34.cs3"
   }
 ]
