@@ -7,10 +7,10 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 5,
+    "version": 6,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@7ca7582b8c6d5142150d6854b6b953f9d83b375d/NSFWR34.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@5610f37fab1764c30dbe5795ac6ef9147278dd00/NSFWR34.cs3"
   },
   {
     "internalName": "CosplayTele",
@@ -20,9 +20,22 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
+    "version": 2,
+    "status": 1,
+    "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@5610f37fab1764c30dbe5795ac6ef9147278dd00/CosplayTele.cs3"
+  },
+  {
+    "internalName": "Mitaku",
+    "name": "Mitaku",
+    "description": "mitaku.net 视频帖（PoW + AES-GCM 取流）",
+    "authors": ["you"],
+    "language": "ja",
+    "tvTypes": ["Movie"],
+    "apiVersion": 1,
     "version": 1,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@7ca7582b8c6d5142150d6854b6b953f9d83b375d/CosplayTele.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@5610f37fab1764c30dbe5795ac6ef9147278dd00/Mitaku.cs3"
   }
 ]
