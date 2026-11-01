@@ -59,7 +59,12 @@ class NSFWR34Provider : MainAPI() {
                 .distinctBy { it.url }
         }.getOrDefault(emptyList())
 
-        return newHomePageResponse(request.name, items, hasNext = items.isNotEmpty())
+                // 站点缩略图是 16:9 横版，第三个参数 true 让卡片按横版渲染，
+        // 否则 CloudStream 会按 2:3 竖版海报裁切
+        return newHomePageResponse(
+            HomePageList(request.name, items, true),
+            hasNext = items.isNotEmpty()
+        )
     }
 
     // ---------------------------------------------------------------- 详情
