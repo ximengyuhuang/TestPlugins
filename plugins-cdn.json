@@ -7,9 +7,22 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 4,
+    "version": 5,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@2b49609e83b3d41a4b2b6be55aa6f7c1a19442d0/NSFWR34.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@7ca7582b8c6d5142150d6854b6b953f9d83b375d/NSFWR34.cs3"
+  },
+  {
+    "internalName": "CosplayTele",
+    "name": "CosplayTele",
+    "description": "cosplaytele.com 视频帖（AES 解密取流）",
+    "authors": ["you"],
+    "language": "en",
+    "tvTypes": ["Movie"],
+    "apiVersion": 1,
+    "version": 1,
+    "status": 1,
+    "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@7ca7582b8c6d5142150d6854b6b953f9d83b375d/CosplayTele.cs3"
   }
 ]
