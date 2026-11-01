@@ -1,0 +1,8 @@
+{
+  "name": "NSFWR34 Repo",
+  "description": "Personal CloudStream plugin repository",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/ximengyuhuang/TestPlugins/builds/plugins.json"
+  ]
+}
