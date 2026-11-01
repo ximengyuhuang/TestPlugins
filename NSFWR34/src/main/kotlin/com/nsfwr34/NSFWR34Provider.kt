@@ -107,7 +107,7 @@ class NSFWR34Provider : MainAPI() {
             this.year = year
             this.tags = tags
             this.recommendations = recommendations
-            addDuration(duration)
+            this.duration = duration
         }
     }
 
@@ -211,20 +211,15 @@ class NSFWR34Provider : MainAPI() {
         }
     }
 
-    /** PT1M21S -> 1m 21s */
-    private fun formatIsoDuration(iso: String): String? {
+    /** PT1M21S -> 1（分钟；CloudStream 的 duration 字段单位就是分钟） */
+    private fun formatIsoDuration(iso: String): Int? {
         val m = Regex("""P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?""").matchEntire(iso)
             ?: return null
-        val (_, h, min, s) = m.destructured
-        val hours = h.toIntOrNull() ?: 0
-        val minutes = min.toIntOrNull() ?: 0
-        val seconds = s.toIntOrNull() ?: 0
-
-        return when {
-            hours > 0 -> "${hours}h ${minutes}m"
-            minutes > 0 -> if (seconds > 0) "${minutes}m ${seconds}s" else "${minutes}m"
-            seconds > 0 -> "${seconds}s"
-            else -> null
-        }
+        val (d, h, min, s) = m.destructured
+        val total = (d.toIntOrNull() ?: 0) * 1440 +
+            (h.toIntOrNull() ?: 0) * 60 +
+            (min.toIntOrNull() ?: 0) +
+            if ((s.toIntOrNull() ?: 0) >= 30) 1 else 0
+        return total.takeIf { it > 0 }
     }
 }
