@@ -162,4 +162,23 @@ class CosplayTeleProvider : MainAPI() {
 
     private fun aesDecrypt(cipherTextB64: String, key: String): String? {
         return try {
-            val cipher = Cipher.getInstance("AES/CBC/NoPadding
+            val cipher = Cipher.getInstance("AES/CBC/NoPadding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(key.toByteArray(Charsets.UTF_8), "AES"),
+                IvParameterSpec(ByteArray(16))
+            )
+            val raw = Base64.decode(cipherTextB64, Base64.DEFAULT)
+            String(cipher.doFinal(raw), Charsets.UTF_8)
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
+@CloudstreamPlugin
+class CosplayTelePlugin : Plugin() {
+    override fun load(context: Context) {
+        registerMainAPI(CosplayTeleProvider())
+    }
+}
