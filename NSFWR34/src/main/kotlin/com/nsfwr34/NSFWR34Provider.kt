@@ -22,15 +22,40 @@ class NSFWR34Provider : MainAPI() {
     override val supportedTypes = setOf(TvType.Movie)
     override var lang = "en"
 
-    // data 是分类路径（以 / 结尾），配合 page/N/ 做无限滚动
-    // 最后一行 "@tags" 是特殊栏目，由 getMainPage 单独处理
+    // data 是分类/标签路径（以 / 结尾），配合 page/N/ 做无限滚动
+    // "@tags" 是特殊栏目：把全部标签铺成一行索引卡片，由 getMainPage 单独处理
     override val mainPage = mainPageOf(
+        "@tags" to "标签索引",
         "video/" to "Latest",
         "categories/4k/" to "4K",
         "categories/3d-porn/" to "3D Rule 34",
         "categories/2d-rule-34/" to "2D Rule 34",
         "categories/vertical-videos/" to "Vertical",
-        "@tags" to "按标签浏览",
+        "video_tag/hentai/" to "Hentai",
+        "video_tag/futa/" to "FUTA",
+        "video_tag/3d/" to "3D",
+        "video_tag/2d/" to "2D",
+        "video_tag/overwatch-porn/" to "Overwatch",
+        "video_tag/genshin-impact-porn/" to "Genshin",
+        "video_tag/2b-porn/" to "2B",
+        "video_tag/final-fantasy/" to "Final Fantasy",
+        "video_tag/league-of-legends-porn/" to "LOL",
+        "video_tag/my-hero-academia-rule-34/" to "My Hero Academia",
+        "video_tag/nier-automata-porn/" to "Nier Automata",
+        "video_tag/resident-evil-porn/" to "Resident Evil",
+        "video_tag/street-fighter-porn/" to "Street Fighter",
+        "video_tag/d-va-porn/" to "D.VA",
+        "video_tag/uncensored/" to "Uncensored",
+        "video_tag/creampie/" to "Creampie",
+        "video_tag/cowgirl/" to "Cowgirl",
+        "video_tag/big-ass/" to "Big Ass",
+        "video_tag/big-boobs/" to "Big Boobs",
+        "video_tag/anal/" to "Anal",
+        "video_tag/blowjob/" to "Blowjob",
+        "video_tag/short/" to "Short",
+        "video_tag/sound/" to "Sound",
+        "video_tag/music/" to "Music",
+        "video_tag/vam/" to "VAM",
     )
 
     companion object {
@@ -158,21 +183,30 @@ class NSFWR34Provider : MainAPI() {
         }
     }
 
-    /** 把标签/分类页包装成一个「剧集」，每个视频是一集 */
+    /** 把标签/分类页包装成「剧集」：并发抓 5 页，每 20 个一季，用季选择器当分页器 */
     private suspend fun loadCollection(url: String): LoadResponse {
-        val doc = app.get(url).document
-        val cards = doc.select("article[data-embed-url]")
+        val base = url.trimEnd('/') + "/"
 
-        val title = doc.selectFirst("h1")?.text()?.trim()?.takeIf { it.isNotBlank() }
+        // 5 页并发抓取；越界页站点返回 404，runCatching 兜住后跳过
+        val docs = listOf(1, 2, 3, 4, 5).amap { page ->
+            val pageUrl = if (page == 1) base else "${base}page/$page/"
+            runCatching { app.get(pageUrl).document }.getOrNull()
+        }.filterNotNull()
+
+        val title = docs.firstOrNull()?.selectFirst("h1")?.text()?.trim()?.takeIf { it.isNotBlank() }
             ?: url.trimEnd('/').substringAfterLast('/')
 
-        val episodes = cards.mapIndexedNotNull { index, card ->
-            val item = card.toSearchResponse() ?: return@mapIndexedNotNull null
+        val items = docs.flatMap { doc ->
+            doc.select("article[data-embed-url]").mapNotNull { it.toSearchResponse() }
+        }.distinctBy { it.url }
+
+        val perSeason = 20
+        val episodes = items.mapIndexed { i, item ->
             newEpisode(item.url) {
                 this.name = item.name
                 this.posterUrl = item.posterUrl
-                this.season = 1
-                this.episode = index + 1
+                this.season = i / perSeason + 1
+                this.episode = i % perSeason + 1
             }
         }
 
