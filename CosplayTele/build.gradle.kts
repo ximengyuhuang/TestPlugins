@@ -14,4 +14,8 @@ cloudstream {
 
 android {
     namespace = "com.cosplaytele"
+
+    // 源码实际在 CosplayTele/src/main/ 下（多套了一层），这里显式指过去
+    sourceSets["main"].manifest.srcFile("CosplayTele/src/main/AndroidManifest.xml")
+    sourceSets["main"].java.srcDirs("CosplayTele/src/main/kotlin")
 }
