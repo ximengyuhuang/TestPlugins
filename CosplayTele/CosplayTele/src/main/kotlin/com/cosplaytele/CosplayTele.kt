@@ -20,8 +20,12 @@ class CosplayTeleProvider : MainAPI() {
     override val supportedTypes = setOf(TvType.Movie)
     override var lang = "en"
     
-    // 跨页去重：站点每页都会重复带上固定的置顶/精选块
-    private val seenUrls = mutableSetOf<String>()
+    // 站点每页 = 少量新帖 + 固定重复的 55 条旧帖。
+    // 状态放 companion object：Provider 实例可能每次请求都重建，实例字段会丢。
+    private companion object {
+        val baseline = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+        val seen = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+    }
 
     override val mainPage = mainPageOf(
         "category/video-cosplayyy/" to "最新视频",
@@ -56,25 +60,46 @@ class CosplayTeleProvider : MainAPI() {
         }.getOrDefault(emptyList())
     }
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+    private suspend fun fetchList(data: String, page: Int): List<SearchResponse> {
         val suffix = if (page <= 1) "" else "page/$page/"
-
-        val parsed = runCatching {
-            app.get("$mainUrl/${request.data}$suffix").document
+        return runCatching {
+            app.get("$mainUrl/$data$suffix").document
                 .select("div.post-item")
                 .mapNotNull { it.toSearchResponse() }
                 .distinctBy { it.url }
         }.getOrDefault(emptyList())
+    }
 
-        // 第一页永远原样返回（绝不因去重变空），同时重置记录
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val key = request.data
+        var items = fetchList(key, page)
+
         if (page <= 1) {
-            seenUrls.clear()
-            seenUrls.addAll(parsed.map { it.url })
-            return newHomePageResponse(
-                HomePageList(request.name, parsed, true),
-                hasNext = parsed.isNotEmpty()
-            )
+            // 第 1 页作为基准：它包含了那块固定重复的内容
+            baseline[key] = items.map { it.url }.toSet()
+            val s = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+            s.addAll(items.map { it.url })
+            seen[key] = s
+        } else {
+            if (baseline[key] == null) {
+                // 直接从第 2 页开始时，先补拉第 1 页建立基准
+                val first = fetchList(key, 1)
+                baseline[key] = first.map { it.url }.toSet()
+                val s = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+                s.addAll(first.map { it.url })
+                seen[key] = s
+            }
+            val base = baseline[key] ?: emptySet()
+            val seenSet = seen[key]
+            items = items.filter { it.url !in base && (seenSet == null || seenSet.add(it.url)) }
         }
+
+        // 站点缩略图是 16:9 横版
+        return newHomePageResponse(
+            HomePageList(request.name, items, true),
+            hasNext = items.isNotEmpty()
+        )
+    }
 
         // 后续页只保留之前没出现过的；全都被见过就说明到底了
         val fresh = parsed.filter { it.url !in seenUrls }
