@@ -26,7 +26,7 @@ class Rule34VideoProvider : MainAPI() {
 
     override val hasMainPage = true
     override val hasQuickSearch = false
-    override val supportedTypes = setOf(TvType.Movie)
+    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.Anime)
     override var lang = "en"
 
     private val webHeaders = mapOf(
