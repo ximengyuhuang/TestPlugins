@@ -1,0 +1,118 @@
+[
+    {
+        "fileHash": "sha256-c94a217a7aef3e394132e14de84fda74431ffdb653bab8e62ceb917e98473517",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+        "fileSize": 16829,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "CosplayTele",
+        "description": "cosplaytele.com video posts",
+        "url": "https://raw.githubusercontent.com/ximengyuhuang/TestPlugins/builds/CosplayTele.cs3",
+        "name": "CosplayTele"
+    },
+    {
+        "iconUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2f/Korduene_Logo.png",
+        "fileHash": "sha256-bf290f09cec5ae650bd265e540864410ce9257b76e62633b6475e2bb738f7149",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+        "fileSize": 7367,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "Cloudburst",
+            "Luna712"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "ExampleProvider",
+        "description": "Lorem ipsum",
+        "url": "https://raw.githubusercontent.com/ximengyuhuang/TestPlugins/builds/ExampleProvider.cs3",
+        "name": "ExampleProvider"
+    },
+    {
+        "fileHash": "sha256-89145fe5d08f4282c698ec9c15bd8789fc7e8a4665ae92282cbbeafe994987a0",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+        "fileSize": 19239,
+        "status": 1,
+        "language": "ja",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "Mitaku",
+        "description": "mitaku.net \u89c6\u9891\u5e16\uff08PoW + AES-GCM \u53d6\u6d41\uff09",
+        "url": "https://raw.githubusercontent.com/ximengyuhuang/TestPlugins/builds/Mitaku.cs3",
+        "name": "Mitaku"
+    },
+    {
+        "fileHash": "sha256-59900a153eed97392ba5f1b7bf62ed274aa8d1511b25c1ecc617049d2339be03",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+        "fileSize": 23650,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "NSFWR34",
+        "description": "nsfwr34.com provider",
+        "url": "https://raw.githubusercontent.com/ximengyuhuang/TestPlugins/builds/NSFWR34.cs3",
+        "name": "NSFWR34"
+    },
+    {
+        "fileHash": "sha256-86e8fea3c802376e3af7ec40219265afe6695c1d3f8b3ab6d8bede877e49a700",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+        "fileSize": 19912,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "Rule34Video",
+        "description": "rule34video.com\uff08\u6700\u65b0 / \u6700\u70ed / \u8bc4\u5206 / \u5206\u7c7b / \u6807\u7b7e\uff09",
+        "url": "https://raw.githubusercontent.com/ximengyuhuang/TestPlugins/builds/Rule34Video.cs3",
+        "name": "Rule34Video"
+    },
+    {
+        "fileHash": "sha256-4963dac76301509790bfa2ce8b951e2f7278039feb804f23d1d9bae87e0bdb33",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
+        "fileSize": 19402,
+        "status": 1,
+        "language": "ja",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "SupJav",
+        "description": "supjav.com\uff08\u5206\u7c7b + \u6807\u7b7e + \u5236\u4f5c\u5546 + \u6f14\u5458\uff09",
+        "url": "https://raw.githubusercontent.com/ximengyuhuang/TestPlugins/builds/SupJav.cs3",
+        "name": "SupJav"
+    }
+]
