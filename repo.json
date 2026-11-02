@@ -3,6 +3,6 @@
   "description": "Personal CloudStream plugin repository",
   "manifestVersion": 1,
   "pluginLists": [
-    "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@d8c7cd47e0b33c5cf8da491e62862054ca8c0db7/plugins-cdn.json"
+    "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@a31d1b6584ac9678d401cb9401320e0d83b3e541/plugins-cdn.json"
   ]
 }
