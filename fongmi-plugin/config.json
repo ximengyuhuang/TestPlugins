@@ -5,10 +5,23 @@
       "name": "Rule34Video",
       "type": 3,
       "api": "./rule34video.js",
-      "style": {
-        "type": "rect",
-        "ratio": 1.78
-      },
+      "style": { "type": "rect", "ratio": 1.78 },
+      "ext": {}
+    },
+    {
+      "key": "nsfwr34",
+      "name": "NSFWR34",
+      "type": 3,
+      "api": "./nsfwr34.js",
+      "style": { "type": "rect", "ratio": 1.78 },
+      "ext": {}
+    },
+    {
+      "key": "cosplaytele",
+      "name": "CosplayTele",
+      "type": 3,
+      "api": "./cosplaytele.js",
+      "style": { "type": "rect", "ratio": 1.5 },
       "ext": {}
     }
   ]
