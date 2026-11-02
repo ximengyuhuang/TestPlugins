@@ -19,6 +19,9 @@ class CosplayTeleProvider : MainAPI() {
     override val hasQuickSearch = false
     override val supportedTypes = setOf(TvType.Movie)
     override var lang = "en"
+    
+    // 跨页去重：站点每页都会重复带上固定的置顶/精选块
+    private val seenUrls = mutableSetOf<String>()
 
     override val mainPage = mainPageOf(
         "category/video-cosplayyy/" to "最新视频",
