@@ -101,17 +101,6 @@ class CosplayTeleProvider : MainAPI() {
         )
     }
 
-        // 后续页只保留之前没出现过的；全都被见过就说明到底了
-        val fresh = parsed.filter { it.url !in seenUrls }
-        seenUrls.addAll(parsed.map { it.url })
-
-        // 站点缩略图是 16:9 横版
-        return newHomePageResponse(
-            HomePageList(request.name, fresh, true),
-            hasNext = fresh.isNotEmpty()
-        )
-    }
-
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url).document
 
