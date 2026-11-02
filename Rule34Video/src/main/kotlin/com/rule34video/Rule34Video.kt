@@ -95,21 +95,28 @@ class Rule34VideoProvider : MainAPI() {
         for (p in 1..pages) {
             val url = if (p == 1) "$mainUrl/categories/" else "$mainUrl/categories/$p/"
             val doc = runCatching { app.get(url, headers = webHeaders).document }.getOrNull() ?: continue
-            doc.select("a.item[href]").forEach { a ->
+            var added = 0
+            // 页面上有两个区块：顶部热门用 a.item，字母排序用 a.th + div.thumb_title
+            doc.select("a[href*=/categories/]").forEach { a ->
                 val href = fixUrlNull(a.attr("href")) ?: return@forEach
                 if (!Regex("/categories/[^/]+/$").containsMatchIn(href)) return@forEach
-                // div.name 里含 div.count，用 ownText 去掉数字
-                val name = a.selectFirst("div.name")?.ownText()?.trim()?.takeIf { it.isNotBlank() }
-                    ?: a.selectFirst("img")?.attr("alt")?.trim()
-                    ?: return@forEach
                 if (out.containsKey(href)) return@forEach
-                                val count = a.selectFirst("div.count span")?.text()?.trim() ?: ""
-                val poster = a.selectFirst("img")?.attr("src")
+
+                val name = a.selectFirst("div.thumb_title")?.text()?.trim()?.takeIf { it.isNotBlank() }
+                    ?: a.selectFirst("div.name")?.ownText()?.trim()?.takeIf { it.isNotBlank() }
+                    ?: a.selectFirst("img")?.attr("alt")?.trim()?.takeIf { it.isNotBlank() }
+                    ?: return@forEach
+
+                val count = a.selectFirst("div.count span")?.text()?.trim() ?: ""
+                val poster = a.selectFirst("img")?.attr("src")?.takeIf { it.startsWith("http") }
                 val shown = if (count.isNotBlank()) "$name ($count)" else name
+
                 out[href] = newMovieSearchResponse(shown, href, TvType.Movie) {
                     this.posterUrl = fixUrlNull(poster)
                 }
+                added++
             }
+            if (added == 0) break
         }
         return out.values.toList()
     }
