@@ -230,7 +230,7 @@ class Rule34VideoProvider : MainAPI() {
                 this.episode = index + 1
             }
         }
-        return newTvSeriesLoadResponse(listName, url, TvType.Movie, episodes) {
+        return newTvSeriesLoadResponse(listName, url, TvType.TvSeries, episodes) {
             this.posterUrl = episodes.firstOrNull()?.posterUrl
             this.plot = "共 ${episodes.size} 个视频"
         }
