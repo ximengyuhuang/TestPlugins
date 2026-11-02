@@ -7,10 +7,10 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 15,
+    "version": 16,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@6ed3746c3d117d2511208fecfb2324c363b32e02/NSFWR34.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@bfda9ae1f11aa20625f44253c2c17a6125c3227a/NSFWR34.cs3"
   },
   {
     "internalName": "CosplayTele",
@@ -20,10 +20,10 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 11,
+    "version": 12,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@6ed3746c3d117d2511208fecfb2324c363b32e02/CosplayTele.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@bfda9ae1f11aa20625f44253c2c17a6125c3227a/CosplayTele.cs3"
   },
   {
     "internalName": "Mitaku",
@@ -33,10 +33,10 @@
     "language": "ja",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 10,
+    "version": 11,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@6ed3746c3d117d2511208fecfb2324c363b32e02/Mitaku.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@bfda9ae1f11aa20625f44253c2c17a6125c3227a/Mitaku.cs3"
   },
   {
     "internalName": "Rule34Video",
@@ -44,11 +44,11 @@
     "description": "rule34video.com（最新/最热/评分/分类/标签）",
     "authors": ["you"],
     "language": "en",
-    "tvTypes": ["Movie"],
+    "tvTypes": ["Movie", "TvSeries"],
     "apiVersion": 1,
-    "version": 4,
+    "version": 5,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@6ed3746c3d117d2511208fecfb2324c363b32e02/Rule34Video.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@bfda9ae1f11aa20625f44253c2c17a6125c3227a/Rule34Video.cs3"
   }
 ]
