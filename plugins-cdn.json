@@ -7,10 +7,10 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 12,
+    "version": 13,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@860bf65522aff05cdd8ea46092d80c02f49cedcf/NSFWR34.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@9cbf9e77c4882469e96af208b36679539a70bdbd/NSFWR34.cs3"
   },
   {
     "internalName": "CosplayTele",
@@ -20,10 +20,10 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 8,
+    "version": 9,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@860bf65522aff05cdd8ea46092d80c02f49cedcf/CosplayTele.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@9cbf9e77c4882469e96af208b36679539a70bdbd/CosplayTele.cs3"
   },
   {
     "internalName": "Mitaku",
@@ -33,10 +33,10 @@
     "language": "ja",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 7,
+    "version": 8,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@860bf65522aff05cdd8ea46092d80c02f49cedcf/Mitaku.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@9cbf9e77c4882469e96af208b36679539a70bdbd/Mitaku.cs3"
   },
   {
     "internalName": "Rule34Video",
@@ -46,9 +46,9 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 1,
+    "version": 2,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@860bf65522aff05cdd8ea46092d80c02f49cedcf/Rule34Video.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@9cbf9e77c4882469e96af208b36679539a70bdbd/Rule34Video.cs3"
   }
 ]
