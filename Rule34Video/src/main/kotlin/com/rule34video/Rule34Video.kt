@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -102,11 +103,11 @@ class Rule34VideoProvider : MainAPI() {
                     ?: a.selectFirst("img")?.attr("alt")?.trim()
                     ?: return@forEach
                 if (out.containsKey(href)) return@forEach
-                val count = a.selectFirst("div.count span")?.text()?.trim() ?: ""
+                                val count = a.selectFirst("div.count span")?.text()?.trim() ?: ""
                 val poster = a.selectFirst("img")?.attr("src")
-                out[href] = newMovieSearchResponse(name, href, TvType.Movie) {
+                val shown = if (count.isNotBlank()) "$name ($count)" else name
+                out[href] = newMovieSearchResponse(shown, href, TvType.Movie) {
                     this.posterUrl = fixUrlNull(poster)
-                    if (count.isNotBlank()) this.plot = "$count 个视频"
                 }
             }
         }
