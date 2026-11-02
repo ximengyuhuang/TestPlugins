@@ -7,10 +7,10 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 10,
+    "version": 11,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@d0d6db3d914ffdfe421af4a11cd25506b790eeb9/NSFWR34.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@3e763493c85d7dfbdd0b7d2b7c7687f39b26cd14/NSFWR34.cs3"
   },
   {
     "internalName": "CosplayTele",
@@ -20,10 +20,10 @@
     "language": "en",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 6,
+    "version": 7,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@d0d6db3d914ffdfe421af4a11cd25506b790eeb9/CosplayTele.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@3e763493c85d7dfbdd0b7d2b7c7687f39b26cd14/CosplayTele.cs3"
   },
   {
     "internalName": "Mitaku",
@@ -33,22 +33,9 @@
     "language": "ja",
     "tvTypes": ["Movie"],
     "apiVersion": 1,
-    "version": 5,
+    "version": 6,
     "status": 1,
     "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@d0d6db3d914ffdfe421af4a11cd25506b790eeb9/Mitaku.cs3"
-  },
-  {
-    "internalName": "SupJav",
-    "name": "SupJav",
-    "description": "supjav.com（分类 + 标签 + 制作商 + 演员）",
-    "authors": ["you"],
-    "language": "ja",
-    "tvTypes": ["Movie"],
-    "apiVersion": 1,
-    "version": 1,
-    "status": 1,
-    "repositoryUrl": "https://github.com/ximengyuhuang/TestPlugins",
-    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@d0d6db3d914ffdfe421af4a11cd25506b790eeb9/SupJav.cs3"
+    "url": "https://cdn.jsdelivr.net/gh/ximengyuhuang/TestPlugins@3e763493c85d7dfbdd0b7d2b7c7687f39b26cd14/Mitaku.cs3"
   }
 ]
