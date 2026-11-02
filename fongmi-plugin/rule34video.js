@@ -1,11 +1,18 @@
-// Rule34Video —— FongMi / TVBox QuickJS 源
-// 站点：KVS 架构；播放地址在详情页的 var flashvars 里（MP4 直链，token 绑 IP、有时效）
+// Rule34Video —— FongMi / TVBox QuickJS 源 (v3)
+// 新增：标签分组、排序筛选器
 
 import { Spider } from "catvod";
 
 const BASE = "https://rule34video.com";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+const SORTS = [
+  { n: "最新", v: "post_date" },
+  { n: "最热", v: "video_viewed" },
+  { n: "评分", v: "rating" },
+  { n: "时长", v: "duration" },
+];
 
 function headers(referer) {
   return {
@@ -35,7 +42,6 @@ function absolute(u) {
   return BASE + "/" + u;
 }
 
-// 列表页解析：先按卡片边界切分，再在每块里取第一个 a.th 和 img
 function parseCards(html) {
   const out = [];
   const seen = {};
@@ -57,25 +63,27 @@ function parseCards(html) {
 
 export default class Rule34Video extends Spider {
   init(extend) {
-    this.log("Rule34Video ready");
+    this.log("Rule34Video v3 ready");
   }
 
   // ---------------- 发现页 ----------------
   async homeContent(filter) {
     const classes = [
       { type_id: "latest", type_name: "最新" },
-      { type_id: "viewed", type_name: "最热" },
-      { type_id: "rating", type_name: "评分最高" },
-      { type_id: "duration", type_name: "时长最长" },
+      { type_id: "sort:video_viewed", type_name: "最热" },
+      { type_id: "sort:rating", type_name: "评分最高" },
+      { type_id: "sort:duration", type_name: "时长最长" },
     ];
+    const filters = {};
 
+    // 分类（约 46 个）
     try {
       const r = await this.net.req(BASE + "/categories/", { headers: headers() });
       if (r && r.code === 200) {
         const re = /<a[^>]*href="https:\/\/rule34video\.com\/categories\/([a-z0-9\-]+)\/"[^>]*>([\s\S]*?)<\/a>/g;
         const seen = {};
         let m;
-        while ((m = re.exec(r.content)) !== null && classes.length < 80) {
+        while ((m = re.exec(r.content)) !== null && classes.length < 60) {
           const slug = m[1];
           if (seen[slug]) continue;
           let name = "";
@@ -94,26 +102,66 @@ export default class Rule34Video extends Spider {
       this.log("categories failed: " + e);
     }
 
-    return { class: classes };
+    // 热门标签（前 3 页；注意分页要用路径 /tags/2/，?page= 无效）
+    try {
+      for (let p = 1; p <= 3; p++) {
+        const url = BASE + "/tags/" + (p > 1 ? p + "/" : "") + "?sort=quantity";
+        const r = await this.net.req(url, { headers: headers() });
+        if (!r || r.code !== 200) break;
+        const re = /<a class="button" href="https:\/\/rule34video\.com\/tags\/([^\/"]+)\/">([^<]*)<\/a>/g;
+        const seen = {};
+        let m;
+        let added = 0;
+        while ((m = re.exec(r.content)) !== null) {
+          const slug = m[1];
+          if (seen[slug]) continue;
+          const name = decode(m[2]).trim();
+          if (!name) continue;
+          seen[slug] = 1;
+          const id = "tag:" + slug;
+          if (classes.some((c) => c.type_id === id)) continue;
+          classes.push({ type_id: id, type_name: name });
+          added++;
+          if (classes.length >= 220) break;
+        }
+        if (added === 0) break;
+      }
+    } catch (e) {
+      this.log("tags failed: " + e);
+    }
+
+    // 每个分类都给排序筛选器
+    const sortFilter = { key: "sort", name: "排序", value: SORTS };
+    for (const c of classes) {
+      filters[c.type_id] = [sortFilter];
+    }
+
+    return { class: classes, filters: filters };
   }
 
   // ---------------- 分类列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
+    const sort = (extend && extend.sort) || "post_date";
+    const p = Number(pg) || 1;
+    const suffix = p > 1 ? p + "/" : "";
+
     let url;
     if (tid.indexOf("cat:") === 0) {
-      const slug = tid.substring(4);
-      url = BASE + "/categories/" + slug + "/" + (pg > 1 ? pg + "/" : "");
+      url = BASE + "/categories/" + tid.substring(4) + "/" + suffix + "?sort_by=" + sort;
+    } else if (tid.indexOf("tag:") === 0) {
+      url = BASE + "/tags/" + tid.substring(4) + "/" + suffix + "?sort_by=" + sort;
+    } else if (tid.indexOf("sort:") === 0) {
+      url = BASE + "/latest-updates/" + suffix + "?sort_by=" + tid.substring(5);
     } else {
-      const sort = tid === "latest" ? "post_date" : tid;
-      url = BASE + "/latest-updates/" + (pg > 1 ? pg + "/" : "") + "?sort_by=" + sort;
+      url = BASE + "/latest-updates/" + suffix + "?sort_by=" + (tid === "latest" ? sort : tid);
     }
 
     const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], pg, 23, 0);
+    if (!r || r.code !== 200) return this.page([], p, 23, 0);
 
     const cards = parseCards(r.content);
-    const total = cards.length >= 23 ? (pg + 1) * 23 : (pg - 1) * 23 + cards.length;
-    return this.page(cards, pg, 23, total);
+    const total = cards.length >= 23 ? (p + 1) * 23 : (p - 1) * 23 + cards.length;
+    return this.page(cards, p, 23, total);
   }
 
   // ---------------- 详情 ----------------
@@ -136,7 +184,6 @@ export default class Rule34Video extends Spider {
             if (t) title = t;
           }
 
-          // .vp-meta 里三个 span：上传时间 / 观看数 / 时长
           const stats = [];
           const meta = html.match(/<div class="vp-meta">([\s\S]*?)<\/div>/);
           if (meta) {
@@ -154,8 +201,10 @@ export default class Rule34Video extends Spider {
 
             const cat = fv[1].match(/video_categories\s*:\s*'([^']*)'/);
             const tags = fv[1].match(/video_tags\s*:\s*'([^']*)'/);
-            if (cat && cat[1]) stats.push(decode(cat[1]));
-            if (tags && tags[1]) stats.push(decode(tags[1]));
+            const models = fv[1].match(/video_models\s*:\s*'([^']*)'/);
+            if (models && models[1]) stats.push("作者: " + decode(models[1]));
+            if (cat && cat[1]) stats.push("分类: " + decode(cat[1]));
+            if (tags && tags[1]) stats.push("标签: " + decode(tags[1]));
           }
 
           content = stats.join("\n");
@@ -170,7 +219,6 @@ export default class Rule34Video extends Spider {
         vod_pic: pic,
         vod_content: content,
         vod_play_from: "Rule34Video",
-        // 地址在播放时现取（token 有时效）
         vod_play_url: "正片$" + pageUrl,
       });
     }
