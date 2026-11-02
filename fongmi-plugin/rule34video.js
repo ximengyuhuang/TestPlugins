@@ -194,20 +194,27 @@ export default class Rule34Video extends Spider {
             if (vals[2]) stats.push("时长: " + vals[2]);
           }
 
+          let models = "";
+          let cat = "";
+          let tags = "";
           const fv = html.match(/var\s+flashvars\s*=\s*\{([\s\S]*?)\};/);
           if (fv) {
             const p = fv[1].match(/preview_url\s*:\s*'([^']*)'/);
             if (p) pic = absolute(p[1]);
 
-            const cat = fv[1].match(/video_categories\s*:\s*'([^']*)'/);
-            const tags = fv[1].match(/video_tags\s*:\s*'([^']*)'/);
-            const models = fv[1].match(/video_models\s*:\s*'([^']*)'/);
-            if (models && models[1]) stats.push("作者: " + decode(models[1]));
-            if (cat && cat[1]) stats.push("分类: " + decode(cat[1]));
-            if (tags && tags[1]) stats.push("标签: " + decode(tags[1]));
+            const m1 = fv[1].match(/video_categories\s*:\s*'([^']*)'/);
+            const m2 = fv[1].match(/video_tags\s*:\s*'([^']*)'/);
+            const m3 = fv[1].match(/video_models\s*:\s*'([^']*)'/);
+            if (m3) models = decode(m3[1]);
+            if (m1) cat = decode(m1[1]);
+            if (m2) tags = decode(m2[1]);
           }
 
-          content = stats.join("\n");
+          // 播放页简介只显示 3 行（activity_video.xml: maxLines=3），必须压紧
+          const line1 = stats.join(" | ");
+          const line2 = [models ? "作者: " + models : "", cat ? "分类: " + cat : ""].filter(Boolean).join(" | ");
+          const line3 = tags ? "标签: " + tags : "";
+          content = [line1, line2, line3].filter(Boolean).join("\n");
         }
       } catch (e) {
         this.log("detail failed: " + e);

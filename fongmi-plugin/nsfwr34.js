@@ -196,11 +196,8 @@ export default class Nsfwr34 extends Spider {
 
           const lines = [];
 
-          const desc = html.match(/<meta[^>]+property="og:description"[^>]+content="([^"]*)"/);
-          if (desc && desc[1]) lines.push(decode(desc[1]).trim());
-
           const date = html.match(/<time[^>]*datetime="([^"]+)"/);
-          if (date) lines.push("发布: " + date[1].substring(0, 10));
+          const dateStr = date ? "发布: " + date[1].substring(0, 10) : "";
 
           // 分类 / 标签
           const cs = [];
@@ -214,10 +211,16 @@ export default class Nsfwr34 extends Spider {
           while ((m = reT.exec(html)) !== null) {
             if (ts.indexOf(m[1]) < 0) ts.push(m[1]);
           }
-          if (cs.length) lines.push("分类: " + cs.map(titleize).join(", "));
-          if (ts.length) lines.push("标签: " + ts.slice(0, 20).map(titleize).join(", "));
 
-          content = lines.join("\n");
+          // 播放页简介只显示 3 行（activity_video.xml: maxLines=3）
+          const line1 = [dateStr, cs.length ? "分类: " + cs.map(titleize).join(", ") : ""]
+            .filter(Boolean)
+            .join(" | ");
+          const line2 = ts.length ? "标签: " + ts.slice(0, 12).map(titleize).join(", ") : "";
+          const desc = html.match(/<meta[^>]+property="og:description"[^>]+content="([^"]*)"/);
+          const line3 = desc && desc[1] ? decode(desc[1]).trim().substring(0, 120) : "";
+
+          content = [line1, line2, line3].filter(Boolean).join("\n");
         }
       } catch (e) {
         this.log("detail failed: " + e);
@@ -247,11 +250,14 @@ export default class Nsfwr34 extends Spider {
     if (vj) hay = decode(vj[1]);
     if (!hay) hay = r.content;
 
+    // 关键：先把 JSON 转义的 \/ 还原成 /，否则正则会在每个斜杠处断开
+    hay = hay.replace(/\\\//g, "/").replace(/\\u0026/g, "&");
+
     const found = [];
-    const re = /https?:\\?\/\\?\/[^"'\s<>\\]+?\.m3u8/g;
+    const re = /https?:\/\/[^"'\s<>\\]+?\.m3u8/g;
     let m;
     while ((m = re.exec(hay)) !== null) {
-      let u = m[0].replace(/\\\//g, "/");
+      const u = m[0];
       if (found.indexOf(u) < 0) found.push(u);
     }
 

@@ -257,6 +257,8 @@ function parseCards(html) {
 
 export default class CosplayTele extends Spider {
   init(extend) {
+    // 站点每页都混着固定的旧帖，跨页会重复；用实例级集合去重（等同 Kotlin 版的 companion object）
+    this.seen = {};
     this.log("CosplayTele ready");
   }
 
@@ -280,9 +282,16 @@ export default class CosplayTele extends Spider {
     const r = await this.net.req(url, { headers: headers() });
     if (!r || r.code !== 200) return this.page([], p, 12, 0);
 
-    const cards = parseCards(r.content);
-    const total = cards.length >= 12 ? (p + 1) * 12 : (p - 1) * 12 + cards.length;
-    return this.page(cards, p, 12, total);
+    if (p === 1 || !this.seen) this.seen = {};
+    const cards = parseCards(r.content).filter((c) => {
+      if (this.seen[c.vod_id]) return false;
+      this.seen[c.vod_id] = 1;
+      return true;
+    });
+
+    // 空页视为到底；否则允许继续翻页
+    if (cards.length === 0) return this.page([], p, 12, (p - 1) * 12);
+    return this.page(cards, p, 12, (p + 1) * 12);
   }
 
   // ---------------- 详情 ----------------
@@ -308,18 +317,23 @@ export default class CosplayTele extends Spider {
           const lines = [];
 
           const date = html.match(/<time[^>]*datetime="([^"]+)"/);
-          if (date) lines.push("发布: " + date[1].substring(0, 10));
-
-          const excerpt = html.match(/<p class="from_the_blog_excerpt[^"]*">([\s\S]*?)<\/p>/);
-          if (excerpt) lines.push(stripTags(excerpt[1]));
-
           const cats = [];
           const reC = /href="https:\/\/cosplaytele\.com\/category\/([a-z0-9\-]+)\/"/g;
           let m;
           while ((m = reC.exec(html)) !== null) if (cats.indexOf(m[1]) < 0) cats.push(m[1]);
-          if (cats.length) lines.push("分类: " + cats.join(", "));
 
-          content = lines.join("\n");
+          // 播放页简介只显示 3 行（activity_video.xml: maxLines=3）
+          const line1 = [
+            date ? "发布: " + date[1].substring(0, 10) : "",
+            cats.length ? "分类: " + cats.join(", ") : "",
+          ]
+            .filter(Boolean)
+            .join(" | ");
+
+          const excerpt = html.match(/<p class="from_the_blog_excerpt[^"]*">([\s\S]*?)<\/p>/);
+          const line2 = excerpt ? stripTags(excerpt[1]).substring(0, 140) : "";
+
+          content = [line1, line2].filter(Boolean).join("\n");
         }
       } catch (e) {
         this.log("detail failed: " + e);
