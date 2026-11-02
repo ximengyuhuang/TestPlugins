@@ -202,17 +202,37 @@ class Rule34VideoProvider : MainAPI() {
         val listName = doc.selectFirst("h1")?.text()?.trim()?.takeIf { it.isNotBlank() }
             ?: url.trimEnd('/').substringAfterLast('/')
 
-        val cards = doc.cards()
-        if (cards.isEmpty()) throw ErrorLoadingException("No items at $url")
+        // 多抓几页，避免每个分类只有 23 个
+        val merged = LinkedHashMap<String, SearchResponse>()
+        for (p in 1..3) {
+            val pageDoc = if (p == 1) doc else runCatching {
+                app.get(url.trimEnd('/') + "/$p/", headers = webHeaders).document
+            }.getOrNull() ?: break
 
-        val episodes = cards.map { c ->
+            val pageCards = pageDoc.cards()
+            if (pageCards.isEmpty()) break
+
+            var added = 0
+            for (c in pageCards) {
+                if (merged.put(c.url, c) == null) added++
+            }
+            if (added == 0) break
+        }
+
+        if (merged.isEmpty()) throw ErrorLoadingException("No items at $url")
+
+        // 必须给显式编号，否则 CloudStream 会把它们当成同一集
+        val episodes = merged.values.mapIndexed { index, c ->
             newEpisode(c.url) {
                 this.name = c.name
                 this.posterUrl = c.posterUrl
+                this.season = 1
+                this.episode = index + 1
             }
         }
         return newTvSeriesLoadResponse(listName, url, TvType.Movie, episodes) {
             this.posterUrl = episodes.firstOrNull()?.posterUrl
+            this.plot = "共 ${episodes.size} 个视频"
         }
     }
 
