@@ -1,0 +1,11 @@
+{
+  "sites": [
+    {
+      "key": "rule34video",
+      "name": "Rule34Video",
+      "type": 3,
+      "api": "./rule34video.js",
+      "ext": {}
+    }
+  ]
+}
