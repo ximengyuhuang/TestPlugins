@@ -59,22 +59,31 @@ class CosplayTeleProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val suffix = if (page <= 1) "" else "page/$page/"
 
-        // 第一页重置，避免刷新后越积越多
-        if (page <= 1) seenUrls.clear()
-
-        val items = runCatching {
+        val parsed = runCatching {
             app.get("$mainUrl/${request.data}$suffix").document
                 .select("div.post-item")
                 .mapNotNull { it.toSearchResponse() }
                 .distinctBy { it.url }
         }.getOrDefault(emptyList())
-            // 只保留从未出现过的，add() 返回 true 表示是新条目
-            .filter { seenUrls.add(it.url) }
+
+        // 第一页永远原样返回（绝不因去重变空），同时重置记录
+        if (page <= 1) {
+            seenUrls.clear()
+            seenUrls.addAll(parsed.map { it.url })
+            return newHomePageResponse(
+                HomePageList(request.name, parsed, true),
+                hasNext = parsed.isNotEmpty()
+            )
+        }
+
+        // 后续页只保留之前没出现过的；全都被见过就说明到底了
+        val fresh = parsed.filter { it.url !in seenUrls }
+        seenUrls.addAll(parsed.map { it.url })
 
         // 站点缩略图是 16:9 横版
         return newHomePageResponse(
-            HomePageList(request.name, items, true),
-            hasNext = items.isNotEmpty()
+            HomePageList(request.name, fresh, true),
+            hasNext = fresh.isNotEmpty()
         )
     }
 
