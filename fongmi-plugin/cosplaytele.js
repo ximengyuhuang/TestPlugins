@@ -2,7 +2,7 @@
 // 播放链路：文章页 → iframe cossora.stream/embed/<uuid> → 页面内 videoURL(密文) + key
 //          → AES-256-CBC（UTF-8 key、全零 IV）解密 → m3u8
 
-import { Spider } from "catvod";
+import { Spider, openWeb } from "catvod";
 
 const BASE = "https://cosplaytele.com";
 
@@ -265,6 +265,8 @@ export default class CosplayTele extends Spider {
   // ---------------- 发现页 ----------------
   async homeContent(filter) {
     const classes = [
+      // 在浏览器里看图集/原站，放第一位
+      { type_id: "web", type_name: "网页" },
       { type_id: "video-cosplayyy", type_name: "视频" },
       { type_id: "cosplay-nudee", type_name: "Nude" },
       { type_id: "cosplay-ero", type_name: "Ero" },
@@ -275,6 +277,16 @@ export default class CosplayTele extends Spider {
 
   // ---------------- 分类列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
+    // 点「网页」打开原站，方便看图片
+    if (tid === "web") {
+      try {
+        openWeb({ url: BASE + "/" });
+      } catch (e) {
+        this.log("openWeb failed: " + e);
+      }
+      return this.page([], 1, 12, 0);
+    }
+
     const p = Number(pg) || 1;
     const slug = tid || "video-cosplayyy";
     const url = BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
