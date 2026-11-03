@@ -198,6 +198,27 @@ function inflateZlib(bytes) {
 
 // ---------------------------------------------------------------- PNG
 
+// 只解析 PNG 块头找 roUd，返回 {offset, length(len含 flag 字节)}
+// 不需要读到块数据本身，所以读几 KB 就能算出来
+function readRoUdHeader(bytes) {
+  let off = 8;
+  while (off + 8 <= bytes.length) {
+    const len = ((bytes[off] << 24) >>> 0) + (bytes[off + 1] << 16) + (bytes[off + 2] << 8) + bytes[off + 3];
+    if (off + 4 <= bytes.length) {
+      const t0 = bytes[off + 4];
+      const t1 = bytes[off + 5];
+      const t2 = bytes[off + 6];
+      const t3 = bytes[off + 7];
+      if (t0 === 0x72 && t1 === 0x6f && t2 === 0x55 && t3 === 0x64) {
+        return { offset: off, length: len };
+      }
+    }
+    if (len <= 0) break;
+    off += 12 + len;
+  }
+  return null;
+}
+
 // 找 roUd 自定义块，返回 {flag, data}
 function readRoUd(bytes) {
   let off = 8;
@@ -304,7 +325,42 @@ export default class RouVideo extends Spider {
       { type_id: "latest", type_name: "最新" },
       { type_id: "web", type_name: "网页" },
     ];
-    return { class: classes };
+
+    // 从 /cat 抓全站标签（约 128 个）
+    if (!this.tags) {
+      try {
+        const r = await this.net.req(BASE + "/cat", { headers: headers() });
+        if (r && r.code === 200) {
+          const tags = [];
+          const re = /\/t\/([^"?#\/]+)/g;
+          let m;
+          while ((m = re.exec(r.content)) !== null) {
+            let t = m[1];
+            try {
+              t = decodeURIComponent(t);
+            } catch (e) {}
+            if (t && tags.indexOf(t) < 0) tags.push(t);
+          }
+          this.tags = tags;
+        }
+      } catch (e) {
+        this.log("tags failed: " + e);
+      }
+    }
+
+    for (const t of this.tags || []) {
+      classes.push({ type_id: "tag:" + t, type_name: t });
+    }
+
+    const orders = [
+      { n: "最新", v: "createdAt" },
+      { n: "最多赞", v: "likeCount" },
+      { n: "最多播放", v: "viewCount" },
+    ];
+    const filters = {};
+    for (const c of classes) filters[c.type_id] = [{ key: "order", name: "排序", value: orders }];
+
+    return { class: classes, filters: filters };
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -318,7 +374,15 @@ export default class RouVideo extends Spider {
     }
 
     const p = Number(pg) || 1;
-    const url = BASE + "/v?order=createdAt&page=" + p;
+    const order = (extend && extend.order) || "createdAt";
+
+    let url;
+    if (tid.indexOf("tag:") === 0) {
+      url = BASE + "/t/" + encodeURIComponent(tid.substring(4)) + "?order=" + order + "&page=" + p;
+    } else {
+      url = BASE + "/v?order=" + order + "&page=" + p;
+    }
+
     const r = await this.net.req(url, { headers: headers() });
     if (!r || r.code !== 200) return this.page([], p, 30, 0);
 
@@ -371,6 +435,33 @@ export default class RouVideo extends Spider {
       stream.close();
     } catch (e) {}
     return out;
+  }
+
+  // 只读到能解析出 roUd 块头为止（避免把整个分片读进 JS）
+  async readUntilRoUd(stream, limit) {
+    const out = [];
+    while (out.length < limit) {
+      let buf;
+      try {
+        buf = await stream.read(4096);
+      } catch (e) {
+        break;
+      }
+      if (!buf) break;
+      const arr = new Uint8Array(buf);
+      for (let i = 0; i < arr.length; i++) out.push(arr[i]);
+      const h = readRoUdHeader(out);
+      if (h) {
+        try {
+          stream.close();
+        } catch (e) {}
+        return h;
+      }
+    }
+    try {
+      stream.close();
+    } catch (e) {}
+    return readRoUdHeader(out);
   }
 
   async playerContent(flag, id, vipFlags) {
@@ -466,16 +557,14 @@ export default class RouVideo extends Spider {
       "Accept-Encoding": "identity",
     };
 
-    // 先取头部，算出 roUd 数据偏移
+    // 先取头部，算出 roUd 数据偏移（只读到块头就停，最多 32KB）
     const headStream = await this.net.openStream(remote, {
-      headers: Object.assign({}, baseHeaders, { "Range": "bytes=0-4095" }),
+      headers: Object.assign({}, baseHeaders, { "Range": "bytes=0-32767" }),
     });
-    const head = await this.readAll(headStream);
-    const chunk = readRoUd(head);
-    if (!chunk) return [404, "text/plain", "no roUd"];
-    const start = chunk.offset + 9;
-    const length = chunk.data.length;
-    const end = start + length - 1;
+    const h = await this.readUntilRoUd(headStream, 32768);
+    if (!h) return [404, "text/plain", "no roUd"];
+    const start = h.offset + 9;
+    const end = h.offset + 8 + h.length - 1;
 
     // 再按精确范围流式取 TS
     const s2 = await this.net.stream(remote, {
