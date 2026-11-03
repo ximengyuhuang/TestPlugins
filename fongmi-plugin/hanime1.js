@@ -96,7 +96,12 @@ export default class Hanime1 extends Spider {
       body.length < 2000;
 
     if (blocked) {
-      openWeb(JSON.stringify({ url: BASE + "/" }));
+      // 注意：桥接层期望对象，不是 JSON 字符串
+      try {
+        openWeb({ url: BASE + "/" });
+      } catch (e) {
+        this.log("openWeb failed: " + e);
+      }
       throw new Error("需要 Cloudflare 验证：请在打开的页面完成人机验证，然后返回重试");
     }
     return r;
@@ -127,8 +132,21 @@ export default class Hanime1 extends Spider {
   async diagnose() {
     const lines = [];
     lines.push("openWeb: " + typeof openWeb);
+
+    // 测三种传参方式，看哪种能打开
     try {
-      lines.push("getUserAgent: " + typeof this.net.getUserAgent + " → " + String(this.net.getUserAgent()).substring(0, 40));
+      lines.push("对象传参: " + openWeb({ url: BASE + "/" }));
+    } catch (e) {
+      lines.push("对象传参异常: " + String(e).substring(0, 60));
+    }
+    try {
+      lines.push("字符串传参: " + openWeb(JSON.stringify({ url: BASE + "/" })));
+    } catch (e) {
+      lines.push("字符串传参异常: " + String(e).substring(0, 60));
+    }
+
+    try {
+      lines.push("getUserAgent: " + String(this.net.getUserAgent()).substring(0, 36));
     } catch (e) {
       lines.push("getUserAgent 异常: " + e);
     }
@@ -138,11 +156,9 @@ export default class Hanime1 extends Spider {
       const body = (r && r.content) || "";
       lines.push("请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
       lines.push("含 Just a moment: " + (body.indexOf("Just a moment") >= 0));
-      lines.push("含 _cf_chl_opt: " + (body.indexOf("_cf_chl_opt") >= 0));
-      lines.push("含 video-item: " + (body.indexOf("video-item-container") >= 0));
-      lines.push("片段: " + body.substring(0, 60).replace(/\s+/g, " "));
+      lines.push("片段: " + body.substring(0, 40).replace(/\s+/g, " "));
     } catch (e) {
-      lines.push("请求异常: " + String(e).substring(0, 120));
+      lines.push("请求异常: " + String(e).substring(0, 100));
     }
 
     return lines.join("\n");
