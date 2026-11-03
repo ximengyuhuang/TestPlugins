@@ -78,11 +78,22 @@ export default class Hanime1 extends Spider {
     };
   }
 
-  // 统一请求：带 WebView cookie；被 CF 拦下时打开网页让人过验证
+  // 统一请求：手动带上 WebView 里的 cookie；被 CF 拦下时打开网页让人过验证
   async fetch(url, ref) {
+    const h = this.hdr(ref);
+
+    // 手动读取 WebView Cookie（cookie:true 在这版未必生效）
+    let cookie = "";
+    try {
+      cookie = this.net.getCookie(BASE + "/") || "";
+    } catch (e) {
+      cookie = "";
+    }
+    if (cookie) h["Cookie"] = cookie;
+
     let r = null;
     try {
-      r = await this.net.req(url, { headers: this.hdr(ref), cookie: true });
+      r = await this.net.req(url, { headers: h });
     } catch (e) {
       r = null;
     }
@@ -133,28 +144,24 @@ export default class Hanime1 extends Spider {
     const lines = [];
     lines.push("openWeb: " + typeof openWeb);
 
-    // 测三种传参方式，看哪种能打开
+    let cookie = "";
     try {
-      lines.push("对象传参: " + openWeb({ url: BASE + "/" }));
+      cookie = this.net.getCookie(BASE + "/") || "";
+      lines.push("cookie 长度: " + cookie.length);
+      lines.push("cookie 片段: " + cookie.substring(0, 50));
+      lines.push("含 cf_clearance: " + (cookie.indexOf("cf_clearance") >= 0));
     } catch (e) {
-      lines.push("对象传参异常: " + String(e).substring(0, 60));
-    }
-    try {
-      lines.push("字符串传参: " + openWeb(JSON.stringify({ url: BASE + "/" })));
-    } catch (e) {
-      lines.push("字符串传参异常: " + String(e).substring(0, 60));
+      lines.push("getCookie 异常: " + String(e).substring(0, 60));
     }
 
-    try {
-      lines.push("getUserAgent: " + String(this.net.getUserAgent()).substring(0, 36));
-    } catch (e) {
-      lines.push("getUserAgent 异常: " + e);
-    }
+    lines.push("UA: " + String(this.net.getUserAgent()).substring(0, 40));
 
     try {
-      const r = await this.net.req(BASE + "/", { headers: this.hdr(), cookie: true });
+      const h = this.hdr();
+      if (cookie) h["Cookie"] = cookie;
+      const r = await this.net.req(BASE + "/", { headers: h });
       const body = (r && r.content) || "";
-      lines.push("请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
+      lines.push("带 cookie 请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
       lines.push("含 Just a moment: " + (body.indexOf("Just a moment") >= 0));
       lines.push("片段: " + body.substring(0, 40).replace(/\s+/g, " "));
     } catch (e) {
