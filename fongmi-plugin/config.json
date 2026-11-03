@@ -55,6 +55,14 @@
       "api": "./eporner.js",
       "style": { "type": "rect", "ratio": 1.78 },
       "ext": {}
+    },
+    {
+      "key": "asmrone",
+      "name": "ASMR.one",
+      "type": 3,
+      "api": "./asmrone.js",
+      "style": { "type": "rect", "ratio": 1.33 },
+      "ext": {}
     }
   ]
 }
