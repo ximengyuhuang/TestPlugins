@@ -119,10 +119,43 @@ export default class MissAv extends Spider {
     // 网页放第二位（也是过 CF 验证的入口）
     classes.push({ type_id: "web", type_name: "网页" });
     for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
+    classes.push({ type_id: "diag", type_name: "诊断" });
     return { class: classes };
   }
 
+  async diagnose() {
+    const lines = [];
+    let cookie = "";
+    try {
+      cookie = this.net.getCookie(BASE + "/") || "";
+      lines.push("cookie 长度: " + cookie.length);
+      lines.push("含 cf_clearance: " + (cookie.indexOf("cf_clearance") >= 0));
+    } catch (e) {
+      lines.push("getCookie 异常");
+    }
+    lines.push("UA: " + String(this.net.getUserAgent()).substring(0, 36));
+
+    const h = headers();
+    if (cookie) h["Cookie"] = cookie;
+    try {
+      const r = await this.net.req(BASE + "/en/new", { headers: h });
+      const body = (r && r.content) || "";
+      lines.push("请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
+      lines.push("含 Just a moment: " + (body.indexOf("Just a moment") >= 0));
+      lines.push("含 thumbnail: " + (body.indexOf("thumbnail group") >= 0));
+      lines.push("解析卡片数: " + parseCards(body).length);
+      lines.push("片段: " + body.substring(0, 50).replace(/\s+/g, " "));
+    } catch (e) {
+      lines.push("请求异常: " + String(e).substring(0, 80));
+    }
+    return lines.join("\n");
+  }
+
   async categoryContent(tid, pg, filter, extend) {
+    if (tid === "diag") {
+      return this.page([{ vod_id: "diag", vod_name: "点我看诊断", vod_pic: "", vod_remarks: "" }], 1, 30, 30);
+    }
+
     if (tid === "web") {
       try {
         openWeb({ url: BASE + "/en/new" });
@@ -152,6 +185,25 @@ export default class MissAv extends Spider {
   }
 
   async detailContent(ids) {
+    if (ids.length && String(ids[0]).indexOf("diag") >= 0) {
+      let text = "";
+      try {
+        text = await this.diagnose();
+      } catch (e) {
+        text = "诊断异常: " + e;
+      }
+      return {
+        list: [{
+          vod_id: "diag",
+          vod_name: "诊断结果",
+          vod_pic: "",
+          vod_content: text,
+          vod_play_from: "diag",
+          vod_play_url: "无$diag",
+        }],
+      };
+    }
+
     const list = [];
     for (const id of ids) {
       const pageUrl = String(id).indexOf("http") === 0 ? String(id) : BASE + "/en/" + id;
