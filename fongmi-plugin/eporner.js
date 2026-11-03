@@ -139,7 +139,17 @@ export default class EPorner extends Spider {
       classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
     }
 
-    return { class: classes };
+    // 排序筛选器（右下角漏斗）
+    const sorts = [
+      { n: "最新", v: "recent" },
+      { n: "最多观看", v: "views" },
+      { n: "评分最高", v: "rate" },
+      { n: "最长", v: "long" },
+    ];
+    const filters = {};
+    for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
+
+    return { class: classes, filters: filters };
   }
 
   buildSegments() {
@@ -210,6 +220,7 @@ export default class EPorner extends Spider {
     }
 
     const p = Number(pg) || 1;
+    const sort = (extend && extend.sort) || "recent";
     let url;
     if (p <= 1) {
       url = BASE + path;
@@ -217,6 +228,7 @@ export default class EPorner extends Spider {
       const base = path.replace(/\/$/, "");
       url = BASE + (base === "" ? "/" + p + "/" : base + "/" + p + "/");
     }
+    url += (url.indexOf("?") >= 0 ? "&" : "?") + "sort=" + sort;
 
     const r = await this.net.req(url, { headers: headers() });
     if (!r || r.code !== 200) return this.page([], p, 30, 0);

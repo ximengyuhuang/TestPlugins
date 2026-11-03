@@ -304,14 +304,69 @@ export default class CosplayTele extends Spider {
       }
     }
 
-    for (const s of this.cats || []) {
-      classes.push({ type_id: "cat:" + s, type_name: s });
-    }
-    for (const s of this.tags || []) {
-      classes.push({ type_id: "tag:" + s, type_name: "#" + s });
+    // 按字母分段（分类 + 标签合计 686 个，直接铺开会太长）
+    for (const g of this.buildSegments()) {
+      classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
     }
 
-    return { class: classes };
+    // 排序筛选器（站点只支持正序/倒序）
+    const orders = [
+      { n: "最新在前", v: "desc" },
+      { n: "最早在前", v: "asc" },
+    ];
+    const filters = {};
+    for (const c of classes) filters[c.type_id] = [{ key: "order", name: "顺序", value: orders }];
+
+    return { class: classes, filters: filters };
+  }
+
+  // 字母分段：把分类/标签按首字母分组
+  buildSegments() {
+    if (this.segs) return this.segs;
+    const groups = {};
+    const push = (kind, slug) => {
+      const ch = String(slug).charAt(0).toUpperCase();
+      const key = ch >= "A" && ch <= "Z" ? ch : "#";
+      groups[key] = groups[key] || [];
+      groups[key].push(kind + ":" + slug);
+    };
+    for (const s of this.cats || []) push("cat", s);
+    for (const s of this.tags || []) push("tag", s);
+    const keys = Object.keys(groups).sort();
+    this.segs = keys.map((k) => ({ key: k, items: groups[k] }));
+    return this.segs;
+  }
+
+  // 某个字母段的视频合计
+  async segmentList(seg, p) {
+    const list = [];
+    const seen = {};
+    const groups = this.buildSegments();
+    const g = groups.find((x) => x.key === seg);
+    if (!g) return this.page([], p, 12, 0);
+
+    const max = 6;
+    const items = g.items.slice((Math.max(1, p) - 1) * max, Math.max(1, p) * max);
+    for (const it of items) {
+      let url;
+      if (it.indexOf("tag:") === 0) url = BASE + "/tag/" + it.substring(4) + "/";
+      else url = BASE + "/category/" + it.substring(4) + "/";
+      try {
+        const r = await this.net.req(url, { headers: headers() });
+        if (!r || r.code !== 200) continue;
+        for (const c of parseCards(r.content)) {
+          if (seen[c.vod_id]) continue;
+          seen[c.vod_id] = 1;
+          list.push(c);
+        }
+      } catch (e) {
+        this.log("seg item failed: " + e);
+      }
+    }
+
+    // 该段还有更多分类就允许翻页
+    const more = Math.max(1, p) * max < g.items.length;
+    return this.page(list, p, 12, more ? (p + 1) * 12 : p * 12);
   }
 
   // ---------------- 分类列表 ----------------
@@ -328,6 +383,12 @@ export default class CosplayTele extends Spider {
 
     const p = Number(pg) || 1;
 
+    // 字母段：段内取前 6 个分类/标签的第一页，合并返回
+    if (tid.indexOf("seg:") === 0) {
+      const seg = tid.substring(4);
+      return await this.segmentList(seg, p);
+    }
+
     let url;
     if (tid.indexOf("tag:") === 0) {
       url = BASE + "/tag/" + tid.substring(4) + "/" + (p > 1 ? "page/" + p + "/" : "");
@@ -335,6 +396,10 @@ export default class CosplayTele extends Spider {
       const slug = tid.indexOf("cat:") === 0 ? tid.substring(4) : tid || "video-cosplayyy";
       url = BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
     }
+
+    // 排序：站点支持 ?order=asc|desc
+    const order = (extend && extend.order) || "desc";
+    if (order === "asc") url += "?order=asc";
 
     const r = await this.net.req(url, { headers: headers() });
     if (!r || r.code !== 200) return this.page([], p, 12, 0);

@@ -149,7 +149,16 @@ export default class Javtiful extends Spider {
       classes.push({ type_id: "g:" + name, type_name: name });
     }
 
-    return { class: classes };
+    // 排序筛选器（右下角漏斗；分类页会忽略，列表页生效）
+    const sorts = [
+      { n: "最新", v: "" },
+      { n: "最多观看", v: "most_viewed" },
+      { n: "评分最高", v: "top_rated" },
+    ];
+    const filters = {};
+    for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
+
+    return { class: classes, filters: filters };
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -202,7 +211,9 @@ export default class Javtiful extends Spider {
     }
 
     const sep = path.indexOf("?") >= 0 ? "&" : "?";
-    const url = BASE + path + (p > 1 ? sep + "page=" + p : "");
+    const sort = (extend && extend.sort) || "";
+    let url = BASE + path + (p > 1 ? sep + "page=" + p : "");
+    if (sort) url += (url.indexOf("?") >= 0 ? "&" : "?") + "sort=" + sort;
 
     const r = await this.net.req(url, { headers: headers() });
     if (!r || r.code !== 200) return this.page([], p, 24, 0);
