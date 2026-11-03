@@ -31,6 +31,14 @@
       "api": "./rouvideo.js",
       "style": { "type": "rect", "ratio": 1.78 },
       "ext": {}
+    },
+    {
+      "key": "missav",
+      "name": "MissAV",
+      "type": 3,
+      "api": "./missav.js",
+      "style": { "type": "rect", "ratio": 1.78 },
+      "ext": {}
     }
   ]
 }
