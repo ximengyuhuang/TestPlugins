@@ -107,6 +107,7 @@ export default class Hanime1 extends Spider {
     const classes = [];
     for (const s of SORTS) classes.push({ type_id: "sort:" + s, type_name: s });
     for (const g of GENRES) classes.push({ type_id: "genre:" + g, type_name: g });
+    classes.push({ type_id: "debug", type_name: "🔍 诊断" });
 
     const filters = {};
     const sortOptions = SORTS.map((s) => ({ n: s, v: s }));
@@ -122,8 +123,37 @@ export default class Hanime1 extends Spider {
     return { class: classes, filters: filters };
   }
 
+  // ---------------- 诊断 ----------------
+  async diagnose() {
+    const lines = [];
+    lines.push("openWeb: " + typeof openWeb);
+    try {
+      lines.push("getUserAgent: " + typeof this.net.getUserAgent + " → " + String(this.net.getUserAgent()).substring(0, 40));
+    } catch (e) {
+      lines.push("getUserAgent 异常: " + e);
+    }
+
+    try {
+      const r = await this.net.req(BASE + "/", { headers: this.hdr(), cookie: true });
+      const body = (r && r.content) || "";
+      lines.push("请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
+      lines.push("含 Just a moment: " + (body.indexOf("Just a moment") >= 0));
+      lines.push("含 _cf_chl_opt: " + (body.indexOf("_cf_chl_opt") >= 0));
+      lines.push("含 video-item: " + (body.indexOf("video-item-container") >= 0));
+      lines.push("片段: " + body.substring(0, 60).replace(/\s+/g, " "));
+    } catch (e) {
+      lines.push("请求异常: " + String(e).substring(0, 120));
+    }
+
+    return lines.join("\n");
+  }
+
   // ---------------- 列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
+    if (tid === "debug") {
+      return this.page([{ vod_id: "debug", vod_name: "点我看诊断", vod_pic: "", vod_remarks: "" }], 1, 30, 30);
+    }
+
     const p = Number(pg) || 1;
     const sort = (extend && extend.sort) || "最新上傳";
 
@@ -146,6 +176,25 @@ export default class Hanime1 extends Spider {
 
   // ---------------- 详情 ----------------
   async detailContent(ids) {
+    if (ids.length && String(ids[0]).indexOf("debug") >= 0) {
+      let text = "";
+      try {
+        text = await this.diagnose();
+      } catch (e) {
+        text = "诊断异常: " + e;
+      }
+      return {
+        list: [{
+          vod_id: "debug",
+          vod_name: "诊断结果",
+          vod_pic: "",
+          vod_content: text,
+          vod_play_from: "debug",
+          vod_play_url: "无$debug",
+        }],
+      };
+    }
+
     const list = [];
     for (const id of ids) {
       const pageUrl = id.indexOf("http") === 0 ? id : BASE + "/watch?v=" + id;
