@@ -9,14 +9,6 @@
       "ext": {}
     },
     {
-      "key": "nsfwr34",
-      "name": "NSFWR34",
-      "type": 3,
-      "api": "./nsfwr34.js",
-      "style": { "type": "rect", "ratio": 1.78 },
-      "ext": {}
-    },
-    {
       "key": "cosplaytele",
       "name": "CosplayTele",
       "type": 3,
