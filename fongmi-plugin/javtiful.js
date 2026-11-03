@@ -33,9 +33,9 @@ const CATS = [
   ["sister", "/category/sister-in-law", "嫂子"],
 ];
 
-// PornHub 标准分类（28 个），本站用搜索实现
+// PornHub 标准分类（29 个），本站用搜索实现；值以 / 开头则直接用该路径
 const GENRES = [
-  ["Asian", "asian"], ["Japanese", "japanese"], ["Korean", "korean"],
+  ["Asian", "asian"], ["Japanese", "japanese"], ["Uncensored", "/uncensored"], ["Korean", "korean"],
   ["Amateur", "amateur"], ["Anal", "anal"], ["Big Ass", "big-ass"],
   ["Big Tits", "big-tits"], ["Blonde", "blonde"], ["Blowjob", "blowjob"],
   ["Brunette", "brunette"], ["Cosplay", "cosplay"], ["Creampie", "creampie"],
@@ -176,10 +176,24 @@ export default class Javtiful extends Spider {
 
     const p = Number(pg) || 1;
 
-    // 标准分类：走搜索
+    // 标准分类：值以 / 开头用路径，否则走搜索
     if (tid.indexOf("g:") === 0) {
-      const kw = tid.substring(2);
-      const url = BASE + "/search?q=" + encodeURIComponent(kw) + (p > 1 ? "&page=" + p : "");
+      const name = tid.substring(2);
+      let val = "";
+      for (const g of GENRES) {
+        if (g[0] === name) {
+          val = g[1];
+          break;
+        }
+      }
+
+      let url;
+      if (val.indexOf("/") === 0) {
+        url = BASE + val + (p > 1 ? "?page=" + p : "");
+      } else {
+        url = BASE + "/search?q=" + encodeURIComponent(name) + (p > 1 ? "&page=" + p : "");
+      }
+
       const r = await this.net.req(url, { headers: headers() });
       if (!r || r.code !== 200) return this.page([], p, 24, 0);
       const cards = parseCards(r.content);

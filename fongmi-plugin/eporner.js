@@ -24,7 +24,7 @@ const CATS = [
 
 // PornHub 标准分类（28 个通用的），EPorner 全都有对应标签
 const GENRES = [
-  ["asian", "Asian"], ["japanese", "Japanese"], ["korean", "Korean"],
+  ["asian", "Asian"], ["japanese", "Japanese"], ["uncensored", "Uncensored"], ["korean", "Korean"],
   ["amateur", "Amateur"], ["anal", "Anal"], ["big-ass", "Big Ass"],
   ["big-tits", "Big Tits"], ["blonde", "Blonde"], ["blowjob", "Blowjob"],
   ["brunette", "Brunette"], ["cosplay", "Cosplay"], ["creampie", "Creampie"],

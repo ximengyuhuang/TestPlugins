@@ -16,7 +16,7 @@ const SORTS = [
 
 // PornHub 标准分类里本站在标签中确实存在的 21 个
 const GENRES = [
-  ["asian", "Asian"], ["korean", "Korean"], ["anal", "Anal"],
+  ["asian", "Asian"], ["korean", "Korean"], ["uncensored", "Uncensored"], ["anal", "Anal"],
   ["blowjob", "Blowjob"], ["brunette", "Brunette"], ["cosplay", "Cosplay"],
   ["creampie", "Creampie"], ["cuckold", "Cuckold"], ["ebony", "Ebony"],
   ["fetish", "Fetish"], ["handjob", "Handjob"], ["hardcore", "Hardcore"],
