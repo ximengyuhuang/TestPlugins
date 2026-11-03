@@ -114,12 +114,10 @@ export default class MissAv extends Spider {
   }
 
   async homeContent(filter) {
-    const classes = [];
-    if (CATS.length) classes.push({ type_id: CATS[0][0], type_name: CATS[0][2] });
-    // 网页放第二位（也是过 CF 验证的入口）
-    classes.push({ type_id: "web", type_name: "网页" });
-    for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
-    classes.push({ type_id: "diag", type_name: "诊断" });
+    // 采集功能已停用：missav 的 Cloudflare 在 TLS 指纹层面拦截 OkHttp
+    // （cookie/UA/header 都对也 403，四种策略实测全挂），FongMi 的爬虫层没有 WebView 取页能力。
+    // 这里只保留网页入口，点一下用内置浏览器打开。
+    const classes = [{ type_id: "web", type_name: "网页" }];
     return { class: classes };
   }
 
