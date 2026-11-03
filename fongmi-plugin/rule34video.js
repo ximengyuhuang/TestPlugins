@@ -104,9 +104,9 @@ export default class Rule34Video extends Spider {
       this.log("categories failed: " + e);
     }
 
-    // 热门标签（前 3 页；注意分页要用路径 /tags/2/，?page= 无效）
+    // 热门标签（前 8 页 ≈ 200 个；注意分页要用路径 /tags/2/，?page= 无效）
     try {
-      for (let p = 1; p <= 3; p++) {
+      for (let p = 1; p <= 8; p++) {
         const url = BASE + "/tags/" + (p > 1 ? p + "/" : "") + "?sort=quantity";
         const r = await this.net.req(url, { headers: headers() });
         if (!r || r.code !== 200) break;
@@ -124,7 +124,7 @@ export default class Rule34Video extends Spider {
           if (classes.some((c) => c.type_id === id)) continue;
           classes.push({ type_id: id, type_name: name });
           added++;
-          if (classes.length >= 220) break;
+          if (classes.length >= 300) break;
         }
         if (added === 0) break;
       }

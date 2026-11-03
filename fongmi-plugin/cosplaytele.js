@@ -272,6 +272,45 @@ export default class CosplayTele extends Spider {
       { type_id: "cosplay-ero", type_name: "Ero" },
       { type_id: "cosplay", type_name: "全部" },
     ];
+
+    // 动态补全：站点 sitemap 里有 606 个分类 / 313 个标签，这里各取前 N 个
+    if (!this.cats) {
+      try {
+        const r = await this.net.req(BASE + "/category-sitemap.xml", { headers: headers() });
+        if (r && r.code === 200) {
+          const list = [];
+          const re = /<loc>https:\/\/cosplaytele\.com\/category\/([a-z0-9\-]+)\/<\/loc>/g;
+          let m;
+          while ((m = re.exec(r.content)) !== null && list.length < 150) list.push(m[1]);
+          this.cats = list;
+        }
+      } catch (e) {
+        this.log("category sitemap failed: " + e);
+      }
+    }
+
+    if (!this.tags) {
+      try {
+        const r = await this.net.req(BASE + "/post_tag-sitemap.xml", { headers: headers() });
+        if (r && r.code === 200) {
+          const list = [];
+          const re = /<loc>https:\/\/cosplaytele\.com\/tag\/([a-z0-9\-]+)\/<\/loc>/g;
+          let m;
+          while ((m = re.exec(r.content)) !== null && list.length < 80) list.push(m[1]);
+          this.tags = list;
+        }
+      } catch (e) {
+        this.log("tag sitemap failed: " + e);
+      }
+    }
+
+    for (const s of this.cats || []) {
+      classes.push({ type_id: "cat:" + s, type_name: s });
+    }
+    for (const s of this.tags || []) {
+      classes.push({ type_id: "tag:" + s, type_name: "#" + s });
+    }
+
     return { class: classes };
   }
 
@@ -288,8 +327,14 @@ export default class CosplayTele extends Spider {
     }
 
     const p = Number(pg) || 1;
-    const slug = tid || "video-cosplayyy";
-    const url = BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
+
+    let url;
+    if (tid.indexOf("tag:") === 0) {
+      url = BASE + "/tag/" + tid.substring(4) + "/" + (p > 1 ? "page/" + p + "/" : "");
+    } else {
+      const slug = tid.indexOf("cat:") === 0 ? tid.substring(4) : tid || "video-cosplayyy";
+      url = BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
+    }
 
     const r = await this.net.req(url, { headers: headers() });
     if (!r || r.code !== 200) return this.page([], p, 12, 0);

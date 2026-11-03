@@ -87,6 +87,38 @@ export default class EPorner extends Spider {
     const classes = [{ type_id: CATS[0][0], type_name: CATS[0][2] }];
     classes.push({ type_id: "web", type_name: "网页" });
     for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
+
+    // 动态补全标签：/tag/N/ 分页（每页约 50 个）
+    if (!this.tags) {
+      const list = [];
+      const seen = {};
+      try {
+        for (let p = 1; p <= 6; p++) {
+          const url = BASE + "/tag/" + (p > 1 ? p + "/" : "");
+          const r = await this.net.req(url, { headers: headers() });
+          if (!r || r.code !== 200) break;
+          const re = /href="\/tag\/([a-z0-9\-]+)\/"/g;
+          let m;
+          let added = 0;
+          while ((m = re.exec(r.content)) !== null) {
+            if (seen[m[1]]) continue;
+            seen[m[1]] = 1;
+            list.push(m[1]);
+            added++;
+            if (list.length >= 200) break;
+          }
+          if (added === 0 || list.length >= 200) break;
+        }
+        this.tags = list;
+      } catch (e) {
+        this.log("tags failed: " + e);
+      }
+    }
+
+    for (const t of this.tags || []) {
+      classes.push({ type_id: "tag:" + t, type_name: t });
+    }
+
     return { class: classes };
   }
 
@@ -101,10 +133,14 @@ export default class EPorner extends Spider {
     }
 
     let path = CATS[0][1];
-    for (const c of CATS) {
-      if (c[0] === tid) {
-        path = c[1];
-        break;
+    if (tid.indexOf("tag:") === 0) {
+      path = "/tag/" + tid.substring(4) + "/";
+    } else {
+      for (const c of CATS) {
+        if (c[0] === tid) {
+          path = c[1];
+          break;
+        }
       }
     }
 

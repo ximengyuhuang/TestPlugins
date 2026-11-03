@@ -103,6 +103,33 @@ export default class Javtiful extends Spider {
     const classes = [{ type_id: CATS[0][0], type_name: CATS[0][2] }];
     classes.push({ type_id: "web", type_name: "网页" });
     for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
+
+    // 动态补全分类：/categories 页的 category-card
+    if (!this.cats) {
+      try {
+        const r = await this.net.req(BASE + "/categories", { headers: headers() });
+        if (r && r.code === 200) {
+          const list = [];
+          const re = /<a class="category-card" href="([^"]+)"[\s\S]{0,500}?alt="([^"]*)"/g;
+          let m;
+          while ((m = re.exec(r.content)) !== null) {
+            const path = m[1];
+            const name = decode(m[2]).trim();
+            if (name && path && path.indexOf("/category/") >= 0) list.push([name, path]);
+          }
+          this.cats = list;
+        }
+      } catch (e) {
+        this.log("categories failed: " + e);
+      }
+    }
+
+    for (const [name, path] of this.cats || []) {
+      const id = "c:" + path;
+      if (classes.some((c) => c.type_id === id)) continue;
+      classes.push({ type_id: id, type_name: name });
+    }
+
     return { class: classes };
   }
 
@@ -117,10 +144,14 @@ export default class Javtiful extends Spider {
     }
 
     let path = CATS[0][1];
-    for (const c of CATS) {
-      if (c[0] === tid) {
-        path = c[1];
-        break;
+    if (tid.indexOf("c:") === 0) {
+      path = tid.substring(2);
+    } else {
+      for (const c of CATS) {
+        if (c[0] === tid) {
+          path = c[1];
+          break;
+        }
       }
     }
 
