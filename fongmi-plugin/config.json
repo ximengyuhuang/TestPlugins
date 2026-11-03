@@ -15,6 +15,14 @@
       "api": "./cosplaytele.js",
       "style": { "type": "rect", "ratio": 1.5 },
       "ext": {}
+    },
+    {
+      "key": "hanime1",
+      "name": "Hanime1",
+      "type": 3,
+      "api": "./hanime1.js",
+      "style": { "type": "rect", "ratio": 1.78 },
+      "ext": {}
     }
   ]
 }
