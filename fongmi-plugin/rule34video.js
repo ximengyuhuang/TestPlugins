@@ -14,6 +14,17 @@ const SORTS = [
   { n: "时长", v: "duration" },
 ];
 
+// PornHub 标准分类里本站在标签中确实存在的 21 个
+const GENRES = [
+  ["asian", "Asian"], ["korean", "Korean"], ["anal", "Anal"],
+  ["blowjob", "Blowjob"], ["brunette", "Brunette"], ["cosplay", "Cosplay"],
+  ["creampie", "Creampie"], ["cuckold", "Cuckold"], ["ebony", "Ebony"],
+  ["fetish", "Fetish"], ["handjob", "Handjob"], ["hardcore", "Hardcore"],
+  ["latina", "Latina"], ["lesbian", "Lesbian"], ["massage", "Massage"],
+  ["milf", "MILF"], ["masturbation", "Masturbation"], ["pov", "POV"],
+  ["squirt", "Squirt"], ["threesome", "Threesome"], ["toys", "Toys"],
+];
+
 function headers(referer) {
   return {
     "User-Agent": UA,
@@ -105,6 +116,7 @@ export default class Rule34Video extends Spider {
     }
 
     // 热门标签（前 8 页 ≈ 200 个；注意分页要用路径 /tags/2/，?page= 无效）
+    const tags = [];
     try {
       for (let p = 1; p <= 8; p++) {
         const url = BASE + "/tags/" + (p > 1 ? p + "/" : "") + "?sort=quantity";
@@ -120,16 +132,26 @@ export default class Rule34Video extends Spider {
           const name = decode(m[2]).trim();
           if (!name) continue;
           seen[slug] = 1;
-          const id = "tag:" + slug;
-          if (classes.some((c) => c.type_id === id)) continue;
-          classes.push({ type_id: id, type_name: name });
+          if (tags.indexOf(slug) >= 0) continue;
+          tags.push(slug);
           added++;
-          if (classes.length >= 300) break;
+          if (tags.length >= 200) break;
         }
-        if (added === 0) break;
+        if (added === 0 || tags.length >= 200) break;
       }
+      this.tagList = tags;
     } catch (e) {
       this.log("tags failed: " + e);
+    }
+
+    // 标准分类（PornHub 那套里本站存在的 21 个）
+    for (const [slug, name] of GENRES) {
+      classes.push({ type_id: "g:" + slug, type_name: name });
+    }
+
+    // 标签按字母分段（200 个直接铺太长）
+    for (const g of this.buildTagSegments()) {
+      classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
     }
 
     // 每个分类都给排序筛选器
@@ -139,6 +161,47 @@ export default class Rule34Video extends Spider {
     }
 
     return { class: classes, filters: filters };
+  }
+
+  buildTagSegments() {
+    if (this.tagSegs) return this.tagSegs;
+    const groups = {};
+    for (const t of this.tagList || []) {
+      const ch = String(t).charAt(0).toUpperCase();
+      const key = ch >= "A" && ch <= "Z" ? ch : "#";
+      groups[key] = groups[key] || [];
+      groups[key].push(t);
+    }
+    this.tagSegs = Object.keys(groups)
+      .sort()
+      .map((k) => ({ key: k, items: groups[k] }));
+    return this.tagSegs;
+  }
+
+  async segmentList(seg, p) {
+    const list = [];
+    const seen = {};
+    const groups = this.buildTagSegments();
+    const g = groups.find((x) => x.key === seg);
+    if (!g) return this.page([], p, 23, 0);
+
+    const max = 6;
+    const items = g.items.slice((Math.max(1, p) - 1) * max, Math.max(1, p) * max);
+    for (const t of items) {
+      try {
+        const r = await this.net.req(BASE + "/tags/" + t + "/", { headers: headers() });
+        if (!r || r.code !== 200) continue;
+        for (const c of parseCards(r.content)) {
+          if (seen[c.vod_id]) continue;
+          seen[c.vod_id] = 1;
+          list.push(c);
+        }
+      } catch (e) {
+        this.log("seg item failed: " + e);
+      }
+    }
+    const more = Math.max(1, p) * max < g.items.length;
+    return this.page(list, p, 23, more ? (p + 1) * 23 : p * 23);
   }
 
   // ---------------- 分类列表 ----------------
@@ -158,7 +221,11 @@ export default class Rule34Video extends Spider {
     const suffix = p > 1 ? p + "/" : "";
 
     let url;
-    if (tid.indexOf("cat:") === 0) {
+    if (tid.indexOf("seg:") === 0) {
+      return await this.segmentList(tid.substring(4), p);
+    } else if (tid.indexOf("g:") === 0) {
+      url = BASE + "/tags/" + tid.substring(2) + "/" + suffix + "?sort_by=" + sort;
+    } else if (tid.indexOf("cat:") === 0) {
       url = BASE + "/categories/" + tid.substring(4) + "/" + suffix + "?sort_by=" + sort;
     } else if (tid.indexOf("tag:") === 0) {
       url = BASE + "/tags/" + tid.substring(4) + "/" + suffix + "?sort_by=" + sort;

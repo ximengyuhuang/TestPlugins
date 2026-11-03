@@ -22,6 +22,20 @@ const CATS = [
   ["turkish", "/tag/turkish/", "Turkish"],
 ];
 
+// PornHub 标准分类（28 个通用的），EPorner 全都有对应标签
+const GENRES = [
+  ["asian", "Asian"], ["japanese", "Japanese"], ["korean", "Korean"],
+  ["amateur", "Amateur"], ["anal", "Anal"], ["big-ass", "Big Ass"],
+  ["big-tits", "Big Tits"], ["blonde", "Blonde"], ["blowjob", "Blowjob"],
+  ["brunette", "Brunette"], ["cosplay", "Cosplay"], ["creampie", "Creampie"],
+  ["cuckold", "Cuckold"], ["ebony", "Ebony"], ["fetish", "Fetish"],
+  ["handjob", "Handjob"], ["hardcore", "Hardcore"], ["latina", "Latina"],
+  ["lesbian", "Lesbian"], ["massage", "Massage"], ["mature", "Mature"],
+  ["milf", "MILF"], ["masturbation", "Masturbation"], ["pov", "POV"],
+  ["public", "Public"], ["squirt", "Squirt"], ["threesome", "Threesome"],
+  ["toys", "Toys"],
+];
+
 function headers(ref) {
   return {
     "User-Agent": UA,
@@ -115,6 +129,11 @@ export default class EPorner extends Spider {
       }
     }
 
+    // 标准分类（PornHub 那套，28 个，全部有对应标签）
+    for (const [slug, name] of GENRES) {
+      classes.push({ type_id: "g:" + slug, type_name: name });
+    }
+
     // 按字母分段（标签 200 个，直接铺太长）
     for (const g of this.buildSegments()) {
       classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
@@ -177,7 +196,9 @@ export default class EPorner extends Spider {
     }
 
     let path = CATS[0][1];
-    if (tid.indexOf("tag:") === 0) {
+    if (tid.indexOf("g:") === 0) {
+      path = "/tag/" + tid.substring(2) + "/";
+    } else if (tid.indexOf("tag:") === 0) {
       path = "/tag/" + tid.substring(4) + "/";
     } else {
       for (const c of CATS) {

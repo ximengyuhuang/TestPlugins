@@ -33,6 +33,20 @@ const CATS = [
   ["sister", "/category/sister-in-law", "嫂子"],
 ];
 
+// PornHub 标准分类（28 个），本站用搜索实现
+const GENRES = [
+  ["Asian", "asian"], ["Japanese", "japanese"], ["Korean", "korean"],
+  ["Amateur", "amateur"], ["Anal", "anal"], ["Big Ass", "big-ass"],
+  ["Big Tits", "big-tits"], ["Blonde", "blonde"], ["Blowjob", "blowjob"],
+  ["Brunette", "brunette"], ["Cosplay", "cosplay"], ["Creampie", "creampie"],
+  ["Cuckold", "cuckold"], ["Ebony", "ebony"], ["Fetish", "fetish"],
+  ["Handjob", "handjob"], ["Hardcore", "hardcore"], ["Latina", "latina"],
+  ["Lesbian", "lesbian"], ["Massage", "massage"], ["Mature", "mature"],
+  ["MILF", "milf"], ["Masturbation", "masturbation"], ["POV", "pov"],
+  ["Public", "public"], ["Squirt", "squirt"], ["Threesome", "threesome"],
+  ["Toys", "toys"],
+];
+
 function headers(ref) {
   return {
     "User-Agent": UA,
@@ -130,6 +144,11 @@ export default class Javtiful extends Spider {
       classes.push({ type_id: id, type_name: name });
     }
 
+    // 标准分类（PornHub 那套，28 个，走搜索）
+    for (const [name] of GENRES) {
+      classes.push({ type_id: "g:" + name, type_name: name });
+    }
+
     return { class: classes };
   }
 
@@ -156,6 +175,18 @@ export default class Javtiful extends Spider {
     }
 
     const p = Number(pg) || 1;
+
+    // 标准分类：走搜索
+    if (tid.indexOf("g:") === 0) {
+      const kw = tid.substring(2);
+      const url = BASE + "/search?q=" + encodeURIComponent(kw) + (p > 1 ? "&page=" + p : "");
+      const r = await this.net.req(url, { headers: headers() });
+      if (!r || r.code !== 200) return this.page([], p, 24, 0);
+      const cards = parseCards(r.content);
+      if (cards.length === 0) return this.page([], p, 24, (p - 1) * 24);
+      return this.page(cards, p, 24, (p + 1) * 24);
+    }
+
     const sep = path.indexOf("?") >= 0 ? "&" : "?";
     const url = BASE + path + (p > 1 ? sep + "page=" + p : "");
 
