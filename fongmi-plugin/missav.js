@@ -9,17 +9,18 @@ import { Spider, openWeb } from "catvod";
 const BASE = "https://missav.live";
 const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 
+// [tid, 路径, 显示名]
 const CATS = [
-  ["/en/new?sort=published_at", "最新"],
-  ["/dm169/en/weekly-hot?sort=weekly_views", "每周热门"],
-  ["/dm263/en/monthly-hot?sort=views", "每月热门"],
-  ["/en/english-subtitle", "英文字幕"],
-  ["/dm628/en/uncensored-leak", "无码流出"],
-  ["/dm150/en/fc2", "FC2"],
-  ["/dm35/en/madou", "麻豆"],
-  ["/dm29/en/tokyohot", "东京热"],
-  ["/dm2469695/en/1pondo", "一本道"],
-  ["/dm3959622/en/caribbeancom", "加勒比"],
+  ["new", "/en/new?sort=published_at", "最新"],
+  ["weekly", "/dm169/en/weekly-hot?sort=weekly_views", "每周热门"],
+  ["monthly", "/dm263/en/monthly-hot?sort=views", "每月热门"],
+  ["subtitle", "/en/english-subtitle", "英文字幕"],
+  ["uncensored", "/dm628/en/uncensored-leak", "无码流出"],
+  ["fc2", "/dm150/en/fc2", "FC2"],
+  ["madou", "/dm35/en/madou", "麻豆"],
+  ["tokyohot", "/dm29/en/tokyohot", "东京热"],
+  ["1pondo", "/dm2469695/en/1pondo", "一本道"],
+  ["caribbean", "/dm3959622/en/caribbeancom", "加勒比"],
 ];
 
 function headers(ref) {
@@ -80,30 +81,71 @@ export default class MissAv extends Spider {
     this.log("missav ready");
   }
 
+  // 统一请求：带上 WebView 里的 cookie（missav.live 有 CF 保护）
+  async fetch(url, ref) {
+    const h = headers(ref);
+    let cookie = "";
+    try {
+      cookie = this.net.getCookie(BASE + "/") || "";
+    } catch (e) {
+      cookie = "";
+    }
+    if (cookie) h["Cookie"] = cookie;
+
+    let r = null;
+    try {
+      r = await this.net.req(url, { headers: h });
+    } catch (e) {
+      r = null;
+    }
+
+    const body = (r && r.content) || "";
+    const blocked =
+      !r ||
+      r.code !== 200 ||
+      body.indexOf("Just a moment") >= 0 ||
+      body.indexOf("_cf_chl_opt") >= 0 ||
+      body.length < 2000;
+
+    if (blocked) {
+      throw new Error("被 Cloudflare 拦截：请先点「网页」完成验证，再回来刷新");
+    }
+    return r;
+  }
+
   async homeContent(filter) {
     const classes = [];
-    for (const [path, name] of CATS) classes.push({ type_id: path, type_name: name });
+    if (CATS.length) classes.push({ type_id: CATS[0][0], type_name: CATS[0][2] });
+    // 网页放第二位（也是过 CF 验证的入口）
     classes.push({ type_id: "web", type_name: "网页" });
+    for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
     return { class: classes };
   }
 
   async categoryContent(tid, pg, filter, extend) {
     if (tid === "web") {
       try {
-        openWeb({ url: BASE });
+        openWeb({ url: BASE + "/en/new" });
       } catch (e) {
         this.log("openWeb failed: " + e);
       }
       return this.page([], 1, 30, 0);
     }
 
+    let path = "";
+    for (const c of CATS) {
+      if (c[0] === tid) {
+        path = c[1];
+        break;
+      }
+    }
+    if (!path) path = CATS[0][1];
+
     const p = Number(pg) || 1;
-    const sep = tid.indexOf("?") >= 0 ? "&" : "?";
-    const url = BASE + tid + sep + "page=" + p;
+    const sep = path.indexOf("?") >= 0 ? "&" : "?";
+    const url = BASE + path + sep + "page=" + p;
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 30, 0);
-
+    const r = await this.fetch(url);
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, 30, (p - 1) * 30);
     return this.page(cards, p, 30, (p + 1) * 30);
@@ -119,7 +161,7 @@ export default class MissAv extends Spider {
       let duration = "";
 
       try {
-        const r = await this.net.req(pageUrl, { headers: headers() });
+        const r = await this.fetch(pageUrl);
         if (r && r.code === 200) {
           const html = r.content;
 
@@ -181,8 +223,7 @@ export default class MissAv extends Spider {
 
   async playerContent(flag, id, vipFlags) {
     const pageUrl = String(id).indexOf("http") === 0 ? String(id) : BASE + "/en/" + id;
-    const r = await this.net.req(pageUrl, { headers: headers() });
-    if (!r || r.code !== 200) throw new Error("无法打开详情页");
+    const r = await this.fetch(pageUrl);
 
     // uuid 出现在 surrit.com/<uuid>/seek/… 或 packed 脚本里
     const m = r.content.match(/surrit\.com\\?\/?([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/);
@@ -200,9 +241,7 @@ export default class MissAv extends Spider {
     const p = Number(pg) || 1;
     const url = BASE + "/en/search/" + encodeURIComponent(key) + (p > 1 ? "?page=" + p : "");
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 30, 0);
-
+    const r = await this.fetch(url);
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, 30, (p - 1) * 30);
     return this.page(cards, p, 30, (p + 1) * 30);
