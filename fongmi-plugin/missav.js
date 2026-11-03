@@ -128,26 +128,65 @@ export default class MissAv extends Spider {
     let cookie = "";
     try {
       cookie = this.net.getCookie(BASE + "/") || "";
-      lines.push("cookie 长度: " + cookie.length);
-      lines.push("含 cf_clearance: " + (cookie.indexOf("cf_clearance") >= 0));
+      lines.push("cookie: " + cookie.length + " 字节, cf_clearance=" + (cookie.indexOf("cf_clearance") >= 0));
     } catch (e) {
       lines.push("getCookie 异常");
     }
-    lines.push("UA: " + String(this.net.getUserAgent()).substring(0, 36));
+    const ua = String(this.net.getUserAgent() || "");
+    lines.push("UA: " + ua);
 
-    const h = headers();
-    if (cookie) h["Cookie"] = cookie;
+    const url = BASE + "/en/new";
+    const browser = {
+      "User-Agent": ua,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
+    };
+
+    // A: 当前策略（UA + Referer + cookie）
     try {
-      const r = await this.net.req(BASE + "/en/new", { headers: h });
-      const body = (r && r.content) || "";
-      lines.push("请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
-      lines.push("含 Just a moment: " + (body.indexOf("Just a moment") >= 0));
-      lines.push("含 thumbnail: " + (body.indexOf("thumbnail group") >= 0));
-      lines.push("解析卡片数: " + parseCards(body).length);
-      lines.push("片段: " + body.substring(0, 50).replace(/\s+/g, " "));
+      const h = headers();
+      if (cookie) h["Cookie"] = cookie;
+      const r = await this.net.req(url, { headers: h });
+      const b = (r && r.content) || "";
+      lines.push("A 默认: " + (r ? r.code : "null") + " len=" + b.length + " thumb=" + (b.indexOf("thumbnail group") >= 0));
     } catch (e) {
-      lines.push("请求异常: " + String(e).substring(0, 80));
+      lines.push("A 默认: 异常");
     }
+
+    // B: 浏览器全套头 + cookie
+    try {
+      const h = Object.assign({}, browser);
+      if (cookie) h["Cookie"] = cookie;
+      const r = await this.net.req(url, { headers: h });
+      const b = (r && r.content) || "";
+      lines.push("B 浏览器头: " + (r ? r.code : "null") + " len=" + b.length + " thumb=" + (b.indexOf("thumbnail group") >= 0));
+    } catch (e) {
+      lines.push("B 浏览器头: 异常");
+    }
+
+    // C: cookie:true（交给宿主用 WebView cookie）
+    try {
+      const r = await this.net.req(url, { headers: browser, cookie: true });
+      const b = (r && r.content) || "";
+      lines.push("C cookie:true: " + (r ? r.code : "null") + " len=" + b.length + " thumb=" + (b.indexOf("thumbnail group") >= 0));
+    } catch (e) {
+      lines.push("C cookie:true: 异常");
+    }
+
+    // D: 不加 cookie
+    try {
+      const r = await this.net.req(url, { headers: browser });
+      const b = (r && r.content) || "";
+      lines.push("D 无cookie: " + (r ? r.code : "null") + " len=" + b.length);
+    } catch (e) {
+      lines.push("D 无cookie: 异常");
+    }
+
     return lines.join("\n");
   }
 
