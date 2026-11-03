@@ -116,9 +116,9 @@ export default class Hanime1 extends Spider {
   // ---------------- 发现页 ----------------
   async homeContent(filter) {
     const classes = [];
-    // 手动过验证入口，放第一位
-    classes.push({ type_id: "web", type_name: "网页" });
     for (const s of SORTS) classes.push({ type_id: "sort:" + s, type_name: s });
+    // 手动过验证入口，放第二位
+    classes.splice(1, 0, { type_id: "web", type_name: "网页" });
     for (const g of GENRES) classes.push({ type_id: "genre:" + g, type_name: g });
 
     const filters = {};

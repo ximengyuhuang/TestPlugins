@@ -265,9 +265,9 @@ export default class CosplayTele extends Spider {
   // ---------------- 发现页 ----------------
   async homeContent(filter) {
     const classes = [
-      // 在浏览器里看图集/原站，放第一位
-      { type_id: "web", type_name: "网页" },
       { type_id: "video-cosplayyy", type_name: "视频" },
+      // 在浏览器里看图集/原站，放第二位
+      { type_id: "web", type_name: "网页" },
       { type_id: "cosplay-nudee", type_name: "Nude" },
       { type_id: "cosplay-ero", type_name: "Ero" },
       { type_id: "cosplay", type_name: "全部" },

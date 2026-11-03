@@ -1,7 +1,7 @@
 // Rule34Video —— FongMi / TVBox QuickJS 源 (v3)
 // 新增：标签分组、排序筛选器
 
-import { Spider } from "catvod";
+import { Spider, openWeb } from "catvod";
 
 const BASE = "https://rule34video.com";
 
@@ -70,6 +70,8 @@ export default class Rule34Video extends Spider {
   async homeContent(filter) {
     const classes = [
       { type_id: "latest", type_name: "最新" },
+      // 在浏览器里看原站，放第二位
+      { type_id: "web", type_name: "网页" },
       { type_id: "sort:video_viewed", type_name: "最热" },
       { type_id: "sort:rating", type_name: "评分最高" },
       { type_id: "sort:duration", type_name: "时长最长" },
@@ -141,6 +143,16 @@ export default class Rule34Video extends Spider {
 
   // ---------------- 分类列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
+    // 点「网页」打开原站
+    if (tid === "web") {
+      try {
+        openWeb({ url: BASE + "/" });
+      } catch (e) {
+        this.log("openWeb failed: " + e);
+      }
+      return this.page([], 1, 23, 0);
+    }
+
     const sort = (extend && extend.sort) || "post_date";
     const p = Number(pg) || 1;
     const suffix = p > 1 ? p + "/" : "";
