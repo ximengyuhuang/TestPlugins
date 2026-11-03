@@ -115,14 +115,58 @@ export default class EPorner extends Spider {
       }
     }
 
-    for (const t of this.tags || []) {
-      classes.push({ type_id: "tag:" + t, type_name: t });
+    // 按字母分段（标签 200 个，直接铺太长）
+    for (const g of this.buildSegments()) {
+      classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
     }
 
     return { class: classes };
   }
 
+  buildSegments() {
+    if (this.segs) return this.segs;
+    const groups = {};
+    for (const t of this.tags || []) {
+      const ch = String(t).charAt(0).toUpperCase();
+      const key = ch >= "A" && ch <= "Z" ? ch : "#";
+      groups[key] = groups[key] || [];
+      groups[key].push(t);
+    }
+    this.segs = Object.keys(groups)
+      .sort()
+      .map((k) => ({ key: k, items: groups[k] }));
+    return this.segs;
+  }
+
+  async segmentList(seg, p) {
+    const list = [];
+    const seen = {};
+    const groups = this.buildSegments();
+    const g = groups.find((x) => x.key === seg);
+    if (!g) return this.page([], p, 30, 0);
+
+    const max = 6;
+    const items = g.items.slice((Math.max(1, p) - 1) * max, Math.max(1, p) * max);
+    for (const t of items) {
+      try {
+        const r = await this.net.req(BASE + "/tag/" + t + "/", { headers: headers() });
+        if (!r || r.code !== 200) continue;
+        for (const c of parseCards(r.content)) {
+          if (seen[c.vod_id]) continue;
+          seen[c.vod_id] = 1;
+          list.push(c);
+        }
+      } catch (e) {
+        this.log("seg item failed: " + e);
+      }
+    }
+    const more = Math.max(1, p) * max < g.items.length;
+    return this.page(list, p, 30, more ? (p + 1) * 30 : p * 30);
+  }
+
   async categoryContent(tid, pg, filter, extend) {
+    if (tid.indexOf("seg:") === 0) return await this.segmentList(tid.substring(4), Number(pg) || 1);
+
     if (tid === "web") {
       try {
         openWeb({ url: BASE });
