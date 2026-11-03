@@ -107,13 +107,8 @@ export default class Hanime1 extends Spider {
       body.length < 2000;
 
     if (blocked) {
-      // 注意：桥接层期望对象，不是 JSON 字符串
-      try {
-        openWeb({ url: BASE + "/" });
-      } catch (e) {
-        this.log("openWeb failed: " + e);
-      }
-      throw new Error("需要 Cloudflare 验证：请在打开的页面完成人机验证，然后返回重试");
+      // 不自动弹窗，交给「网页」分类手动触发
+      throw new Error("被 Cloudflare 拦截：请先点左侧「网页」完成验证，再回来刷新");
     }
     return r;
   }
@@ -121,25 +116,20 @@ export default class Hanime1 extends Spider {
   // ---------------- 发现页 ----------------
   async homeContent(filter) {
     const classes = [];
+    // 手动过验证入口，放第一位
+    classes.push({ type_id: "web", type_name: "网页" });
     for (const s of SORTS) classes.push({ type_id: "sort:" + s, type_name: s });
     for (const g of GENRES) classes.push({ type_id: "genre:" + g, type_name: g });
-    classes.push({ type_id: "debug", type_name: "🔍 诊断" });
 
     const filters = {};
     const sortOptions = SORTS.map((s) => ({ n: s, v: s }));
     for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sortOptions }];
 
-    // 顺便探一次：被拦会直接弹出验证页
-    try {
-      await this.fetch(BASE + "/");
-    } catch (e) {
-      this.log("home blocked: " + e);
-    }
-
+    // 进站不做任何探测，避免自动弹网页
     return { class: classes, filters: filters };
   }
 
-  // ---------------- 诊断 ----------------
+  // ---------------- 诊断（保留，供排查用，不在界面露出） ----------------
   async diagnose() {
     const lines = [];
     lines.push("openWeb: " + typeof openWeb);
@@ -148,22 +138,18 @@ export default class Hanime1 extends Spider {
     try {
       cookie = this.net.getCookie(BASE + "/") || "";
       lines.push("cookie 长度: " + cookie.length);
-      lines.push("cookie 片段: " + cookie.substring(0, 50));
       lines.push("含 cf_clearance: " + (cookie.indexOf("cf_clearance") >= 0));
     } catch (e) {
       lines.push("getCookie 异常: " + String(e).substring(0, 60));
     }
-
-    lines.push("UA: " + String(this.net.getUserAgent()).substring(0, 40));
 
     try {
       const h = this.hdr();
       if (cookie) h["Cookie"] = cookie;
       const r = await this.net.req(BASE + "/", { headers: h });
       const body = (r && r.content) || "";
-      lines.push("带 cookie 请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
+      lines.push("请求: code=" + (r ? r.code : "null") + " 长度=" + body.length);
       lines.push("含 Just a moment: " + (body.indexOf("Just a moment") >= 0));
-      lines.push("片段: " + body.substring(0, 40).replace(/\s+/g, " "));
     } catch (e) {
       lines.push("请求异常: " + String(e).substring(0, 100));
     }
@@ -173,8 +159,14 @@ export default class Hanime1 extends Spider {
 
   // ---------------- 列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
-    if (tid === "debug") {
-      return this.page([{ vod_id: "debug", vod_name: "点我看诊断", vod_pic: "", vod_remarks: "" }], 1, 30, 30);
+    // 手动过验证：点「网页」才打开浏览器
+    if (tid === "web") {
+      try {
+        openWeb({ url: BASE + "/" });
+      } catch (e) {
+        this.log("openWeb failed: " + e);
+      }
+      return this.page([], 1, 30, 0);
     }
 
     const p = Number(pg) || 1;
@@ -199,25 +191,6 @@ export default class Hanime1 extends Spider {
 
   // ---------------- 详情 ----------------
   async detailContent(ids) {
-    if (ids.length && String(ids[0]).indexOf("debug") >= 0) {
-      let text = "";
-      try {
-        text = await this.diagnose();
-      } catch (e) {
-        text = "诊断异常: " + e;
-      }
-      return {
-        list: [{
-          vod_id: "debug",
-          vod_name: "诊断结果",
-          vod_pic: "",
-          vod_content: text,
-          vod_play_from: "debug",
-          vod_play_url: "无$debug",
-        }],
-      };
-    }
-
     const list = [];
     for (const id of ids) {
       const pageUrl = id.indexOf("http") === 0 ? id : BASE + "/watch?v=" + id;
