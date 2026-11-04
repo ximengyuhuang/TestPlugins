@@ -127,7 +127,24 @@ export default class XChina extends Spider {
 
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, 23, (p - 1) * 23);
+
+    // 站点在超过最后一页时会重复返回最后一页，这里检测并截断
+    if (p > 1 && this.isRepeat(tid, cards)) {
+      return this.page([], p, 23, (p - 1) * 23);
+    }
+
     return this.page(cards, p, 23, (p + 1) * 23);
+  }
+
+  // 记录每个分类已见过的首页 id，避免越界后重复
+  isRepeat(key, cards) {
+    if (!cards.length) return false;
+    this.seenFirst = this.seenFirst || {};
+    const set = this.seenFirst[key] || (this.seenFirst[key] = {});
+    const first = cards[0].vod_id;
+    if (set[first]) return true;
+    set[first] = 1;
+    return false;
   }
 
   async detailContent(ids) {
@@ -237,6 +254,7 @@ export default class XChina extends Spider {
 
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, 23, (p - 1) * 23);
+    if (p > 1 && this.isRepeat("s:" + key, cards)) return this.page([], p, 23, (p - 1) * 23);
     return this.page(cards, p, 23, (p + 1) * 23);
   }
 }
