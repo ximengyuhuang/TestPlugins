@@ -1,11 +1,11 @@
-// en.xchina.co —— FongMi / TVBox QuickJS 源
+// xchina.co —— FongMi / TVBox QuickJS 源
 //
+// 用中文站 xchina.co（不要用 en.xchina.co，那是英文站，标题全英文）
 // 取流很直接：详情页 div#video-player 的 data-src 就是 m3u8（带 Referer/Origin 校验）
-// 站点主要中文内容，搜索用中文关键词最有效
 
 import { Spider, openWeb } from "catvod";
 
-const BASE = "https://en.xchina.co";
+const BASE = "https://xchina.co";
 const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 
 // [tid, 路径, 名称]
