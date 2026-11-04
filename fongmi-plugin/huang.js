@@ -162,11 +162,7 @@ export default class HuangVideo extends Spider {
 
     const tax = this.taxonomy || { groups: [] };
 
-    // 先放 5 个厂牌
-    for (const g of tax.groups) {
-      classes.push({ type_id: "cc:" + g.id, type_name: "【厂牌】" + g.name });
-    }
-    // 再放博主
+    // 博主（厂牌分类已去掉；博主页站点不支持排序，故不加筛选器）
     for (const g of tax.groups) {
       for (const c of g.creators) {
         classes.push({ type_id: "cr:" + c.slug, type_name: g.name + "·" + c.name });
@@ -190,7 +186,9 @@ export default class HuangVideo extends Spider {
     let url;
 
     if (tid.indexOf("cc:") === 0) {
-      url = BASE + "/videos?creator_category_id=" + tid.substring(3) + (p > 1 ? "&page=" + p : "");
+      const sort = (extend && extend.sort) || "latest";
+      url = BASE + "/videos?creator_category_id=" + tid.substring(3) + "&sort=" + encodeURIComponent(sort) +
+        (p > 1 ? "&page=" + p : "");
     } else if (tid.indexOf("cr:") === 0) {
       url = BASE + "/creators/" + tid.substring(3) + (p > 1 ? "?page=" + p : "");
     } else {
