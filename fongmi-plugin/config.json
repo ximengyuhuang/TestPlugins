@@ -71,7 +71,14 @@
       "api": "./xchina.js",
       "style": { "type": "rect", "ratio": 1.78 },
       "ext": {}
+    },
+    {
+      "key": "huang",
+      "name": "黄视频",
+      "type": 3,
+      "api": "./huang.js",
+      "style": { "type": "rect", "ratio": 1.78 },
+      "ext": {}
     }
   ]
 }
-
