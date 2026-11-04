@@ -96,13 +96,27 @@ function parseCards(html) {
     seen[url] = 1;
 
     const img = block.match(/<img[^>]*data-front-lazy-src="([^"]+)"/) || block.match(/<img[^>]*data-front-lazy-current-src="([^"]+)"/);
-    const dur = block.match(/<span class="video-card__details">[\s\S]{0,80}?(\d{1,2}:\d{2}:\d{2})/);
+    const det = block.match(/<span class="video-card__details">([\s\S]{0,120}?)<\/span>/);
+    let dur = "";
+    let q = "";
+    if (det) {
+      const dm = det[1].match(/(\d{1,2}:\d{2}:\d{2})/);
+      if (dm) dur = dm[1];
+      const qm = det[1].match(/<strong[^>]*>([^<]{1,8})<\/strong>/);
+      if (qm) q = strip(qm[1]);
+    }
+
+    // 角标：有清晰度就用「FHD 02:48:06」，否则只显示时长
+    let remark = "";
+    if (q && dur) remark = q + " " + dur;
+    else if (q) remark = q;
+    else if (dur) remark = dur;
 
     out.push({
       vod_id: url,
       vod_name: decode(t[2]) || strip(t[2]),
       vod_pic: img ? absolute(img[1]) : "",
-      vod_remarks: dur ? dur[1] : "",
+      vod_remarks: remark,
     });
   }
   return out;

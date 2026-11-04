@@ -137,6 +137,7 @@ export default class XChina extends Spider {
       let title = "";
       let pic = "";
       let content = "";
+      let quality = "";
 
       try {
         const r = await this.net.req(pageUrl, { headers: headers() });
@@ -168,6 +169,26 @@ export default class XChina extends Spider {
           const desc = html.match(/property="og:description"[^>]*content="([^"]+)"/);
           if (desc) lines.push(decode(desc[1]).substring(0, 140));
 
+          // 清晰度：取 master.m3u8 里最高的 RESOLUTION
+          const ds = html.match(/id="video-player"[\s\S]{0,400}?data-src="([^"]+)"/);
+          if (ds) {
+            try {
+              const pr = await this.net.req(absolute(decode(ds[1])), { headers: headers() });
+              if (pr && pr.code === 200) {
+                const res = [];
+                const reR = /RESOLUTION=\d+x(\d+)/g;
+                let mr;
+                while ((mr = reR.exec(pr.content)) !== null) res.push(Number(mr[1]));
+                if (res.length) {
+                  quality = Math.max.apply(null, res) + "P";
+                  lines.unshift("清晰度: " + quality);
+                }
+              }
+            } catch (e) {
+              this.log("quality failed: " + e);
+            }
+          }
+
           content = lines.filter(Boolean).join("\n");
         }
       } catch (e) {
@@ -179,6 +200,7 @@ export default class XChina extends Spider {
         vod_name: title || String(id),
         vod_pic: pic,
         vod_content: content,
+        vod_remarks: quality,
         vod_play_from: "xChina",
         vod_play_url: "正片$" + pageUrl,
       });

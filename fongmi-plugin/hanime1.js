@@ -221,6 +221,7 @@ export default class Hanime1 extends Spider {
       let pic = "";
       let content = "";
       let playUrl = "正片$" + pageUrl;
+      let quality = "";
 
       try {
         const r = await this.fetch(pageUrl);
@@ -252,6 +253,16 @@ export default class Hanime1 extends Spider {
         const dur = html.match(/(\d{1,2}:\d{2}(?::\d{2})?)/);
         if (dur) stats.push("时长: " + dur[1]);
 
+        // 清晰度：<source ... size="1080">
+        const sizes = [];
+        const reS = /<source[^>]*size="(\d+)"/g;
+        let ms;
+        while ((ms = reS.exec(html)) !== null) sizes.push(Number(ms[1]));
+        if (sizes.length) {
+          quality = Math.max.apply(null, sizes) + "P";
+          stats.push("清晰度: " + quality);
+        }
+
         const line1 = stats.join(" | ");
         const desc = html.match(/property="og:description"[^>]*content="([^"]+)"/);
         const line2 = desc ? stripTags(desc[1]).substring(0, 140) : "";
@@ -282,6 +293,7 @@ export default class Hanime1 extends Spider {
         vod_name: title,
         vod_pic: pic,
         vod_content: content,
+        vod_remarks: quality,
         vod_play_from: "hanime1",
         vod_play_url: playUrl,
       });

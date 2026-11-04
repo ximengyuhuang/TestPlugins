@@ -82,11 +82,25 @@ function parseCards(html) {
     seen[url] = 1;
 
     const img = block.match(/data-src="([^"]+)"/) || block.match(/<img[^>]*src="([^"]+)"/);
+
+    // 清晰度角标：<div class="mvhdico" title="Quality"><span>720p</span></div>
+    let q = "";
+    const qm = block.match(/mvhdico"[^>]*>\s*<span>([^<]+)<\/span>/);
+    if (qm) {
+      q = qm[1].trim();
+      const four = q.match(/4K/i);
+      if (four) q = "4K";
+      else {
+        const num = q.match(/(\d{3,4})p?/);
+        if (num) q = num[1] + "p";
+      }
+    }
+
     out.push({
       vod_id: url,
       vod_name: strip(a[2]),
       vod_pic: img ? decode(img[1]) : "",
-      vod_remarks: "",
+      vod_remarks: q,
     });
   }
   return out;

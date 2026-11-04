@@ -67,7 +67,14 @@ function parseCards(html) {
     seen[url] = 1;
     const img = block.match(/<img[^>]*src="([^"]*)"/);
     const pic = img ? decode(img[1]).split("!")[0] : "";
-    out.push({ vod_id: url, vod_name: decode(a[2]), vod_pic: pic, vod_remarks: "" });
+
+    // 清晰度角标：custom-4k / custom-hd / custom-sd
+    let q = "";
+    if (/custom-4k/i.test(block)) q = "4K";
+    else if (/custom-hd/i.test(block)) q = "HD";
+    else if (/custom-sd/i.test(block)) q = "SD";
+
+    out.push({ vod_id: url, vod_name: decode(a[2]), vod_pic: pic, vod_remarks: q });
   }
   return out;
 }
