@@ -314,6 +314,27 @@ function parseDetail(html, id) {
 
 // ---------------------------------------------------------------- 主体
 
+// 系列剧的选集：episodes:$R[n]=[{id,name,episode},…]
+function parseEpisodes(html) {
+  const at = html.indexOf("episodes:$R[");
+  if (at < 0) return [];
+  const end = html.indexOf(",moreSeries", at);
+  const seg = html.substring(at, end > 0 ? end : at + 12000);
+
+  const out = [];
+  const seen = {};
+  const re = /\{id:"(c[a-z0-9]{20,})",name:"([^"]*)",episode:(\d+)/g;
+  let m;
+  while ((m = re.exec(seg)) !== null) {
+    const id = m[1];
+    if (seen[id]) continue;
+    seen[id] = 1;
+    out.push({ id: id, name: decodeEntities(m[2]), ep: Number(m[3]) });
+  }
+  out.sort((a, b) => a.ep - b.ep);
+  return out;
+}
+
 export default class RouVideo extends Spider {
   init(extend) {
     this.sess = {};
@@ -397,9 +418,13 @@ export default class RouVideo extends Spider {
       const vid = String(id).replace(/^.*\/v\//, "").replace(/[?#].*$/, "");
       const pageUrl = BASE + "/v/" + vid;
       let info = { title: vid, pic: "", desc: "", duration: 0, tags: [] };
+      let episodes = [];
       try {
         const r = await this.net.req(pageUrl, { headers: headers() });
-        if (r && r.code === 200) info = parseDetail(r.content, vid);
+        if (r && r.code === 200) {
+          info = parseDetail(r.content, vid);
+          episodes = parseEpisodes(r.content);
+        }
       } catch (e) {
         this.log("detail failed: " + e);
       }
@@ -407,7 +432,16 @@ export default class RouVideo extends Spider {
       const parts = [];
       if (info.duration) parts.push("时长: " + info.duration + " 分钟");
       if (info.tags.length) parts.push("标签: " + info.tags.join(" / "));
+      if (episodes.length > 1) parts.push("共 " + episodes.length + " 集");
       const content = [parts.join(" | "), info.desc].filter(Boolean).join("\n");
+
+      // 系列剧：episodes 里有多集就做成选集
+      let playUrl;
+      if (episodes.length > 1) {
+        playUrl = episodes.map((e) => "第" + e.ep + "集$" + e.id).join("#");
+      } else {
+        playUrl = "正片$" + vid;
+      }
 
       list.push({
         vod_id: vid,
@@ -416,7 +450,7 @@ export default class RouVideo extends Spider {
         vod_content: content,
         vod_remarks: info.duration ? info.duration + " 分钟" : "",
         vod_play_from: "rou.video",
-        vod_play_url: "正片$" + vid,
+        vod_play_url: playUrl,
       });
     }
     return { list: list };
