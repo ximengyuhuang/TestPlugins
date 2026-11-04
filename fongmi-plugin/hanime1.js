@@ -26,6 +26,29 @@ function stripTags(s) {
   return decode((s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
+// ---- 分集相关 ----
+// 去掉 [中文字幕] 这类方括号、第N話、前編/後編等，得到系列名
+function seriesBase(t) {
+  return stripTags(t)
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(/【[^】]*】/g, "")
+    .replace(/第\s*\d+\s*[話话集]/g, "")
+    .replace(/(前編|後編|前篇|後篇|上巻|下巻|上卷|下卷)\s*$/g, "")
+    .replace(/[\s\-–—|:：]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// 集号：第N話/N集；前編=1 後編=2；上=1 下=3
+function epNum(t) {
+  const m = String(t).match(/第\s*(\d+)\s*[話话集]/);
+  if (m) return Number(m[1]);
+  if (/前編|前篇|上巻|上卷/.test(t)) return 1;
+  if (/後編|後篇/.test(t)) return 2;
+  if (/下巻|下卷/.test(t)) return 3;
+  return 999;
+}
+
 // 从列表页解析卡片
 function parseCards(html) {
   const out = [];
@@ -197,6 +220,7 @@ export default class Hanime1 extends Spider {
       let title = "hanime1";
       let pic = "";
       let content = "";
+      let playUrl = "正片$" + pageUrl;
 
       try {
         const r = await this.fetch(pageUrl);
@@ -232,6 +256,22 @@ export default class Hanime1 extends Spider {
         const desc = html.match(/property="og:description"[^>]*content="([^"]+)"/);
         const line2 = desc ? stripTags(desc[1]).substring(0, 140) : "";
         content = [line1, line2].filter(Boolean).join("\n");
+
+        // 找同系列的其它集
+        const base = seriesBase(title);
+        if (base.length >= 4) {
+          const eps = await this.findEpisodes(base);
+          if (eps.length > 1) {
+            const parts = [];
+            for (let k = 0; k < eps.length; k++) {
+              const n = epNum(eps[k].title);
+              const label = n < 900 ? "第" + n + "集" : "第" + (k + 1) + "集";
+              parts.push(label + "$" + BASE + "/watch?v=" + eps[k].id);
+            }
+            playUrl = parts.join("#");
+            content = ["共 " + eps.length + " 集", content].filter(Boolean).join("\n");
+          }
+        }
       } catch (e) {
         this.log("detail failed: " + e);
         title = "需要验证后重试";
@@ -243,10 +283,77 @@ export default class Hanime1 extends Spider {
         vod_pic: pic,
         vod_content: content,
         vod_play_from: "hanime1",
-        vod_play_url: "正片$" + pageUrl,
+        vod_play_url: playUrl,
       });
     }
     return { list: list };
+  }
+
+  // ---------------- 分集发现 ----------------
+  // 用系列名去站点搜索，把同系列的几集找出来
+  async findEpisodes(base) {
+    if (!base || base.length < 4) return [];
+    if (this.epCache && this.epCache[base]) return this.epCache[base];
+
+    const rows = [];
+    try {
+      const r = await this.fetch(BASE + "/search?query=" + encodeURIComponent(base));
+      const chunks = r.content.split('<div title="');
+      for (let i = 1; i < chunks.length; i++) {
+        const c = chunks[i];
+        const tm = c.match(/^([^"]*)"/);
+        const head = c.substring(0, 1800);
+        const vm = head.match(/watch\?v=(\d+)/);
+        if (!vm) continue; // 广告块没有 vid
+        const t = decode(tm ? tm[1] : "");
+        if (!t) continue;
+        const dm = head.match(/class="duration">\s*([^<]*)</);
+        const b = seriesBase(t);
+        if (!b) continue;
+        rows.push({ title: t, id: vm[1], dur: dm ? dm[1].trim() : "", base: b });
+      }
+    } catch (e) {
+      this.log("episode search failed: " + e);
+      return [];
+    }
+
+    // 按系列名分组，挑出与当前系列最匹配、且至少 2 集的一组
+    const groups = {};
+    for (const r of rows) {
+      if (!groups[r.base]) groups[r.base] = [];
+      groups[r.base].push(r);
+    }
+
+    let best = null;
+    let bestScore = -1;
+    for (const k in groups) {
+      const g = groups[k];
+      if (g.length < 2) continue;
+      let score = g.length;
+      if (k === base || base.indexOf(k) >= 0 || k.indexOf(base) >= 0) score += 100;
+      if (score > bestScore) {
+        bestScore = score;
+        best = g;
+      }
+    }
+
+    this.epCache = this.epCache || {};
+    if (!best) {
+      this.epCache[base] = [];
+      return [];
+    }
+
+    const seen = {};
+    const uniq = [];
+    for (const e of best) {
+      if (seen[e.id]) continue;
+      seen[e.id] = 1;
+      uniq.push(e);
+    }
+    uniq.sort((a, b) => epNum(a.title) - epNum(b.title));
+
+    this.epCache[base] = uniq;
+    return uniq;
   }
 
   // ---------------- 播放 ----------------
