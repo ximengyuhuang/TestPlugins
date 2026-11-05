@@ -162,11 +162,14 @@ export default class HuangVideo extends Spider {
 
     const tax = this.taxonomy || { groups: [] };
 
-    // 博主（厂牌分类已去掉；博主页站点不支持排序，故不加筛选器）
+    // 5 个厂牌作为「文件夹分类」：点进去是博主列表（列表样式）
     for (const g of tax.groups) {
-      for (const c of g.creators) {
-        classes.push({ type_id: "cr:" + c.slug, type_name: g.name + "·" + c.name });
-      }
+      const tid = "cc:" + g.id;
+      classes.push({
+        type_id: tid,
+        type_name: g.name + " (" + g.creators.length + ")",
+        type_flag: "1",
+      });
     }
 
     return { class: classes, filters: filters };
@@ -183,13 +186,33 @@ export default class HuangVideo extends Spider {
     }
 
     const p = Number(pg) || 1;
+
+    // 厂牌层：列出该厂牌的博主（folder 卡片，点进去才是视频列表）
+    if (tid.indexOf("cc:") === 0) {
+      const id = tid.substring(3);
+      const tax = this.taxonomy || { groups: [] };
+      let g = null;
+      for (const x of tax.groups) {
+        if (String(x.id) === String(id)) {
+          g = x;
+          break;
+        }
+      }
+      if (!g) return this.page([], 1, 60, 0);
+
+      const folders = g.creators.map((c) => ({
+        vod_id: "cr:" + c.slug,
+        vod_name: c.name,
+        vod_pic: "",
+        vod_remarks: g.name,
+        vod_tag: "folder",
+      }));
+      return this.page(folders, 1, folders.length, folders.length);
+    }
+
     let url;
 
-    if (tid.indexOf("cc:") === 0) {
-      const sort = (extend && extend.sort) || "latest";
-      url = BASE + "/videos?creator_category_id=" + tid.substring(3) + "&sort=" + encodeURIComponent(sort) +
-        (p > 1 ? "&page=" + p : "");
-    } else if (tid.indexOf("cr:") === 0) {
+    if (tid.indexOf("cr:") === 0) {
       url = BASE + "/creators/" + tid.substring(3) + (p > 1 ? "?page=" + p : "");
     } else {
       const sort = (extend && extend.sort) || tid || "latest";
