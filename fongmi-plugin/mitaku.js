@@ -353,6 +353,14 @@ function headers(ref) {
   };
 }
 
+// App 的图片加载器访问 mitaku.net 的 uploads 会被 Cloudflare 拦（浏览器能开，App 拿不到）
+// 统一走公共图片代理 weserv，由它的服务器去取图
+function coverUrl(u) {
+  if (!u) return "";
+  const s = String(u).replace(/^https?:\/\//, "");
+  return "https://images.weserv.nl/?url=" + s + "&w=480&output=jpg";
+}
+
 // 列表页：<h2 class="entry-title"><a href title>标题</a>，缩略图在标题前面
 function parsePosts(html) {
   const out = [];
@@ -378,7 +386,7 @@ function parsePosts(html) {
     }
 
     if (!title) continue;
-    out.push({ url: url, title: title, pic: safeUrl(pic) });
+    out.push({ url: url, title: title, pic: coverUrl(safeUrl(pic)) });
   }
   return out;
 }
@@ -470,7 +478,7 @@ export default class Mitaku extends Spider {
             vod_id: post.url,
             vod_name: post.title,
             vod_pic: post.pic,
-            vod_remarks: post.pic ? "IMG" + post.pic.length : "NOIMG",
+            vod_remarks: "",
           };
         })
         .catch(() => null)
@@ -508,10 +516,10 @@ export default class Mitaku extends Spider {
           title = h1 ? strip(h1[1]) : ogt ? decode(ogt[1]) : "";
 
           const ogi = html.match(/<meta property="og:image" content="([^"]+)"/);
-          if (ogi) pic = safeUrl(decode(ogi[1]));
+          if (ogi) pic = coverUrl(safeUrl(decode(ogi[1])));
           else {
             const im = html.match(/class="featured-image"[\s\S]{0,400}?<img[^>]*src="([^"]+)"/);
-            if (im) pic = safeUrl(decode(im[1]));
+            if (im) pic = coverUrl(safeUrl(decode(im[1])));
           }
 
           hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(html);
