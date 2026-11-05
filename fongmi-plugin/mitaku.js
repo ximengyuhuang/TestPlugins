@@ -470,7 +470,7 @@ export default class Mitaku extends Spider {
             vod_id: post.url,
             vod_name: post.title,
             vod_pic: post.pic,
-            vod_remarks: "",
+            vod_remarks: post.pic ? "IMG" + post.pic.length : "NOIMG",
           };
         })
         .catch(() => null)
