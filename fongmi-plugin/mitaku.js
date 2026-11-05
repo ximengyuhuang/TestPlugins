@@ -303,6 +303,17 @@ function strip(s) {
   return decode((s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
+// 封面地址可能含中文（WordPress 文件名），必须编码，否则图片加载器会失败
+function safeUrl(u) {
+  if (!u) return "";
+  const s = String(u).trim();
+  try {
+    return encodeURI(s);
+  } catch (e) {
+    return s;
+  }
+}
+
 function headers(ref) {
   return {
     "User-Agent": UA,
@@ -312,19 +323,32 @@ function headers(ref) {
   };
 }
 
-// 列表页：.entry-title a
+// 列表页：<h2 class="entry-title"><a href title>标题</a>，缩略图在标题前面
 function parsePosts(html) {
   const out = [];
   const seen = {};
-  const re = /class="entry-title"[^>]*>\s*<a[^>]*href="(https:\/\/mitaku\.net\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  const re = /class="entry-title"[^>]*>\s*<a[^>]*href="(https:\/\/mitaku\.net\/[^"]+)"[^>]*title="([^"]*)"[^>]*>/g;
   let m;
   while ((m = re.exec(html)) !== null) {
     const url = m[1];
     if (seen[url]) continue;
     seen[url] = 1;
-    const title = strip(m[2]);
+
+    let title = decode(m[2]).trim();
+    const tn = title.match(/^(.*?)\s+\d+$/); // 去掉尾部编号
+    if (tn && tn[1]) title = tn[1];
+
+    // 缩略图：从标题往前找最近的 <img src>
+    let pic = "";
+    const before = html.substring(Math.max(0, m.index - 1600), m.index);
+    const imgs = before.match(/<img[^>]*src="([^"]+)"/g);
+    if (imgs && imgs.length) {
+      const last = imgs[imgs.length - 1].match(/src="([^"]+)"/);
+      if (last) pic = decode(last[1]);
+    }
+
     if (!title) continue;
-    out.push({ url: url, title: title });
+    out.push({ url: url, title: title, pic: safeUrl(pic) });
   }
   return out;
 }
@@ -412,12 +436,10 @@ export default class Mitaku extends Spider {
           if (!res || res.code !== 200) return null;
           const has = /<iframe[^>]*src="[^"]*\/e\//.test(res.content);
           if (!has) return null;
-          const img = res.content.match(/<meta property="og:image" content="([^"]+)"/) ||
-                      res.content.match(/class="featured-image"[\s\S]{0,400}?<img[^>]*src="([^"]+)"/);
           return {
             vod_id: post.url,
             vod_name: post.title,
-            vod_pic: img ? decode(img[1]) : "",
+            vod_pic: post.pic,
             vod_remarks: "",
           };
         })
@@ -456,10 +478,10 @@ export default class Mitaku extends Spider {
           title = h1 ? strip(h1[1]) : ogt ? decode(ogt[1]) : "";
 
           const ogi = html.match(/<meta property="og:image" content="([^"]+)"/);
-          if (ogi) pic = decode(ogi[1]);
+          if (ogi) pic = safeUrl(decode(ogi[1]));
           else {
             const im = html.match(/class="featured-image"[\s\S]{0,400}?<img[^>]*src="([^"]+)"/);
-            if (im) pic = decode(im[1]);
+            if (im) pic = safeUrl(decode(im[1]));
           }
 
           hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(html);
@@ -642,7 +664,7 @@ export default class Mitaku extends Spider {
 
     const cards = [];
     for (const post of posts) {
-      cards.push({ vod_id: post.url, vod_name: post.title, vod_pic: "", vod_remarks: "" });
+      cards.push({ vod_id: post.url, vod_name: post.title, vod_pic: post.pic, vod_remarks: "" });
     }
     return this.page(cards, p, 9, (p + 1) * 9);
   }
