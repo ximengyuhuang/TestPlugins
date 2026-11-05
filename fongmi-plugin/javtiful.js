@@ -348,19 +348,31 @@ export default class Javtiful extends Spider {
     const sources = data.sources || [];
     if (!sources.length) throw new Error("没有可用源");
 
-    // 按 URL 里的 1080p/720p/480p 挑最高
+    // 按 URL 里的 1080p/720p/480p 归类（多画质交给播放器切）
     function qualityOf(u) {
       const q = String(u).match(/(\d{3,4})p/);
       return q ? Number(q[1]) : 0;
     }
-    let best = sources[0];
+
+    const values = [];
+    const seenSrc = {};
     for (const s of sources) {
-      if (qualityOf(s.src) > qualityOf(best.src)) best = s;
+      const src = s && s.src ? absolute(s.src) : "";
+      if (!src || seenSrc[src]) continue;
+      seenSrc[src] = 1;
+      const q = qualityOf(src);
+      values.push({ n: q ? q + "P" : "源" + (values.length + 1), v: src, q: q });
     }
+    values.sort((a, b) => b.q - a.q);
+    if (values.length === 0) throw new Error("没有可用源");
+
+    const urlField = values.length > 1
+      ? { values: values.map((x) => ({ n: x.n, v: x.v })), position: 0 }
+      : values[0].v;
 
     return {
       parse: 0,
-      url: absolute(best.src),
+      url: urlField,
       header: { "User-Agent": UA, "Referer": pageUrl },
     };
   }

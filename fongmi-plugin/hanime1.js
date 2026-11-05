@@ -180,9 +180,39 @@ export default class Hanime1 extends Spider {
     return lines.join("\n");
   }
 
+  // ---------------- CF 验证（自动闭合） ----------------
+  // 卡片带 action 时，点击会调用这里；回传 web 指令打开网页，
+  // 指定 cookie 出现变化后页面自动关闭并回到 App。
+  async action(op, value) {
+    const o = String(op === undefined || op === null ? "" : op);
+    const target = BASE + "/";
+
+    if (o.indexOf("cf") >= 0) {
+      return { web: { url: target, cookie: [{ keys: ["cf_clearance"] }] } };
+    }
+    if (o.indexOf("web") >= 0) {
+      return { web: { url: target } };
+    }
+    return { web: { url: target } };
+  }
+
+  // CF 被拦时返回一张可点击的卡片
+  cfCard() {
+    return this.page(
+      [{
+        vod_id: "cf-verify",
+        vod_name: "⚠️ 被 Cloudflare 拦截，点我验证（通过后自动返回）",
+        vod_pic: "",
+        vod_remarks: "点我",
+        action: "cf",
+      }],
+      1, 1, 1
+    );
+  }
+
   // ---------------- 列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
-    // 手动过验证：点「网页」才打开浏览器
+    // 手动过验证：点「网页」才打开浏览器（保留，作为兜底入口）
     if (tid === "web") {
       try {
         openWeb({ url: BASE + "/" });
@@ -204,7 +234,13 @@ export default class Hanime1 extends Spider {
       url = BASE + "/search?sort=" + encodeURIComponent(sort) + "&page=" + p;
     }
 
-    const r = await this.fetch(url);
+    let r;
+    try {
+      r = await this.fetch(url);
+    } catch (e) {
+      // 被 CF 拦截 → 给一张验证卡片（点击后打开网页，验证完自动关闭）
+      return this.cfCard();
+    }
     const cards = parseCards(r.content);
 
     // 站点每页约 30 个，有内容就允许继续翻
@@ -383,12 +419,21 @@ export default class Hanime1 extends Spider {
       found.push({ url: u, size: Number(m[2]) });
     }
 
-    if (found.length === 0) throw new Error("没有找到 mp4 源（可能需要先过验证）");
+    if (found.length === 0) throw new Error("没有找到 mp4 源（可能是 Cloudflare 验证过期，点「网页」重新验证）");
 
     found.sort((a, b) => b.size - a.size);
+
+    const values = [];
+    const seenUrl = {};
+    for (const f of found) {
+      if (seenUrl[f.url]) continue;
+      seenUrl[f.url] = 1;
+      values.push({ n: f.size + "P", v: f.url });
+    }
+
     return {
       parse: 0,
-      url: found[0].url,
+      url: values.length > 1 ? { values: values, position: 0 } : values[0].v,
       header: { "User-Agent": this.ua(), "Referer": BASE + "/" },
     };
   }

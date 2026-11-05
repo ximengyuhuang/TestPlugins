@@ -664,12 +664,19 @@ export default class Mitaku extends Spider {
     }
 
     const sources = data.sources || [];
-    const urls = [];
+    const list = [];
+    const seen = {};
     for (const s of sources) {
-      if (s && s.url && s.url.indexOf(".m3u8") >= 0 && urls.indexOf(s.url) < 0) urls.push(s.url);
+      if (!s || !s.url || s.url.indexOf(".m3u8") < 0) continue;
+      if (seen[s.url]) continue;
+      seen[s.url] = 1;
+      const name = s.label || (s.height ? s.height + "P" : "线路" + (list.length + 1));
+      list.push({ n: String(name), v: s.url });
     }
-    if (urls.length === 0) throw new Error("没有 m3u8 源");
-    return { urls: urls, sources: sources };
+    if (list.length === 0) throw new Error("没有 m3u8 源");
+    // 画质从高到低
+    list.sort((a, b) => (parseInt(b.n) || 0) - (parseInt(a.n) || 0));
+    return { list: list, sources: sources };
   }
 
   async playerContent(flag, id, vipFlags) {
@@ -681,7 +688,7 @@ export default class Mitaku extends Spider {
     const res = await this.resolveStreams(slug);
     return {
       parse: 0,
-      url: res.urls[0],
+      url: { values: res.list, position: 0 },
       header: {
         "User-Agent": UA,
         "Referer": API + "/",

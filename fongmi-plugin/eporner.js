@@ -356,36 +356,42 @@ export default class EPorner extends Spider {
     const sources = data.sources || {};
     const mp4 = sources.mp4 || {};
 
-    let best = "";
-    let bestQ = 0;
+    // 收集所有 mp4 画质（多画质交给播放器切）
+    const values = [];
+    const seenSrc = {};
     for (const key in mp4) {
       const item = mp4[key] || {};
       const src = item.src || "";
-      if (!src || src.indexOf("/dload/") >= 0) continue;
-      const q = parseInt(String(item.labelShort || key).replace(/[^0-9]/g, ""), 10) || 0;
-      if (q >= bestQ) {
-        bestQ = q;
-        best = src;
-      }
+      if (!src || src.indexOf("/dload/") >= 0 || seenSrc[src]) continue;
+      seenSrc[src] = 1;
+      const label = String(item.labelShort || key || "");
+      const q = parseInt(label.replace(/[^0-9]/g, ""), 10) || 0;
+      values.push({ n: label || q + "P", v: absolute(src), q: q });
     }
+    values.sort((a, b) => b.q - a.q);
 
     // 没有 mp4 就用 hls
-    if (!best) {
+    if (values.length === 0) {
       const hls = sources.hls || {};
+      let hlsUrl = "";
       for (const key in hls) {
         const src = (hls[key] || {}).src || "";
         if (src) {
-          best = src;
+          hlsUrl = absolute(src);
           break;
         }
       }
+      if (!hlsUrl) throw new Error("没有可用播放源");
+      values.push({ n: "HLS", v: hlsUrl, q: 0 });
     }
 
-    if (!best) throw new Error("没有可用播放源");
+    const urlField = values.length > 1
+      ? { values: values.map((x) => ({ n: x.n, v: x.v })), position: 0 }
+      : values[0].v;
 
     return {
       parse: 0,
-      url: absolute(best),
+      url: urlField,
       header: { "User-Agent": UA, "Referer": BASE + "/" },
     };
   }
