@@ -172,6 +172,9 @@ export default class HuangVideo extends Spider {
       });
     }
 
+    // 所有分类（含厂牌文件夹）都给排序筛选
+    for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
+
     return { class: classes, filters: filters };
   }
 

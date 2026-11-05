@@ -97,13 +97,14 @@ export default class Rule34Video extends Spider {
     const filters = {};
 
     // 分类（约 46 个）
+    this.cats = [];
     try {
       const r = await this.net.req(BASE + "/categories/", { headers: headers() });
       if (r && r.code === 200) {
         const re = /<a[^>]*href="https:\/\/rule34video\.com\/categories\/([a-z0-9\-]+)\/"[^>]*>([\s\S]*?)<\/a>/g;
         const seen = {};
         let m;
-        while ((m = re.exec(r.content)) !== null && classes.length < 60) {
+        while ((m = re.exec(r.content)) !== null) {
           const slug = m[1];
           if (seen[slug]) continue;
           let name = "";
@@ -115,7 +116,7 @@ export default class Rule34Video extends Spider {
           }
           if (!name) continue;
           seen[slug] = 1;
-          classes.push({ type_id: "cat:" + slug, type_name: name });
+          this.cats.push({ slug: slug, name: name });
         }
       }
     } catch (e) {
@@ -151,21 +152,58 @@ export default class Rule34Video extends Spider {
       this.log("tags failed: " + e);
     }
 
-    // 标准分类（PornHub 那套里本站存在的 21 个）
-    for (const [slug, name] of GENRES) {
-      classes.push({ type_id: "g:" + slug, type_name: name });
+    // 作者（/models/ 索引，取前 3 页）
+    this.models = [];
+    try {
+      for (let mp = 1; mp <= 3; mp++) {
+        const mu = BASE + "/models/" + (mp > 1 ? mp + "/" : "");
+        const mr = await this.net.req(mu, { headers: headers() });
+        if (!mr || mr.code !== 200) break;
+        const mre = /<a href="https:\/\/rule34video\.com\/models\/([^\/"]+)\/" class="item">([\s\S]{0,900}?)<\/a>/g;
+        let mm;
+        let added = 0;
+        while ((mm = mre.exec(mr.content)) !== null) {
+          const slug = mm[1];
+          if (this.models.some((x) => x.slug === slug)) continue;
+          let nm = "";
+          const alt = mm[2].match(/alt="([^"]*)"/);
+          if (alt) nm = decode(alt[1]).trim();
+          if (!nm) {
+            const dn = mm[2].match(/<div class="name">\s*([^<]+)/);
+            if (dn) nm = decode(dn[1]).trim();
+          }
+          if (!nm) continue;
+          this.models.push({ slug: slug, name: nm });
+          added++;
+        }
+        if (added === 0) break;
+      }
+    } catch (e) {
+      this.log("models failed: " + e);
     }
 
-    // 标签按字母分段（200 个直接铺太长）
-    for (const g of this.buildTagSegments()) {
-      classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
-    }
+    // 二级结构：分类 / 标签 / 作者 各收成一个文件夹入口
+    classes.push({
+      type_id: "catf",
+      type_name: "分类 (" + ((this.cats || []).length + GENRES.length) + ")",
+      type_flag: "1",
+    });
+    classes.push({
+      type_id: "tagf",
+      type_name: "标签 (" + tags.length + ")",
+      type_flag: "1",
+    });
+    classes.push({
+      type_id: "authf",
+      type_name: "作者 (" + (this.models || []).length + ")",
+      type_flag: "1",
+    });
 
-    // 每个分类都给排序筛选器
+    // 排序筛选器只给视频列表层
     const sortFilter = { key: "sort", name: "排序", value: SORTS };
-    for (const c of classes) {
-      filters[c.type_id] = [sortFilter];
-    }
+    for (const c of classes) filters[c.type_id] = [sortFilter];
+    for (const [slug] of GENRES) filters["g:" + slug] = [sortFilter];
+    for (const c of this.cats || []) filters["cat:" + c.slug] = [sortFilter];
 
     return { class: classes, filters: filters };
   }
@@ -185,34 +223,97 @@ export default class Rule34Video extends Spider {
     return this.tagSegs;
   }
 
-  async segmentList(seg, p) {
-    const list = [];
-    const seen = {};
-    const groups = this.buildTagSegments();
-    const g = groups.find((x) => x.key === seg);
-    if (!g) return this.page([], p, 23, 0);
-
-    const max = 6;
-    const items = g.items.slice((Math.max(1, p) - 1) * max, Math.max(1, p) * max);
-    for (const t of items) {
-      try {
-        const r = await this.net.req(BASE + "/tags/" + t + "/", { headers: headers() });
-        if (!r || r.code !== 200) continue;
-        for (const c of parseCards(r.content)) {
-          if (seen[c.vod_id]) continue;
-          seen[c.vod_id] = 1;
-          list.push(c);
-        }
-      } catch (e) {
-        this.log("seg item failed: " + e);
-      }
+  // 分类文件夹：46 个分类 + 21 个标准分类
+  catFolders() {
+    const out = [];
+    for (const c of this.cats || []) {
+      out.push({
+        vod_id: "cat:" + c.slug,
+        vod_name: c.name,
+        vod_pic: "",
+        vod_remarks: "分类",
+        vod_tag: "folder",
+      });
     }
-    const more = Math.max(1, p) * max < g.items.length;
-    return this.page(list, p, 23, more ? (p + 1) * 23 : p * 23);
+    for (const [slug, name] of GENRES) {
+      out.push({
+        vod_id: "g:" + slug,
+        vod_name: name,
+        vod_pic: "",
+        vod_remarks: "标准分类",
+        vod_tag: "folder",
+      });
+    }
+    return out;
+  }
+
+  // 作者文件夹：按名字 A-Z 排序，不再分字母层
+  authorFolders() {
+    const list = (this.models || []).slice();
+    list.sort((a, b) => {
+      const x = String(a.name).toLowerCase();
+      const y = String(b.name).toLowerCase();
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
+    return list.map((m) => ({
+      vod_id: "mdl:" + m.slug,
+      vod_name: m.name,
+      vod_pic: "",
+      vod_remarks: "作者",
+      vod_tag: "folder",
+    }));
+  }
+
+  // 标签文件夹第一层：字母
+  letterFolders() {
+    const out = [];
+    for (const g of this.buildTagSegments()) {
+      out.push({
+        vod_id: "seg:" + g.key,
+        vod_name: g.key,
+        vod_pic: "",
+        vod_remarks: g.items.length + " 个标签",
+        vod_tag: "folder",
+      });
+    }
+    return out;
+  }
+
+  // 标签文件夹第二层：该字母下的标签
+  tagFolders(seg) {
+    const g = this.buildTagSegments().find((x) => x.key === seg);
+    if (!g) return [];
+    return g.items.map((t) => ({
+      vod_id: "tg:" + t,
+      vod_name: t,
+      vod_pic: "",
+      vod_remarks: "标签",
+      vod_tag: "folder",
+    }));
   }
 
   // ---------------- 分类列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
+    const p = Number(pg) || 1;
+
+    // ---- 文件夹导航层 ----
+    if (tid === "catf") {
+      const list = this.catFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid === "authf") {
+      const list = this.authorFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid === "tagf") {
+      const list = this.letterFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("seg:") === 0) {
+      const list = this.tagFolders(tid.substring(4));
+      return this.page(list, 1, list.length, list.length);
+    }
+
     // 点「网页」打开原站
     if (tid === "web") {
       try {
@@ -224,12 +325,13 @@ export default class Rule34Video extends Spider {
     }
 
     const sort = (extend && extend.sort) || "post_date";
-    const p = Number(pg) || 1;
     const suffix = p > 1 ? p + "/" : "";
 
     let url;
-    if (tid.indexOf("seg:") === 0) {
-      return await this.segmentList(tid.substring(4), p);
+    if (tid.indexOf("mdl:") === 0) {
+      url = BASE + "/models/" + tid.substring(4) + "/" + suffix + "?sort_by=" + sort;
+    } else if (tid.indexOf("tg:") === 0) {
+      url = BASE + "/tags/" + tid.substring(3) + "/" + suffix + "?sort_by=" + sort;
     } else if (tid.indexOf("g:") === 0) {
       url = BASE + "/tags/" + tid.substring(2) + "/" + suffix + "?sort_by=" + sort;
     } else if (tid.indexOf("cat:") === 0) {

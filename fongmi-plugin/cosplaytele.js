@@ -304,12 +304,27 @@ export default class CosplayTele extends Spider {
       }
     }
 
-    // 按字母分段（分类 + 标签合计 686 个，直接铺开会太长）
-    for (const g of this.buildSegments()) {
-      classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
-    }
+    // 作者：站点没有作者索引页，从列表标题里提取（"作者 cosplay 作品"）
+    await this.buildAuthors();
 
-    // 排序筛选器（站点只支持正序/倒序）
+    // 二级结构：分类 / 标签 / 作者 各收成一个文件夹入口
+    classes.push({
+      type_id: "catf",
+      type_name: "分类 (" + (this.cats ? this.cats.length : 0) + ")",
+      type_flag: "1",
+    });
+    classes.push({
+      type_id: "tagf",
+      type_name: "标签 (" + (this.tags ? this.tags.length : 0) + ")",
+      type_flag: "1",
+    });
+    classes.push({
+      type_id: "authf",
+      type_name: "作者 (" + ((this.authors || []).length) + ")",
+      type_flag: "1",
+    });
+
+    // 排序筛选器（站点只支持正序/倒序）：只给视频列表层
     const orders = [
       { n: "最新在前", v: "desc" },
       { n: "最早在前", v: "asc" },
@@ -320,57 +335,124 @@ export default class CosplayTele extends Spider {
     return { class: classes, filters: filters };
   }
 
-  // 字母分段：把分类/标签按首字母分组
-  buildSegments() {
-    if (this.segs) return this.segs;
+  // 按首字母分组（cats / tags 各自分组）
+  groupLetters(list) {
     const groups = {};
-    const push = (kind, slug) => {
-      const ch = String(slug).charAt(0).toUpperCase();
+    for (const s of list || []) {
+      const ch = String(s).charAt(0).toUpperCase();
       const key = ch >= "A" && ch <= "Z" ? ch : "#";
       groups[key] = groups[key] || [];
-      groups[key].push(kind + ":" + slug);
-    };
-    for (const s of this.cats || []) push("cat", s);
-    for (const s of this.tags || []) push("tag", s);
-    const keys = Object.keys(groups).sort();
-    this.segs = keys.map((k) => ({ key: k, items: groups[k] }));
-    return this.segs;
+      groups[key].push(s);
+    }
+    return Object.keys(groups)
+      .sort()
+      .map((k) => ({ key: k, items: groups[k] }));
   }
 
-  // 某个字母段的视频合计
-  async segmentList(seg, p) {
-    const list = [];
-    const seen = {};
-    const groups = this.buildSegments();
-    const g = groups.find((x) => x.key === seg);
-    if (!g) return this.page([], p, 12, 0);
+  // 字母层文件夹（分类/标签各一套）
+  letterFolders(kind) {
+    const list = kind === "cat" ? this.cats : this.tags;
+    return this.groupLetters(list).map((g) => ({
+      vod_id: (kind === "cat" ? "cseg:" : "tseg:") + g.key,
+      vod_name: g.key,
+      vod_pic: "",
+      vod_remarks: g.items.length + " 项",
+      vod_tag: "folder",
+    }));
+  }
 
-    const max = 6;
-    const items = g.items.slice((Math.max(1, p) - 1) * max, Math.max(1, p) * max);
-    for (const it of items) {
-      let url;
-      if (it.indexOf("tag:") === 0) url = BASE + "/tag/" + it.substring(4) + "/";
-      else url = BASE + "/category/" + it.substring(4) + "/";
-      try {
-        const r = await this.net.req(url, { headers: headers() });
-        if (!r || r.code !== 200) continue;
-        for (const c of parseCards(r.content)) {
-          if (seen[c.vod_id]) continue;
-          seen[c.vod_id] = 1;
-          list.push(c);
+  // 明细层文件夹：该字母下的分类 / 标签
+  itemFolders(kind, key) {
+    const list = kind === "cat" ? this.cats : this.tags;
+    const g = this.groupLetters(list).find((x) => x.key === key);
+    if (!g) return [];
+    return g.items.map((slug) => ({
+      vod_id: (kind === "cat" ? "cat:" : "tag:") + slug,
+      vod_name: slug,
+      vod_pic: "",
+      vod_remarks: kind === "cat" ? "分类" : "标签",
+      vod_tag: "folder",
+    }));
+  }
+
+  // 从列表标题提取作者（"Byoru (ビョル) cosplay …" → "Byoru (ビョル)"）
+  async buildAuthors() {
+    if (this.authors) return this.authors;
+    const names = {};
+    const bases = ["/category/video-cosplayyy/", "/category/cosplay-nudee/", "/category/cosplay-ero/"];
+    for (const b of bases) {
+      for (let p = 1; p <= 2; p++) {
+        const u = BASE + b + (p > 1 ? "page/" + p + "/" : "");
+        let r;
+        try {
+          r = await this.net.req(u, { headers: headers() });
+        } catch (e) {
+          break;
         }
-      } catch (e) {
-        this.log("seg item failed: " + e);
+        if (!r || r.code !== 200) break;
+        const cards = parseCards(r.content);
+        if (!cards.length) break;
+        for (const c of cards) {
+          const t = String(c.vod_name || "");
+          const m = t.match(/^(.*?)\s+cosplay\b/i) || t.match(/^(.*?)\s+[–—\-]\s+/);
+          if (!m) continue;
+          const nm = m[1].replace(/["“”'']/g, "").trim();
+          if (!nm || nm.length > 40 || nm.length < 2) continue;
+          names[nm] = (names[nm] || 0) + 1;
+        }
       }
     }
+    this.authors = Object.keys(names)
+      .map((n) => ({ name: n, count: names[n] }))
+      .sort((a, b) => {
+        const x = a.name.toLowerCase();
+        const y = b.name.toLowerCase();
+        return x < y ? -1 : x > y ? 1 : 0;
+      });
+    return this.authors;
+  }
 
-    // 该段还有更多分类就允许翻页
-    const more = Math.max(1, p) * max < g.items.length;
-    return this.page(list, p, 12, more ? (p + 1) * 12 : p * 12);
+  // 作者文件夹（A-Z 平铺，不分字母层）
+  authorFolders() {
+    return (this.authors || []).map((a) => ({
+      vod_id: "auth:" + a.name,
+      vod_name: a.name,
+      vod_pic: "",
+      vod_remarks: a.count + " 部",
+      vod_tag: "folder",
+    }));
   }
 
   // ---------------- 分类列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
+    const p = Number(pg) || 1;
+
+    // ---- 文件夹导航层 ----
+    if (tid === "authf") {
+      const list = this.authorFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("auth:") === 0) {
+      // 作者层的视频 = 用名字搜索
+      return await this.searchContent(tid.substring(5), true, String(p));
+    }
+    if (tid === "catf") {
+      const list = this.letterFolders("cat");
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid === "tagf") {
+      const list = this.letterFolders("tag");
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("cseg:") === 0) {
+      const list = this.itemFolders("cat", tid.substring(5));
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("tseg:") === 0) {
+      const list = this.itemFolders("tag", tid.substring(5));
+      return this.page(list, 1, list.length, list.length);
+    }
+
     // 点「网页」打开原站，方便看图片
     if (tid === "web") {
       try {
@@ -379,14 +461,6 @@ export default class CosplayTele extends Spider {
         this.log("openWeb failed: " + e);
       }
       return this.page([], 1, 12, 0);
-    }
-
-    const p = Number(pg) || 1;
-
-    // 字母段：段内取前 6 个分类/标签的第一页，合并返回
-    if (tid.indexOf("seg:") === 0) {
-      const seg = tid.substring(4);
-      return await this.segmentList(seg, p);
     }
 
     let url;

@@ -22,6 +22,12 @@ const CATS = [
   ["s15", "/video-series/15", "Faphouse"],
 ];
 
+// 分组：厂牌 / 类型（用于二级文件夹）
+const GROUPS = [
+  ["group:brand", "厂牌", ["s21", "s20", "s8", "s42"]],
+  ["group:type", "类型", ["s5", "s4", "s62", "s44", "s55", "s15"]],
+];
+
 function headers(ref) {
   return {
     "User-Agent": UA,
@@ -95,13 +101,101 @@ export default class XChina extends Spider {
   }
 
   async homeContent(filter) {
-    const classes = [{ type_id: CATS[0][0], type_name: CATS[0][2] }];
+    const classes = [{ type_id: "latest", type_name: "最新" }];
     classes.push({ type_id: "web", type_name: "网页" });
-    for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
-    return { class: classes };
+    // 频道收进两个文件夹（厂牌 / 类型）
+    for (const [tid, name, keys] of GROUPS) {
+      classes.push({ type_id: tid, type_name: name + " (" + keys.length + ")", type_flag: "1" });
+    }
+    // 作者（/models 索引，取前 3 页）
+    this.models = [];
+    try {
+      for (let mp = 1; mp <= 3; mp++) {
+        const mu = BASE + "/models" + (mp > 1 ? "?page=" + mp : "");
+        const mr = await this.net.req(mu, { headers: headers() });
+        if (!mr || mr.code !== 200) break;
+        const mre = /<a[^>]*href="\/model\/([a-z0-9]+)"[^>]*>([\s\S]{0,700}?)<\/a>/g;
+        let mm;
+        let added = 0;
+        while ((mm = mre.exec(mr.content)) !== null) {
+          const id = mm[1];
+          if (this.models.some((x) => x.id === id)) continue;
+          let nm = "";
+          const alt = mm[2].match(/alt="([^"]*)"/);
+          if (alt) nm = strip(alt[1]);
+          if (!nm) {
+            const tx = mm[2].match(/<div class="[^"]*name[^"]*">\s*([^<]+)/);
+            if (tx) nm = strip(tx[1]);
+          }
+          if (!nm) continue;
+          this.models.push({ id: id, name: nm });
+          added++;
+        }
+        if (added === 0) break;
+      }
+    } catch (e) {
+      this.log("models failed: " + e);
+    }
+
+    classes.push({ type_id: "authf", type_name: "作者 (" + ((this.models || []).length) + ")", type_flag: "1" });
+
+    // 排序筛选（站点支持 ?sort=read|comment|length）
+    const sorts = [
+      { n: "最新", v: "" },
+      { n: "最多播放", v: "read" },
+      { n: "最多评论", v: "comment" },
+      { n: "时长", v: "length" },
+    ];
+    const filters = {};
+    for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
+
+    return { class: classes, filters: filters };
+  }
+
+  // 分组 -> 频道文件夹
+  groupFolders(gid) {
+    const g = GROUPS.find((x) => x[0] === gid);
+    if (!g) return [];
+    return g[2]
+      .map((key) => CATS.find((c) => c[0] === key))
+      .filter(Boolean)
+      .map(([tid, , name]) => ({
+        vod_id: tid,
+        vod_name: name,
+        vod_pic: "",
+        vod_remarks: "频道",
+        vod_tag: "folder",
+      }));
+  }
+
+  // 作者文件夹：按名字 A-Z 排序，不分字母层
+  authorFolders() {
+    const list = (this.models || []).slice();
+    list.sort((a, b) => {
+      const x = String(a.name).toLowerCase();
+      const y = String(b.name).toLowerCase();
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
+    return list.map((m) => ({
+      vod_id: "mdl:" + m.id,
+      vod_name: m.name,
+      vod_pic: "",
+      vod_remarks: "模特",
+      vod_tag: "folder",
+    }));
   }
 
   async categoryContent(tid, pg, filter, extend) {
+    // ---- 文件夹导航层 ----
+    if (tid === "authf") {
+      const list = this.authorFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("group:") === 0) {
+      const list = this.groupFolders(tid);
+      return this.page(list, 1, list.length, list.length);
+    }
+
     if (tid === "web") {
       try {
         openWeb({ url: BASE });
@@ -111,16 +205,30 @@ export default class XChina extends Spider {
       return this.page([], 1, 23, 0);
     }
 
-    let path = CATS[0][1];
-    for (const c of CATS) {
-      if (c[0] === tid) {
-        path = c[1];
-        break;
+    let path = "";
+    if (tid.indexOf("mdl:") === 0) {
+      // 模特页：/model/<id>，翻页用 ?page=N
+      const p1 = Number(pg) || 1;
+      const u1 = BASE + "/model/" + tid.substring(4) + (p1 > 1 ? "?page=" + p1 : "");
+      const r1 = await this.net.req(u1, { headers: headers() });
+      if (!r1 || r1.code !== 200) return this.page([], p1, 23, 0);
+      const c1 = parseCards(r1.content);
+      if (c1.length === 0) return this.page([], p1, 23, (p1 - 1) * 23);
+      return this.page(c1, p1, 23, (p1 + 1) * 23);
+    }
+    if (tid !== "latest") {
+      path = CATS[0][1];
+      for (const c of CATS) {
+        if (c[0] === tid) {
+          path = c[1];
+          break;
+        }
       }
     }
 
     const p = Number(pg) || 1;
-    const url = BASE + path + (p > 1 ? "/" + p : "");
+    const sort = (extend && extend.sort) || "";
+    const url = BASE + (path === "" ? "" : path) + (p > 1 ? "/" + p : "") + (sort ? "?sort=" + sort : "");
 
     const r = await this.net.req(url, { headers: headers() });
     if (!r || r.code !== 200) return this.page([], p, 23, 0);

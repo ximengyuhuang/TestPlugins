@@ -426,14 +426,125 @@ export default class Mitaku extends Spider {
       }
     }
 
-    for (const [slug, name] of this.tagCache || []) {
-      classes.push({ type_id: "t:" + slug, type_name: "#" + name });
-    }
+    // 作者：站点没有作者索引页，从帖子标题提取（"作者 – 作品"）
+    await this.buildAuthors();
+
+    // 标签收进「标签」文件夹（按首字母分段 → 标签 → 视频）
+    classes.push({
+      type_id: "tagf",
+      type_name: "标签 (" + ((this.tagCache || []).length) + ")",
+      type_flag: "1",
+    });
+
+    classes.push({
+      type_id: "authf",
+      type_name: "作者 (" + ((this.authors || []).length) + ")",
+      type_flag: "1",
+    });
 
     return { class: classes };
   }
 
+  // 从标题提取作者（"Tokar 浵卡 – Kisaki (Blue Archive)" → "Tokar 浵卡"）
+  async buildAuthors() {
+    if (this.authors) return this.authors;
+    const names = {};
+    for (let p = 1; p <= 3; p++) {
+      const u = SITE + "/category/online-video/" + (p > 1 ? "page/" + p + "/" : "");
+      let r;
+      try {
+        r = await this.net.req(u, { headers: headers() });
+      } catch (e) {
+        break;
+      }
+      if (!r || r.code !== 200) break;
+      const posts = parsePosts(r.content);
+      if (!posts.length) break;
+      for (const post of posts) {
+        const t = String(post.title || "");
+        const m = t.match(/^(.*?)\s+[–—\-]\s+/);
+        if (!m) continue;
+        const nm = m[1].replace(/["“”'']/g, "").trim();
+        if (!nm || nm.length > 40 || nm.length < 2) continue;
+        names[nm] = (names[nm] || 0) + 1;
+      }
+    }
+    this.authors = Object.keys(names)
+      .map((n) => ({ name: n, count: names[n] }))
+      .sort((a, b) => {
+        const x = a.name.toLowerCase();
+        const y = b.name.toLowerCase();
+        return x < y ? -1 : x > y ? 1 : 0;
+      });
+    return this.authors;
+  }
+
+  // 作者文件夹（A-Z 平铺，不分字母层）
+  authorFolders() {
+    return (this.authors || []).map((a) => ({
+      vod_id: "auth:" + a.name,
+      vod_name: a.name,
+      vod_pic: "",
+      vod_remarks: a.count + " 部",
+      vod_tag: "folder",
+    }));
+  }
+
+  // 按首字母分组（用标签显示名）
+  groupLetters() {
+    const groups = {};
+    for (const [slug, name] of this.tagCache || []) {
+      const ch = String(name).charAt(0).toUpperCase();
+      const key = ch >= "A" && ch <= "Z" ? ch : "#";
+      groups[key] = groups[key] || [];
+      groups[key].push([slug, name]);
+    }
+    return Object.keys(groups)
+      .sort()
+      .map((k) => ({ key: k, items: groups[k] }));
+  }
+
+  letterFolders() {
+    return this.groupLetters().map((g) => ({
+      vod_id: "seg:" + g.key,
+      vod_name: g.key,
+      vod_pic: "",
+      vod_remarks: g.items.length + " 个标签",
+      vod_tag: "folder",
+    }));
+  }
+
+  tagFolders(seg) {
+    const g = this.groupLetters().find((x) => x.key === seg);
+    if (!g) return [];
+    return g.items.map(([slug, name]) => ({
+      vod_id: "t:" + slug,
+      vod_name: name,
+      vod_pic: "",
+      vod_remarks: "标签",
+      vod_tag: "folder",
+    }));
+  }
+
   async categoryContent(tid, pg, filter, extend) {
+    // ---- 文件夹导航层 ----
+    if (tid === "authf") {
+      const list = this.authorFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("auth:") === 0) {
+      // 作者层的视频 = 用名字搜索
+      return await this.searchContent(tid.substring(5), true, String(Number(pg) || 1));
+    }
+    if (tid === "tagf") {
+      const list = this.letterFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("seg:") === 0) {
+      const list = this.tagFolders(tid.substring(4));
+      return this.page(list, 1, list.length, list.length);
+    }
+
     if (tid === "web") {
       try {
         openWeb({ url: SITE });

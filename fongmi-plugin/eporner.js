@@ -143,17 +143,19 @@ export default class EPorner extends Spider {
       }
     }
 
-    // 标准分类（PornHub 那套，28 个，全部有对应标签）
-    for (const [slug, name] of GENRES) {
-      classes.push({ type_id: "g:" + slug, type_name: name });
-    }
+    // 二级结构：分类 / 标签 各收成一个文件夹入口（type_flag=1 → 列表样式）
+    classes.push({
+      type_id: "cat",
+      type_name: "分类 (" + GENRES.length + ")",
+      type_flag: "1",
+    });
+    classes.push({
+      type_id: "tagf",
+      type_name: "标签 (" + (this.tags ? this.tags.length : 0) + ")",
+      type_flag: "1",
+    });
 
-    // 按字母分段（标签 200 个，直接铺太长）
-    for (const g of this.buildSegments()) {
-      classes.push({ type_id: "seg:" + g.key, type_name: g.key + " (" + g.items.length + ")" });
-    }
-
-    // 排序筛选器（右下角漏斗）
+    // 排序筛选器（右下角漏斗）：只给视频列表层
     const sorts = [
       { n: "最新", v: "recent" },
       { n: "最多观看", v: "views" },
@@ -162,6 +164,7 @@ export default class EPorner extends Spider {
     ];
     const filters = {};
     for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
+    for (const [slug] of GENRES) filters["g:" + slug] = [{ key: "sort", name: "排序", value: sorts }];
 
     return { class: classes, filters: filters };
   }
@@ -181,34 +184,65 @@ export default class EPorner extends Spider {
     return this.segs;
   }
 
-  async segmentList(seg, p) {
-    const list = [];
-    const seen = {};
-    const groups = this.buildSegments();
-    const g = groups.find((x) => x.key === seg);
-    if (!g) return this.page([], p, 30, 0);
-
-    const max = 6;
-    const items = g.items.slice((Math.max(1, p) - 1) * max, Math.max(1, p) * max);
-    for (const t of items) {
-      try {
-        const r = await this.net.req(BASE + "/tag/" + t + "/", { headers: headers() });
-        if (!r || r.code !== 200) continue;
-        for (const c of parseCards(r.content)) {
-          if (seen[c.vod_id]) continue;
-          seen[c.vod_id] = 1;
-          list.push(c);
-        }
-      } catch (e) {
-        this.log("seg item failed: " + e);
-      }
+  // 分类文件夹：28 个标准分类
+  genreFolders() {
+    const out = [];
+    for (const [slug, name] of GENRES) {
+      out.push({
+        vod_id: "g:" + slug,
+        vod_name: name,
+        vod_pic: "",
+        vod_remarks: "分类",
+        vod_tag: "folder",
+      });
     }
-    const more = Math.max(1, p) * max < g.items.length;
-    return this.page(list, p, 30, more ? (p + 1) * 30 : p * 30);
+    return out;
+  }
+
+  // 标签文件夹第一层：字母
+  letterFolders() {
+    const out = [];
+    for (const g of this.buildSegments()) {
+      out.push({
+        vod_id: "seg:" + g.key,
+        vod_name: g.key,
+        vod_pic: "",
+        vod_remarks: g.items.length + " 个标签",
+        vod_tag: "folder",
+      });
+    }
+    return out;
+  }
+
+  // 标签文件夹第二层：该字母下的标签
+  tagFolders(seg) {
+    const g = this.buildSegments().find((x) => x.key === seg);
+    if (!g) return [];
+    return g.items.map((t) => ({
+      vod_id: "tg:" + t,
+      vod_name: t,
+      vod_pic: "",
+      vod_remarks: "标签",
+      vod_tag: "folder",
+    }));
   }
 
   async categoryContent(tid, pg, filter, extend) {
-    if (tid.indexOf("seg:") === 0) return await this.segmentList(tid.substring(4), Number(pg) || 1);
+    const p = Number(pg) || 1;
+
+    // ---- 文件夹导航层 ----
+    if (tid === "cat") {
+      const list = this.genreFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid === "tagf") {
+      const list = this.letterFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("seg:") === 0) {
+      const list = this.tagFolders(tid.substring(4));
+      return this.page(list, 1, list.length, list.length);
+    }
 
     if (tid === "web") {
       try {
@@ -219,9 +253,12 @@ export default class EPorner extends Spider {
       return this.page([], 1, 30, 0);
     }
 
+    // ---- 视频列表层 ----
     let path = CATS[0][1];
     if (tid.indexOf("g:") === 0) {
       path = "/tag/" + tid.substring(2) + "/";
+    } else if (tid.indexOf("tg:") === 0) {
+      path = "/tag/" + tid.substring(3) + "/";
     } else if (tid.indexOf("tag:") === 0) {
       path = "/tag/" + tid.substring(4) + "/";
     } else {
@@ -233,7 +270,6 @@ export default class EPorner extends Spider {
       }
     }
 
-    const p = Number(pg) || 1;
     const sort = (extend && extend.sort) || "recent";
     let url;
     if (p <= 1) {

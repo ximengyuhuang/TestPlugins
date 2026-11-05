@@ -5,7 +5,10 @@
       "name": "Rule34Video",
       "type": 3,
       "api": "./rule34video.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -13,7 +16,10 @@
       "name": "CosplayTele",
       "type": 3,
       "api": "./cosplaytele.js",
-      "style": { "type": "rect", "ratio": 1.5 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.5
+      },
       "ext": {}
     },
     {
@@ -21,7 +27,10 @@
       "name": "Hanime1",
       "type": 3,
       "api": "./hanime1.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -29,7 +38,10 @@
       "name": "RouVideo",
       "type": 3,
       "api": "./rouvideo.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -37,7 +49,10 @@
       "name": "MissAV",
       "type": 3,
       "api": "./missav.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -45,7 +60,10 @@
       "name": "Javtiful",
       "type": 3,
       "api": "./javtiful.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -53,7 +71,10 @@
       "name": "EPorner",
       "type": 3,
       "api": "./eporner.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -61,7 +82,10 @@
       "name": "ASMR.one",
       "type": 3,
       "api": "./asmrone.js",
-      "style": { "type": "rect", "ratio": 1.33 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.33
+      },
       "ext": {}
     },
     {
@@ -69,7 +93,10 @@
       "name": "xChina",
       "type": 3,
       "api": "./xchina.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -77,7 +104,10 @@
       "name": "黄视频",
       "type": 3,
       "api": "./huang.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     },
     {
@@ -85,7 +115,21 @@
       "name": "Mitaku",
       "type": 3,
       "api": "./mitaku.js",
-      "style": { "type": "rect", "ratio": 1.78 },
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
+      "ext": {}
+    },
+    {
+      "key": "p91",
+      "name": "91porn",
+      "type": 3,
+      "api": "./p91.js",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
       "ext": {}
     }
   ]

@@ -128,9 +128,11 @@ export default class Javtiful extends Spider {
   }
 
   async homeContent(filter) {
-    const classes = [{ type_id: CATS[0][0], type_name: CATS[0][2] }];
-    classes.push({ type_id: "web", type_name: "网页" });
-    for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
+    // CATS = [最新, 最多观看, 评分最高, ...题材]
+    const sorts3 = CATS.slice(0, 3);
+    const themes = CATS.slice(3);
+    const classes = sorts3.map(([k, , n]) => ({ type_id: k, type_name: n }));
+    classes.splice(1, 0, { type_id: "web", type_name: "网页" });
 
     // 动态补全分类：/categories 页的 category-card
     if (!this.cats) {
@@ -152,16 +154,13 @@ export default class Javtiful extends Spider {
       }
     }
 
-    for (const [name, path] of this.cats || []) {
-      const id = "c:" + path;
-      if (classes.some((c) => c.type_id === id)) continue;
-      classes.push({ type_id: id, type_name: name });
-    }
+    // 动态分类收进「分类」文件夹（不在首页平铺）
+    const dyn = (this.cats || []).slice();
 
-    // 标准分类（PornHub 那套，28 个，走搜索）
-    for (const [name] of GENRES) {
-      classes.push({ type_id: "g:" + name, type_name: name });
-    }
+    // 二级结构：题材 / 分类 / 标准分类 三个文件夹入口
+    classes.push({ type_id: "themef", type_name: "题材 (" + themes.length + ")", type_flag: "1" });
+    classes.push({ type_id: "catf", type_name: "分类 (" + dyn.length + ")", type_flag: "1" });
+    classes.push({ type_id: "genf", type_name: "标准分类 (" + GENRES.length + ")", type_flag: "1" });
 
     // 排序筛选器（右下角漏斗；分类页会忽略，列表页生效）
     const sorts = [
@@ -171,8 +170,43 @@ export default class Javtiful extends Spider {
     ];
     const filters = {};
     for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
+    for (const [name] of GENRES) filters["g:" + name] = [{ key: "sort", name: "排序", value: sorts }];
+    for (const [, path] of dyn) filters["c:" + path] = [{ key: "sort", name: "排序", value: sorts }];
 
     return { class: classes, filters: filters };
+  }
+
+  // 题材文件夹
+  themeFolders() {
+    return CATS.slice(3).map(([key, , name]) => ({
+      vod_id: "t:" + key,
+      vod_name: name,
+      vod_pic: "",
+      vod_remarks: "题材",
+      vod_tag: "folder",
+    }));
+  }
+
+  // 分类文件夹：动态分类
+  catFolders() {
+    return (this.cats || []).map(([name, path]) => ({
+      vod_id: "c:" + path,
+      vod_name: name,
+      vod_pic: "",
+      vod_remarks: "分类",
+      vod_tag: "folder",
+    }));
+  }
+
+  // 标准分类文件夹
+  genreFolders() {
+    return GENRES.map(([name]) => ({
+      vod_id: "g:" + name,
+      vod_name: name,
+      vod_pic: "",
+      vod_remarks: "标准",
+      vod_tag: "folder",
+    }));
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -185,9 +219,31 @@ export default class Javtiful extends Spider {
       return this.page([], 1, 24, 0);
     }
 
+    // ---- 文件夹导航层 ----
+    if (tid === "themef") {
+      const list = this.themeFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid === "catf") {
+      const list = this.catFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid === "genf") {
+      const list = this.genreFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+
     let path = CATS[0][1];
     if (tid.indexOf("c:") === 0) {
       path = tid.substring(2);
+    } else if (tid.indexOf("t:") === 0) {
+      const key = tid.substring(2);
+      for (const c of CATS) {
+        if (c[0] === key) {
+          path = c[1];
+          break;
+        }
+      }
     } else {
       for (const c of CATS) {
         if (c[0] === tid) {

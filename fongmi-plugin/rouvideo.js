@@ -369,9 +369,12 @@ export default class RouVideo extends Spider {
       }
     }
 
-    for (const t of this.tags || []) {
-      classes.push({ type_id: "tag:" + t, type_name: t });
-    }
+    // 标签收进「标签」文件夹（字母层 → 标签层 → 视频）
+    classes.push({
+      type_id: "tagf",
+      type_name: "标签 (" + (this.tags ? this.tags.length : 0) + ")",
+      type_flag: "1",
+    });
 
     const orders = [
       { n: "最新", v: "createdAt" },
@@ -380,11 +383,58 @@ export default class RouVideo extends Spider {
     ];
     const filters = {};
     for (const c of classes) filters[c.type_id] = [{ key: "order", name: "排序", value: orders }];
+    for (const t of this.tags || []) filters["tag:" + t] = [{ key: "order", name: "排序", value: orders }];
 
     return { class: classes, filters: filters };
   }
 
+  // 按首字母分组
+  groupLetters() {
+    const groups = {};
+    for (const t of this.tags || []) {
+      const ch = String(t).charAt(0).toUpperCase();
+      const key = ch >= "A" && ch <= "Z" ? ch : "#";
+      groups[key] = groups[key] || [];
+      groups[key].push(t);
+    }
+    return Object.keys(groups)
+      .sort()
+      .map((k) => ({ key: k, items: groups[k] }));
+  }
+
+  letterFolders() {
+    return this.groupLetters().map((g) => ({
+      vod_id: "seg:" + g.key,
+      vod_name: g.key,
+      vod_pic: "",
+      vod_remarks: g.items.length + " 个标签",
+      vod_tag: "folder",
+    }));
+  }
+
+  tagFolders(seg) {
+    const g = this.groupLetters().find((x) => x.key === seg);
+    if (!g) return [];
+    return g.items.map((t) => ({
+      vod_id: "tag:" + t,
+      vod_name: t,
+      vod_pic: "",
+      vod_remarks: "标签",
+      vod_tag: "folder",
+    }));
+  }
+
   async categoryContent(tid, pg, filter, extend) {
+    // ---- 文件夹导航层 ----
+    if (tid === "tagf") {
+      const list = this.letterFolders();
+      return this.page(list, 1, list.length, list.length);
+    }
+    if (tid.indexOf("seg:") === 0) {
+      const list = this.tagFolders(tid.substring(4));
+      return this.page(list, 1, list.length, list.length);
+    }
+
     if (tid === "web") {
       try {
         openWeb({ url: BASE + "/v" });
