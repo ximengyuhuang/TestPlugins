@@ -74,7 +74,9 @@ var sentinel = document.getElementById('sentinel');
 var tip = document.getElementById('tip');
 
 function qs(k) {
-  var m = new RegExp('[?&]' + k + '=([^&]*)').exec(location.search);
+  // 参数可能来自 query（短的兜底地址）也可能来自 #（长的图片列表，不发往服务器）
+  var raw = location.search + '&' + String(location.hash || '').replace(/^#/, '');
+  var m = new RegExp('[?&]' + k + '=([^&]*)').exec(raw);
   return m ? decodeURIComponent(m[1]) : '';
 }
 

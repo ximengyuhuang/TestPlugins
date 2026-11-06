@@ -603,15 +603,14 @@ export default class CosplayTele extends Spider {
 
     if (imgs.length === 0) return { msg: "这个帖子没有图片" };
 
-    // 图片地址内联进 URL（秒开、张数与二级菜单一致）；太长才退回 ?u= 兜底
-    // 注意：不能用 encodeURIComponent 整体编码，它会把 "/" 变 %2F，长度直接翻三倍
+    // 图片列表放在 URL 片段（#）里：片段不发给服务器，绕开 GitHub Pages 的 8KB
+    // 请求行上限（放 query 里 164 张就被 414 拒了）；query 只留帖子地址做兜底
+    // 注意：不能用 encodeURIComponent 整体编码，它会把 "/" 变 %2F，长度翻三倍
     const esc = (s) => String(s).replace(/%/g, "%25").replace(/&/g, "%26").replace(/#/g, "%23").replace(/\+/g, "%2B").replace(/ /g, "%20");
-    const base =
-      GAL + "?t=" + encodeURIComponent(title) + "&u=" + encodeURIComponent(u) + "&b=" + encodeURIComponent(BASE);
+    const purl = GAL + "?u=" + encodeURIComponent(u);
     const short = imgs.map((x) => (x.indexOf(BASE) === 0 ? x.substring(BASE.length) : x)).join("|");
-    let purl = base + "&i=" + esc(short);
-    if (purl.length > 60000) purl = base;
-    return { web: { url: purl, mode: "view" } };
+    const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(BASE) + "&i=" + esc(short);
+    return { web: { url: purl + hash, mode: "view" } };
   }
 
   // ---------------- 详情 ----------------

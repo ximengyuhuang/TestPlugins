@@ -397,17 +397,17 @@ export default class Xiaocong extends Spider {
       this.log("gallery prefetch failed: " + e);
     }
 
+    // 图片列表放进 URL 片段（#）里：片段不发给服务器，所以不会被 GitHub Pages
+    // 的 8KB 请求行上限拦成 414；query 里只留帖子地址做兜底
     const esc = (s) =>
       String(s).replace(/%/g, "%25").replace(/&/g, "%26").replace(/#/g, "%23").replace(/\+/g, "%2B").replace(/ /g, "%20");
-    const base = GAL + "?t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(CDN);
-    let purl = base + "&u=" + encodeURIComponent(u);
-    if (imgs.length > 0) {
-      // 图片只传路径，页面前缀补全；太长就退回 ?u= 兜底
-      const short = imgs.map((x) => x.replace(CDN, "")).join("|");
-      const inl = base + "&i=" + esc(short);
-      if (inl.length <= 60000) purl = inl;
-    }
-    return { web: { url: purl, mode: "view" } };
+    const purl = GAL + "?u=" + encodeURIComponent(u);
+    if (imgs.length === 0) return { web: { url: purl, mode: "view" } };
+
+    // 图片只传路径，页面前缀补全
+    const short = imgs.map((x) => x.replace(CDN, "")).join("|");
+    const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(CDN) + "&i=" + esc(short);
+    return { web: { url: purl + hash, mode: "view" } };
   }
 
   async searchContent(key, quick, pg = "1") {
