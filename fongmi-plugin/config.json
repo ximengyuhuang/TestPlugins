@@ -142,6 +142,17 @@
         "ratio": 1.78
       },
       "ext": {}
+    },
+    {
+      "key": "ssimg",
+      "name": "绅士俱乐部",
+      "type": 3,
+      "api": "./ssimg.js",
+      "style": {
+        "type": "rect",
+        "ratio": 0.75
+      },
+      "ext": {}
     }
   ]
 }
