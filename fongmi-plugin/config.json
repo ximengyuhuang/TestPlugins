@@ -131,6 +131,17 @@
         "ratio": 1.78
       },
       "ext": {}
+    },
+    {
+      "key": "xiaocong",
+      "name": "小葱资源",
+      "type": 3,
+      "api": "./xiaocong.js",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
+      "ext": {}
     }
   ]
 }

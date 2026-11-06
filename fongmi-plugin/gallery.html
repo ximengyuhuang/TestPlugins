@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes,viewport-fit=cover">
+<meta name="theme-color" content="#111">
+<title>图集</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{background:#0f0f10;color:#e6e6e6;
+    font-family:-apple-system,BlinkMacSystemFont,"Noto Sans CJK SC","PingFang SC",sans-serif}
+  header{position:sticky;top:0;z-index:20;background:rgba(15,15,16,.96);
+    backdrop-filter:blur(8px);padding:12px 14px;border-bottom:1px solid #242426}
+  header h1{font-size:15px;font-weight:600;color:#fff;line-height:1.35;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  header .meta{margin-top:4px;font-size:12px;color:#8b8b90}
+  #grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px}
+  @media(min-width:640px){#grid{grid-template-columns:repeat(3,1fr)}}
+  @media(min-width:900px){#grid{grid-template-columns:repeat(4,1fr)}}
+  .cell{position:relative;background:#1a1a1c;border-radius:8px;overflow:hidden;
+    aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .cell img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
+    transition:opacity .25s}
+  .cell img.ok{opacity:1}
+  .cell .idx{position:absolute;right:6px;bottom:6px;font-size:11px;color:#fff;
+    background:rgba(0,0,0,.55);padding:1px 6px;border-radius:9px}
+  #sentinel{padding:18px;text-align:center;color:#6d6d72;font-size:13px}
+  #tip{padding:40px 20px;text-align:center;color:#8b8b90;font-size:14px;line-height:1.7}
+  .spin{width:22px;height:22px;border:2px solid #333;border-top-color:#8b8b90;
+    border-radius:50%;margin:0 auto 10px;animation:r .8s linear infinite}
+  @keyframes r{to{transform:rotate(360deg)}}
+  /* 全屏 */
+  #viewer{position:fixed;inset:0;background:#000;z-index:100;display:none;
+    flex-direction:column;touch-action:pan-y}
+  #viewer.on{display:flex}
+  #viewer .top{position:absolute;top:0;left:0;right:0;padding:12px 16px;
+    display:flex;justify-content:space-between;align-items:center;z-index:2;
+    background:linear-gradient(rgba(0,0,0,.65),transparent)}
+  #viewer .top span{font-size:13px;color:#ddd}
+  #viewer .close{font-size:30px;color:#fff;line-height:1;padding:0 6px;cursor:pointer}
+  #viewer .stage{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  #viewer img{max-width:100%;max-height:100%;object-fit:contain}
+  #viewer .arrow{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:80px;
+    display:flex;align-items:center;justify-content:center;font-size:34px;color:#fff;
+    background:rgba(0,0,0,.35);cursor:pointer;z-index:2;user-select:none}
+  #viewer .prev{left:0;border-radius:0 8px 8px 0}
+  #viewer .next{right:0;border-radius:8px 0 0 8px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="title">图集</h1>
+  <div class="meta" id="meta">加载中…</div>
+</header>
+
+<div id="tip"><div class="spin"></div>正在获取图集…</div>
+<div id="grid"></div>
+<div id="sentinel"></div>
+
+<div id="viewer">
+  <div class="top"><span id="pos"></span><span class="close" onclick="closeViewer()">×</span></div>
+  <div class="arrow prev" onclick="step(-1)">‹</div>
+  <div class="stage"><img id="big" src=""></div>
+  <div class="arrow next" onclick="step(1)">›</div>
+</div>
+
+<script>
+var IMGS = [];
+var shown = 0;
+var BATCH = 20;
+var grid = document.getElementById('grid');
+var sentinel = document.getElementById('sentinel');
+var tip = document.getElementById('tip');
+
+function qs(k) {
+  var m = new RegExp('[?&]' + k + '=([^&]*)').exec(location.search);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+// 从 r.jina.ai 返回的文本里提取图片地址（通用：任意图床）
+function extractImages(text) {
+  var out = [], seen = {};
+  var re1 = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g;          // markdown 图片
+  var re2 = /(https?:\/\/[^\s)"'<>\]]+?\.(?:jpg|jpeg|png|webp))(?:[?#][^\s)"'<>\]]*)?/g;
+  var m;
+  while ((m = re1.exec(text)) !== null) {
+    var u = m[1];
+    if (u.indexOf("http") !== 0) continue;
+    if (isJunk(u)) continue;
+    if (seen[u]) continue;
+    seen[u] = 1;
+    out.push(u);
+  }
+  while ((m = re2.exec(text)) !== null) {
+    var u2 = m[1];
+    if (isJunk(u2)) continue;
+    if (seen[u2]) continue;
+    seen[u2] = 1;
+    out.push(u2);
+  }
+  return out;
+}
+
+function isJunk(u) {
+  return /(logo|icon|avatar|emoji|spinner|banner|favicon|placeholder|spacer|blank\.|loading\.|1x1)/i.test(u)
+      || /\/themes?\//i.test(u)
+      || /\/plugins?\//i.test(u);
+}
+
+// 把内联的前缀补全（插件只传了路径，域名由 ?b= 带过来）
+var BASEHOST = "";
+function normalize(u) {
+  if (u.indexOf("http") === 0) return u;
+  if (u.charAt(0) === "/") return (BASEHOST || "https://img.ziyuanquancdn.com") + u;
+  return u;
+}
+
+function extractTitle(text) {
+  var lines = text.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+  for (var i = 0; i < Math.min(lines.length, 12); i++) {
+    var l = lines[i].replace(/^Title:\s*/i, '').replace(/^#+\s*/, '');
+    if (l && l.length > 4 && l.indexOf('http') !== 0) return l.slice(0, 80);
+  }
+  return '图集';
+}
+
+function render() {
+  if (shown >= IMGS.length) {
+    sentinel.textContent = '—— 共 ' + IMGS.length + ' 张，已全部加载 ——';
+    return;
+  }
+  var end = Math.min(shown + BATCH, IMGS.length);
+  for (var i = shown; i < end; i++) {
+    (function (n) {
+      var cell = document.createElement('div');
+      cell.className = 'cell';
+      var im = document.createElement('img');
+      im.loading = 'lazy';
+      im.onload = function () { im.classList.add('ok'); };
+      im.onerror = function () { im.style.opacity = 1; im.src = 'data:image/svg+xml;utf8,' +
+        encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="100%" height="100%" fill="#1a1a1c"/><text x="50%" y="50%" fill="#555" font-size="12" text-anchor="middle">加载失败</text></svg>'); };
+      im.src = IMGS[n];
+      var idx = document.createElement('div');
+      idx.className = 'idx';
+      idx.textContent = (n + 1);
+      cell.appendChild(im);
+      cell.appendChild(idx);
+      cell.onclick = function () { openViewer(n); };
+      grid.appendChild(cell);
+    })(i);
+  }
+  shown = end;
+  document.getElementById('meta').textContent = '共 ' + IMGS.length + ' 张 · 已加载 ' + shown + ' 张';
+  sentinel.textContent = shown >= IMGS.length ? '—— 已全部加载 ——' : '继续下滑加载更多…';
+}
+
+// 滚到底自动加载
+var io = new IntersectionObserver(function (es) {
+  es.forEach(function (e) { if (e.isIntersecting) render(); });
+}, { rootMargin: '600px' });
+io.observe(sentinel);
+
+function openViewer(n) {
+  cur = n;
+  document.getElementById('big').src = IMGS[n];
+  document.getElementById('pos').textContent = (n + 1) + ' / ' + IMGS.length;
+  document.getElementById('viewer').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+function closeViewer() {
+  document.getElementById('viewer').classList.remove('on');
+  document.body.style.overflow = '';
+}
+var cur = 0;
+function step(d) {
+  cur = Math.max(0, Math.min(IMGS.length - 1, cur + d));
+  document.getElementById('big').src = IMGS[cur];
+  document.getElementById('pos').textContent = (cur + 1) + ' / ' + IMGS.length;
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeViewer();
+  if (e.key === 'ArrowLeft') step(-1);
+  if (e.key === 'ArrowRight') step(1);
+});
+
+// 启动
+(function () {
+  var target = qs('u');
+  var inline = qs('i');
+  var t = qs('t');
+  BASEHOST = qs('b') || '';
+
+  // ① 插件直接把图片列表带过来了 → 秒开，不联网
+  if (inline) {
+    document.getElementById('title').textContent = t || '图集';
+    IMGS = inline.split('|').filter(Boolean).map(normalize);
+    if (IMGS.length > 0) {
+      tip.style.display = 'none';
+      render();
+      return;
+    }
+  }
+
+  // ② 只有帖子地址 → 走 r.jina.ai 兜底（较慢）
+  if (!target) {
+    tip.innerHTML = '缺少参数 <code>?u=</code> 或 <code>?i=</code>';
+    return;
+  }
+  document.getElementById('title').textContent = t || '正在加载…';
+
+  var url = 'https://r.jina.ai/' + target;
+  fetch(url, { mode: 'cors' })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(function (text) {
+      if (!t) document.getElementById('title').textContent = extractTitle(text);
+      IMGS = extractImages(text);
+      tip.style.display = 'none';
+      if (IMGS.length === 0) {
+        tip.style.display = 'block';
+        tip.innerHTML = '没有解析到图片<br><span style="font-size:12px;color:#666">可能该帖不是图集</span>';
+        return;
+      }
+      render();
+    })
+    .catch(function (e) {
+      tip.innerHTML = '加载失败：' + e.message + '<br><span style="font-size:12px;color:#666">检查网络后重试</span>';
+    });
+})();
+</script>
+</body>
+</html>

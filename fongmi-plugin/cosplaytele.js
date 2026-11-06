@@ -6,6 +6,11 @@ import { Spider, openWeb } from "catvod";
 
 const BASE = "https://cosplaytele.com";
 
+// 画廊页（App 内 WebView 打开）
+// 线上：     https://ximengyuhuang.github.io/TestPlugins/fongmi-plugin/gallery.html
+// 本地调试改回：http://192.168.110.70:8000/gallery.html
+const GAL = "https://ximengyuhuang.github.io/TestPlugins/fongmi-plugin/gallery.html";
+
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 function headers(referer) {
@@ -44,6 +49,27 @@ function absolute(u) {
 
 function stripTags(s) {
   return decode(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+// 从帖子正文（entry-content）提取图集图片
+function parseGalleryImages(html) {
+  const i = html.indexOf("entry-content");
+  const seg = i >= 0 ? html.substring(i, i + 400000) : html;
+  const out = [];
+  const seen = {};
+  const re = /<img[^>]+(?:data-src|data-lazy-src|src)="([^"]+\.(?:jpg|jpeg|png|webp))"/gi;
+  let m;
+  while ((m = re.exec(seg)) !== null) {
+    let u = m[1].trim();
+    if (u.indexOf("http") !== 0) u = absolute(u);
+    if (!u) continue;
+    if (/logo|icon|avatar|emoji|banner|spinner/i.test(u)) continue;
+    if (seen[u]) continue;
+    seen[u] = 1;
+    out.push(u);
+    if (out.length >= 600) break;
+  }
+  return out;
 }
 
 // ---------------- 纯 JS AES-256-CBC 解密 ----------------
@@ -262,6 +288,39 @@ export default class CosplayTele extends Spider {
     this.log("CosplayTele ready");
   }
 
+  // 分类 / 标签 的 sitemap，按需抓一次
+  async ensureCats() {
+    if (this.cats && this.cats.length) return;
+    try {
+      const r = await this.net.req(BASE + "/category-sitemap.xml", { headers: headers() });
+      if (r && r.code === 200) {
+        const list = [];
+        const re = /<loc>https:\/\/cosplaytele\.com\/category\/([a-z0-9\-]+)\/<\/loc>/g;
+        let m;
+        while ((m = re.exec(r.content)) !== null && list.length < 150) list.push(m[1]);
+        this.cats = list;
+      }
+    } catch (e) {
+      this.log("category sitemap failed: " + e);
+    }
+  }
+
+  async ensureTags() {
+    if (this.tags && this.tags.length) return;
+    try {
+      const r = await this.net.req(BASE + "/post_tag-sitemap.xml", { headers: headers() });
+      if (r && r.code === 200) {
+        const list = [];
+        const re = /<loc>https:\/\/cosplaytele\.com\/tag\/([a-z0-9\-]+)\/<\/loc>/g;
+        let m;
+        while ((m = re.exec(r.content)) !== null && list.length < 80) list.push(m[1]);
+        this.tags = list;
+      }
+    } catch (e) {
+      this.log("tag sitemap failed: " + e);
+    }
+  }
+
   // ---------------- 发现页 ----------------
   async homeContent(filter) {
     const classes = [
@@ -274,35 +333,8 @@ export default class CosplayTele extends Spider {
     ];
 
     // 动态补全：站点 sitemap 里有 606 个分类 / 313 个标签，这里各取前 N 个
-    if (!this.cats) {
-      try {
-        const r = await this.net.req(BASE + "/category-sitemap.xml", { headers: headers() });
-        if (r && r.code === 200) {
-          const list = [];
-          const re = /<loc>https:\/\/cosplaytele\.com\/category\/([a-z0-9\-]+)\/<\/loc>/g;
-          let m;
-          while ((m = re.exec(r.content)) !== null && list.length < 150) list.push(m[1]);
-          this.cats = list;
-        }
-      } catch (e) {
-        this.log("category sitemap failed: " + e);
-      }
-    }
-
-    if (!this.tags) {
-      try {
-        const r = await this.net.req(BASE + "/post_tag-sitemap.xml", { headers: headers() });
-        if (r && r.code === 200) {
-          const list = [];
-          const re = /<loc>https:\/\/cosplaytele\.com\/tag\/([a-z0-9\-]+)\/<\/loc>/g;
-          let m;
-          while ((m = re.exec(r.content)) !== null && list.length < 80) list.push(m[1]);
-          this.tags = list;
-        }
-      } catch (e) {
-        this.log("tag sitemap failed: " + e);
-      }
-    }
+    await this.ensureCats();
+    await this.ensureTags();
 
     // 作者：站点没有作者索引页，从列表标题里提取（"作者 cosplay 作品"）
     await this.buildAuthors();
@@ -427,10 +459,15 @@ export default class CosplayTele extends Spider {
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
 
+    // 实例被重建时兜底：分类 / 标签索引按需补
+    if (tid === "catf" || tid.indexOf("cseg:") === 0) await this.ensureCats();
+    if (tid === "tagf" || tid.indexOf("tseg:") === 0) await this.ensureTags();
+    if (tid === "authf" && !this.authors) await this.buildAuthors();
+
     // ---- 文件夹导航层 ----
     if (tid === "authf") {
       const list = this.authorFolders();
-      return this.page(list, 1, list.length, list.length);
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
     if (tid.indexOf("auth:") === 0) {
       // 作者层的视频 = 用名字搜索
@@ -438,19 +475,65 @@ export default class CosplayTele extends Spider {
     }
     if (tid === "catf") {
       const list = this.letterFolders("cat");
-      return this.page(list, 1, list.length, list.length);
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
     if (tid === "tagf") {
       const list = this.letterFolders("tag");
-      return this.page(list, 1, list.length, list.length);
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
     if (tid.indexOf("cseg:") === 0) {
       const list = this.itemFolders("cat", tid.substring(5));
-      return this.page(list, 1, list.length, list.length);
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
     if (tid.indexOf("tseg:") === 0) {
       const list = this.itemFolders("tag", tid.substring(5));
-      return this.page(list, 1, list.length, list.length);
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
+    // 二级：某个帖子的入口（播放视频 / 查看图集）
+    if (tid.indexOf("mix|") === 0) {
+      const pageUrl = tid.substring(4);
+      let cover = "";
+      let hasVideo = true;
+      let imgCount = 0;
+      try {
+        const rr = await this.net.req(pageUrl, { headers: headers() });
+        if (rr && rr.code === 200) {
+          hasVideo = rr.content.indexOf("cossora.stream/embed") >= 0;
+          const imgs = parseGalleryImages(rr.content);
+          imgCount = imgs.length;
+          const og = rr.content.match(/property="og:image"[^>]*content="([^"]+)"/);
+          if (og) cover = og[1];
+          // 缓存给 detailContent 复用
+          this.htmlCache = this.htmlCache || {};
+          this.htmlCache[pageUrl] = { html: rr.content, ts: Date.now() };
+        }
+      } catch (e) {
+        this.log("mix probe failed: " + e);
+      }
+
+      const list = [];
+      if (hasVideo) {
+        list.push({
+          vod_id: pageUrl,
+          vod_name: "▶ 播放视频",
+          vod_pic: cover,
+          vod_remarks: "视频",
+        });
+      }
+      if (imgCount > 0) {
+        list.push({
+          vod_id: "gal|" + pageUrl,
+          vod_name: "🖼 查看图集" + (imgCount ? " (" + imgCount + " 张)" : ""),
+          vod_pic: "",
+          vod_remarks: "图集",
+          action: "gal|" + pageUrl,
+        });
+      }
+      if (list.length === 0) {
+        list.push({ vod_id: pageUrl, vod_name: "（没有内容）", vod_pic: "", vod_remarks: "" });
+      }
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
     // 点「网页」打开原站，方便看图片
@@ -487,7 +570,48 @@ export default class CosplayTele extends Spider {
 
     // 空页视为到底；否则允许继续翻页
     if (cards.length === 0) return this.page([], p, 12, (p - 1) * 12);
-    return this.page(cards, p, 12, (p + 1) * 12);
+
+    // 每个帖子 -> 二级入口（视频 / 图集）
+    const list = cards.map((c) => ({
+      vod_id: "mix|" + c.vod_id,
+      vod_name: c.vod_name,
+      vod_pic: c.vod_pic,
+      vod_remarks: "视频+图集",
+      vod_tag: "folder",
+    }));
+    return this.page(list, p, 12, (p + 1) * 12);
+  }
+
+  // 图集卡片点击 → 内联图片列表打开画廊
+  async action(op, value) {
+    const s = String(op === undefined || op === null ? "" : op);
+    if (s.indexOf("gal|") !== 0) return { msg: "未知操作" };
+    const u = s.substring(4);
+
+    let imgs = [];
+    let title = "";
+    try {
+      const r = await this.net.req(u, { headers: headers() });
+      if (r && r.code === 200) {
+        imgs = parseGalleryImages(r.content);
+        const t = r.content.match(/<title>([^<]*)<\/title>/);
+        if (t) title = decode(t[1]).replace(/\s*-\s*CosplayTele\s*$/, "");
+      }
+    } catch (e) {
+      this.log("gallery failed: " + e);
+    }
+
+    if (imgs.length === 0) return { msg: "这个帖子没有图片" };
+
+    // 图片地址内联进 URL（秒开、张数与二级菜单一致）；太长才退回 ?u= 兜底
+    // 注意：不能用 encodeURIComponent 整体编码，它会把 "/" 变 %2F，长度直接翻三倍
+    const esc = (s) => String(s).replace(/%/g, "%25").replace(/&/g, "%26").replace(/#/g, "%23").replace(/\+/g, "%2B").replace(/ /g, "%20");
+    const base =
+      GAL + "?t=" + encodeURIComponent(title) + "&u=" + encodeURIComponent(u) + "&b=" + encodeURIComponent(BASE);
+    const short = imgs.map((x) => (x.indexOf(BASE) === 0 ? x.substring(BASE.length) : x)).join("|");
+    let purl = base + "&i=" + esc(short);
+    if (purl.length > 60000) purl = base;
+    return { web: { url: purl, mode: "view" } };
   }
 
   // ---------------- 详情 ----------------
@@ -500,10 +624,18 @@ export default class CosplayTele extends Spider {
       let content = "";
 
       try {
-        const r = await this.net.req(pageUrl, { headers: headers() });
-        if (r && r.code === 200) {
-          const html = r.content;
-
+        // 优先用二级菜单探测时缓存下来的页面（省一次网络往返）
+        let html = "";
+        const cached = this.htmlCache && this.htmlCache[pageUrl];
+        if (cached && Date.now() - cached.ts < 120000) {
+          html = cached.html;
+        } else {
+          const r = await this.net.req(pageUrl, { headers: headers() });
+          if (r && r.code === 200) {
+            html = r.content;
+          }
+        }
+        if (html) {
           const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
           if (h1) title = stripTags(h1[1]) || title;
 
@@ -550,23 +682,54 @@ export default class CosplayTele extends Spider {
   // ---------------- 播放 ----------------
   async playerContent(flag, id, vipFlags) {
     const pageUrl = absolute(id);
-    const r = await this.net.req(pageUrl, { headers: headers() });
-    if (!r || r.code !== 200) throw new Error("无法打开文章页");
+
+    // 解出来的 m3u8 缓存 30 分钟，重复播放不再走整个链路
+    this.playCache = this.playCache || {};
+    const hit = this.playCache[pageUrl];
+    if (hit && Date.now() - hit.ts < 1800000) {
+      return {
+        parse: 0,
+        url: hit.url,
+        header: { "User-Agent": UA, "Referer": "https://cossora.stream/" },
+      };
+    }
+
+    // 文章页也可能已缓存（二级菜单探测时抓过）
+    let html = "";
+    const cached = this.htmlCache && this.htmlCache[pageUrl];
+    if (cached && Date.now() - cached.ts < 120000) {
+      html = cached.html;
+    } else {
+      const r = await this.net.req(pageUrl, { headers: headers() });
+      if (!r || r.code !== 200) throw new Error("无法打开文章页");
+      html = r.content;
+    }
 
     // 找 cossora 的 iframe
-    const ifr = r.content.match(/<iframe[^>]*src="(https:\/\/cossora\.stream\/embed\/[^"]+)"/);
+    const ifr = html.match(/<iframe[^>]*src="(https:\/\/cossora\.stream\/embed\/[^"]+)"/);
     if (!ifr) throw new Error("没有找到播放 iframe");
 
     const embed = ifr[1].replace(/&amp;/g, "&");
-    const r2 = await this.net.req(embed, { headers: headers("https://cosplaytele.com/") });
-    if (!r2 || r2.code !== 200) throw new Error("无法打开播放页");
 
-    const v = r2.content.match(/videoURL\s*=\s*'([^']+)'/);
-    const k = r2.content.match(/decryptLink\(videoURL\s*,\s*'([^']+)'\)/);
-    if (!v || !k) throw new Error("找不到密文或密钥");
+    // 同一个 embed 的解密结果也缓存
+    this.embedCache = this.embedCache || {};
+    const eh = this.embedCache[embed];
+    let url = eh && Date.now() - eh.ts < 1800000 ? eh.url : "";
 
-    const url = aesDecryptUrl(v[1], k[1]);
-    if (!url || url.indexOf("http") !== 0) throw new Error("解密失败");
+    if (!url) {
+      const r2 = await this.net.req(embed, { headers: headers("https://cosplaytele.com/") });
+      if (!r2 || r2.code !== 200) throw new Error("无法打开播放页");
+
+      const v = r2.content.match(/videoURL\s*=\s*'([^']+)'/);
+      const k = r2.content.match(/decryptLink\(videoURL\s*,\s*'([^']+)'\)/);
+      if (!v || !k) throw new Error("找不到密文或密钥");
+
+      url = aesDecryptUrl(v[1], k[1]);
+      if (!url || url.indexOf("http") !== 0) throw new Error("解密失败");
+      this.embedCache[embed] = { url: url, ts: Date.now() };
+    }
+
+    this.playCache[pageUrl] = { url: url, ts: Date.now() };
 
     return {
       parse: 0,
