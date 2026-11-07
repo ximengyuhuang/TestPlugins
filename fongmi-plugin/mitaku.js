@@ -15,6 +15,9 @@ const SITE = "https://mitaku.net";
 const API = "https://n1mwq.org";
 const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 
+// 图集画廊页（App 内 WebView 打开）
+const GAL = "https://ximengyuhuang.github.io/TestPlugins/fongmi-plugin/gallery.html";
+
 // [tid, 路径, 名称]
 const CATS = [
   ["video", "/category/online-video/", "视频"],
@@ -391,11 +394,80 @@ function parsePosts(html) {
   return out;
 }
 
+// 图集：carousel 插件（meta-slider-and-carousel-with-lightbox-pro）
+//   <div class="msacwl-slide" data-item-index="1">
+//     <a class="msacwl-img-link" data-mfp-src="原图"></a>
+//     <img class="msacwl-img" data-lazy="原图" src="…/spacer.gif">
+//   ⚠ 页面里没有正常的 <img src>，只在 data-mfp-src / data-lazy 里
+function parseGallery(html) {
+  const out = [];
+  const seen = {};
+  const re = /class="msacwl-slide"[\s\S]{0,900}?(?:data-mfp-src|data-lazy)="([^"]+)"/g;
+  let m;
+  while ((m = re.exec(String(html))) !== null) {
+    const u = m[1];
+    if (!u || seen[u]) continue;
+    seen[u] = 1;
+    out.push(u);
+  }
+  return out;
+}
+
+// 转义：只处理会破坏 URL 参数/片段的字符
+function esc(s) {
+  return String(s)
+    .replace(/%/g, "%25")
+    .replace(/&/g, "%26")
+    .replace(/#/g, "%23")
+    .replace(/\+/g, "%2B")
+    .replace(/ /g, "%20");
+}
+
 export default class Mitaku extends Spider {
   init(extend) {
     this.epCache = {};
     this.tagCache = null;
+    this.htmlCache = {};
     this.log("mitaku ready");
+  }
+
+  // 帖子页 HTML 缓存：列表探测时已经抓过，详情/播放/图集直接复用
+  cacheGet(url) {
+    const c = this.htmlCache && this.htmlCache[url];
+    return c && Date.now() - c.ts < 120000 ? c.html : "";
+  }
+
+  cacheSet(url, html) {
+    this.htmlCache = this.htmlCache || {};
+    this.htmlCache[url] = { html: html, ts: Date.now() };
+  }
+
+  // 一个帖子页判断三件事：有没有视频、图集多少张、该给什么卡片
+  probe(url, html) {
+    const hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(html);
+    const n = parseGallery(html).length;
+    if (!hasVideo && n === 0) return null;
+    if (hasVideo && n > 0) {
+      return {
+        vod_id: "mix|" + url,
+        vod_name: "",
+        vod_pic: "",
+        vod_remarks: "视频 + 图集 " + n + "张",
+        vod_tag: "folder",
+      };
+    }
+    if (hasVideo) return { vod_id: url, vod_name: "", vod_pic: "", vod_remarks: "" };
+    // 纯图集帖：以前是被直接丢掉的
+    return { vod_id: url, vod_name: "", vod_pic: "", vod_remarks: "图集 · " + n + "张", action: "gal:" + url };
+  }
+
+  async fetchPage(url) {
+    const hit = this.cacheGet(url);
+    if (hit) return hit;
+    const r = await this.net.req(url, { headers: headers() });
+    if (!r || r.code !== 200) return "";
+    this.cacheSet(url, r.content);
+    return r.content;
   }
 
   async homeContent(filter) {
@@ -554,6 +626,33 @@ export default class Mitaku extends Spider {
       return this.page([], 1, 9, 0);
     }
 
+    // ---- 二级菜单：视频 / 图集 ----
+    if (tid.indexOf("mix|") === 0) {
+      const pageUrl = tid.substring(4);
+      const html = await this.fetchPage(pageUrl);
+      const list = [];
+      if (html) {
+        const hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(html);
+        const n = parseGallery(html).length;
+        if (hasVideo) {
+          list.push({ vod_id: pageUrl, vod_name: "▶ 播放视频", vod_pic: "", vod_remarks: "视频" });
+        }
+        if (n > 0) {
+          list.push({
+            vod_id: "gal|" + pageUrl,
+            vod_name: "🖼 查看图集 (" + n + " 张)",
+            vod_pic: "",
+            vod_remarks: "图集",
+            action: "gal|" + pageUrl,
+          });
+        }
+      }
+      if (list.length === 0) {
+        list.push({ vod_id: pageUrl, vod_name: "（没有内容）", vod_pic: "", vod_remarks: "" });
+      }
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
     const p = Number(pg) || 1;
     let url;
 
@@ -577,20 +676,16 @@ export default class Mitaku extends Spider {
     const posts = parsePosts(r.content);
     if (posts.length === 0) return this.page([], p, 9, (p - 1) * 9);
 
-    // 只保留有视频的帖子：并发检查
+    // 只保留有内容的帖子：一次请求同时判断「有没有视频」和「图集几张」
     const checks = posts.map((post) =>
-      this.net
-        .req(post.url, { headers: headers() })
-        .then((res) => {
-          if (!res || res.code !== 200) return null;
-          const has = /<iframe[^>]*src="[^"]*\/e\//.test(res.content);
-          if (!has) return null;
-          return {
-            vod_id: post.url,
-            vod_name: post.title,
-            vod_pic: post.pic,
-            vod_remarks: "",
-          };
+      this.fetchPage(post.url)
+        .then((html) => {
+          if (!html) return null;
+          const c = this.probe(post.url, html);
+          if (!c) return null;
+          c.vod_name = post.title;
+          c.vod_pic = post.pic;
+          return c;
         })
         .catch(() => null)
     );
@@ -617,8 +712,8 @@ export default class Mitaku extends Spider {
       let hasVideo = false;
 
       try {
-        const r = await this.net.req(pageUrl, { headers: headers() });
-        if (r && r.code === 200) {
+        const r = { code: 200, content: await this.fetchPage(pageUrl) };
+        if (r.content) {
           const html = r.content;
 
           const h1 = html.match(/<h1[^>]*class="[^"]*entry-title[^"]*"[^>]*>([\s\S]{0,200}?)<\/h1>/) ||
@@ -675,9 +770,9 @@ export default class Mitaku extends Spider {
 
   // 解析 iframe 里的 slug
   async resolveSlug(pageUrl) {
-    const r = await this.net.req(pageUrl, { headers: headers() });
-    if (!r || r.code !== 200) return null;
-    const m = r.content.match(/<iframe[^>]*src="[^"]*\/e\/([A-Za-z0-9_-]+)/);
+    const html = await this.fetchPage(pageUrl);
+    if (!html) return null;
+    const m = html.match(/<iframe[^>]*src="[^"]*\/e\/([A-Za-z0-9_-]+)/);
     return m ? m[1] : null;
   }
 
@@ -808,6 +903,31 @@ export default class Mitaku extends Spider {
     };
   }
 
+  // 点「查看图集」→ 抓帖子页 → 全部原图塞进画廊页
+  // 列表放 URL 片段（#），不会被 GitHub Pages 的 8KB 请求行上限拦成 414
+  async action(op, value) {
+    const s = String(op === undefined || op === null ? "" : op);
+    if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
+    const u = s.substring(4);
+
+    const html = await this.fetchPage(u);
+    if (!html) return { msg: "打不开帖子页" };
+
+    const imgs = parseGallery(html);
+    if (imgs.length === 0) return { msg: "这个帖子没有图片" };
+
+    let title = "";
+    const h1 = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
+    const ogt = html.match(/<meta property="og:title" content="([^"]+)"/);
+    if (h1) title = strip(h1[1]);
+    else if (ogt) title = decode(ogt[1]);
+
+    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const short = imgs.map((x) => (x.indexOf(SITE) === 0 ? x.substring(SITE.length) : x)).join("|");
+    const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(SITE) + "&i=" + esc(short);
+    return { web: { url: purl + hash, mode: "view" } };
+  }
+
   async searchContent(key, quick, pg = "1") {
     const p = Number(pg) || 1;
     const url = SITE + "/?s=" + encodeURIComponent(key) + (p > 1 ? "&paged=" + p : "");
@@ -818,9 +938,24 @@ export default class Mitaku extends Spider {
     const posts = parsePosts(r.content);
     if (posts.length === 0) return this.page([], p, 9, (p - 1) * 9);
 
+    // 搜索结果也区分视频 / 图集，否则点开纯图集帖会报「该帖没有视频」
     const cards = [];
-    for (const post of posts) {
-      cards.push({ vod_id: post.url, vod_name: post.title, vod_pic: post.pic, vod_remarks: "" });
+    const checks = posts.map((post) =>
+      this.fetchPage(post.url)
+        .then((html) => {
+          if (!html) return null;
+          const c = this.probe(post.url, html);
+          if (!c) return null;
+          c.vod_name = post.title;
+          c.vod_pic = post.pic;
+          return c;
+        })
+        .catch(() => null)
+    );
+    try {
+      for (const c of await Promise.all(checks)) if (c) cards.push(c);
+    } catch (e) {
+      this.log("search probe failed: " + e);
     }
     return this.page(cards, p, 9, (p + 1) * 9);
   }
