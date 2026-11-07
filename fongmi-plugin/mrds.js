@@ -466,25 +466,6 @@ export default class Mrds extends Spider {
       vod_tag: "folder",
     }));
 
-    // 临时诊断：本地打一次代理，把 HTTP 码写进第一条备注（真机排查用，定位完就删）
-    if (!this.probedProxy) {
-      this.probedProxy = true;
-      let d = "n/a";
-      try {
-        const pu = list[0] && list[0].vod_pic;
-        if (pu && String(pu).indexOf("proxy") >= 0) {
-          const rr = await this.net.req(pu, { headers: hdrs() });
-          d = "code=" + (rr && rr.code) + " len=" + (rr && rr.content ? rr.content.length : 0);
-        } else {
-          d = "无代理URL";
-        }
-      } catch (e) {
-        d = "err:" + String(e).slice(0, 40);
-      }
-      if (list[0]) list[0].vod_remarks = "自检 " + d;
-      this.log("proxy self-test: " + d);
-    }
-
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
 
