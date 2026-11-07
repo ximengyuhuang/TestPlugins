@@ -67,8 +67,6 @@
 
 <script>
 var IMGS = [];
-var shown = 0;
-var BATCH = 20;
 var grid = document.getElementById('grid');
 var sentinel = document.getElementById('sentinel');
 var tip = document.getElementById('tip');
@@ -127,41 +125,57 @@ function extractTitle(text) {
   return '图集';
 }
 
+// 一次性铺满所有格子（瞬间完成，页面「秒开」），
+// 图片本身交给浏览器的 loading=lazy —— 它只解码视口附近，内存不会炸。
+// 原来的「每批 20 张」是格子都要等到滚动才创建，所以视觉上一批批往外冒。
+var built = false;
+var loaded = 0;
+
 function render() {
-  if (shown >= IMGS.length) {
-    sentinel.textContent = '—— 共 ' + IMGS.length + ' 张，已全部加载 ——';
-    return;
-  }
-  var end = Math.min(shown + BATCH, IMGS.length);
-  for (var i = shown; i < end; i++) {
-    (function (n) {
+  if (built) return;
+  built = true;
+
+  var frag = document.createDocumentFragment();
+  for (var n = 0; n < IMGS.length; n++) {
+    (function (k) {
       var cell = document.createElement('div');
       cell.className = 'cell';
+
       var im = document.createElement('img');
-      im.loading = 'lazy';
-      im.onload = function () { im.classList.add('ok'); };
-      im.onerror = function () { im.style.opacity = 1; im.src = 'data:image/svg+xml;utf8,' +
-        encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="100%" height="100%" fill="#1a1a1c"/><text x="50%" y="50%" fill="#555" font-size="12" text-anchor="middle">加载失败</text></svg>'); };
-      im.src = IMGS[n];
+      // 前 8 张立刻取（首屏要瞬间有图），其余交给浏览器按视口预取
+      im.loading = k < 8 ? 'eager' : 'lazy';
+      im.decoding = 'async';
+      im.onload = function () {
+        im.classList.add('ok');
+        loaded++;
+        updateMeta();
+      };
+      im.onerror = function () {
+        im.style.opacity = 1;
+        im.src = 'data:image/svg+xml;utf8,' +
+          encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="100%" height="100%" fill="#1a1a1c"/><text x="50%" y="50%" fill="#555" font-size="12" text-anchor="middle">加载失败</text></svg>');
+      };
+      im.src = IMGS[k];
+
       var idx = document.createElement('div');
       idx.className = 'idx';
-      idx.textContent = (n + 1);
+      idx.textContent = (k + 1);
+
       cell.appendChild(im);
       cell.appendChild(idx);
-      cell.onclick = function () { openViewer(n); };
-      grid.appendChild(cell);
-    })(i);
+      cell.onclick = function () { openViewer(k); };
+      frag.appendChild(cell);
+    })(n);
   }
-  shown = end;
-  document.getElementById('meta').textContent = '共 ' + IMGS.length + ' 张 · 已加载 ' + shown + ' 张';
-  sentinel.textContent = shown >= IMGS.length ? '—— 已全部加载 ——' : '继续下滑加载更多…';
+  grid.appendChild(frag);
+
+  document.getElementById('meta').textContent = '共 ' + IMGS.length + ' 张';
+  sentinel.textContent = '—— 共 ' + IMGS.length + ' 张 ——';
 }
 
-// 滚到底自动加载
-var io = new IntersectionObserver(function (es) {
-  es.forEach(function (e) { if (e.isIntersecting) render(); });
-}, { rootMargin: '600px' });
-io.observe(sentinel);
+function updateMeta() {
+  document.getElementById('meta').textContent = '共 ' + IMGS.length + ' 张 · 已加载 ' + loaded + ' 张';
+}
 
 function openViewer(n) {
   cur = n;
