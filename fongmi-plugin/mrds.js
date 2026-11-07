@@ -1,4 +1,4 @@
-import { Spider, openWeb } from "catvod";
+import { Spider, openWeb, aesX } from "catvod";
 
 // 每日大赛（mrds66.com）—— Typecho + Mirages 主题
 // 结构：列表 /page/N/            30 篇/页
@@ -27,6 +27,12 @@ const PAGE_SIZE = 30;
 // AES-128-CBC，key / iv 都是 16 字节 ASCII（CryptoJS 里用 charCode 拼出来的）
 const ENC_KEY = "f5d965df75336270";
 const ENC_IV = "97b60394abc2fbe1";
+// 同一对 key/iv 的 base64（aesX 要 base64 入参）
+const ENC_KEY_B64 = "ZjVkOTY1ZGY3NTMzNjI3MA==";
+const ENC_IV_B64 = "OTdiNjAzOTRhYmMyZmJlMQ==";
+
+// 封面走代理解密；真机上不灵就改 false，退回统一占位图
+const USE_COVER_PROXY = true;
 
 // [slug, 名称]
 const CATS = [
@@ -108,6 +114,48 @@ function picFallback() {
   return BASE + "/usr/themes/Mirages/images/social.jpg";
 }
 
+/* ---------- base64（QuickJS 里没有 Buffer / btoa，自己实现） ---------- */
+const B64CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function bytesToB64(bytes) {
+  let out = "";
+  let i = 0;
+  const n = bytes.length;
+  for (; i + 2 < n; i += 3) {
+    const v = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    out +=
+      B64CHARS[(v >> 18) & 63] + B64CHARS[(v >> 12) & 63] + B64CHARS[(v >> 6) & 63] + B64CHARS[v & 63];
+  }
+  const rest = n - i;
+  if (rest === 1) {
+    const v = bytes[i] << 16;
+    out += B64CHARS[(v >> 18) & 63] + B64CHARS[(v >> 12) & 63] + "==";
+  } else if (rest === 2) {
+    const v = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    out += B64CHARS[(v >> 18) & 63] + B64CHARS[(v >> 12) & 63] + B64CHARS[(v >> 6) & 63] + "=";
+  }
+  return out;
+}
+
+function b64ToBytes(s) {
+  const out = [];
+  let buf = 0;
+  let bits = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (c === "=") break;
+    const v = B64CHARS.indexOf(c);
+    if (v < 0) continue;
+    buf = (buf << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push((buf >> bits) & 0xff);
+    }
+  }
+  return out;
+}
+
 // 列表卡片：<article> 里 <a href="/archives/<id>/">
 //   封面在 <script>loadBannerDirect('…jpeg', …)</script>
 //   标题在 <h2 class="post-card-title">
@@ -124,6 +172,7 @@ function parseCards(html) {
     if (seen[url]) continue;
     seen[url] = 1;
 
+    const banner = block.match(/loadBannerDirect\('([^']+)'/);
     const tm =
       block.match(/class="post-card-title"[^>]*>([\s\S]{0,300}?)<div class="wrap"/) ||
       block.match(/class="post-card-title"[^>]*>([\s\S]{0,300}?)<\/h2>/);
@@ -142,10 +191,8 @@ function parseCards(html) {
     out.push({
       url: url,
       title: title,
-      // ⚠ 封面图（banner 也好看、图集首图也好）在 CDN 上都是 AES 密文，
-      // App 的原生图片加载器解不开 → 只能显示首字母。
-      // 所以统一用站点的明文图 social.jpg 当占位，至少列表不空。
-      pic: picFallback(),
+      // 封面原地址是密文，交给 proxy() 解密后再给 App
+      encPic: banner ? banner[1].replace(/^\/\//, "https://") : "",
       cats: cats,
     });
   }
@@ -187,7 +234,7 @@ function parseImages(html) {
 export default class Mrds extends Spider {
   init(extend) {
     this.htmlCache = {};
-    this.log("mrds66 ready");
+    this.log("mrds ready");
   }
 
   // 帖子页缓存：二级菜单探测过 → 详情/播放/图集直接复用
@@ -208,6 +255,59 @@ export default class Mrds extends Spider {
     if (!r || r.code !== 200) return "";
     this.cacheSet(url, r.content);
     return r.content;
+  }
+
+  // 封面：走本地代理解密（proxyUrl + proxy），失败就退回站点明文占位图
+  // 真机上代理不可用（图片全裂）的话，把 USE_COVER_PROXY 改成 false 就退回占位图
+  coverPic(c) {
+    if (!USE_COVER_PROXY || !c.encPic) return picFallback();
+    try {
+      return this.proxyUrl({ u: c.encPic });
+    } catch (e) {
+      this.log("proxyUrl failed: " + e);
+      return picFallback();
+    }
+  }
+
+  // 读流全部字节
+  async readBytes(stream) {
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const buf = await stream.read(65536);
+      if (!buf) break;
+      const a = new Uint8Array(buf);
+      chunks.push(a);
+      total += a.length;
+    }
+    try {
+      stream.close();
+    } catch (e) {}
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.length;
+    }
+    return out;
+  }
+
+  // App 的图片加载器会来打这个代理：取密文 → AES-128-CBC 解密 → 回原始 JPEG 字节
+  async proxy(params) {
+    const u = (params && (params.u || params.url)) || "";
+    if (!u) return [404, "text/plain", "no url"];
+    try {
+      const st = await this.net.openStream(u, { headers: hdrs() });
+      const bytes = await this.readBytes(st);
+      if (!bytes || bytes.length === 0) return [404, "text/plain", "empty"];
+      const b64 = bytesToB64(bytes);
+      const plainB64 = aesX("AES/CBC/PKCS5Padding", false, b64, true, ENC_KEY_B64, ENC_IV_B64, true);
+      if (!plainB64) return [404, "text/plain", "decrypt failed"];
+      return [200, "image/jpeg", b64ToBytes(plainB64)];
+    } catch (e) {
+      this.log("cover decrypt failed: " + e);
+      return [404, "text/plain", "fail"];
+    }
   }
 
   async homeContent(filter) {
@@ -281,7 +381,7 @@ export default class Mrds extends Spider {
     const list = cards.map((c) => ({
       vod_id: "mix|" + c.url,
       vod_name: c.title,
-      vod_pic: c.pic,
+      vod_pic: this.coverPic(c),
       vod_remarks: c.cats || "视频+图集",
       vod_tag: "folder",
     }));
@@ -413,7 +513,7 @@ export default class Mrds extends Spider {
     const list = cards.map((c) => ({
       vod_id: "mix|" + c.url,
       vod_name: c.title,
-      vod_pic: c.pic,
+      vod_pic: this.coverPic(c),
       vod_remarks: c.cats || "视频+图集",
       vod_tag: "folder",
     }));
