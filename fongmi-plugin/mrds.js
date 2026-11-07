@@ -9,7 +9,12 @@ import { Spider, openWeb } from "catvod";
 //       + 一堆广告图（pic.gyezbp.cn/hc237/，必须过滤）
 // ⚠ 站点直连超时，手机必须挂代理
 
-const BASE = "https://www.mrds66.com";
+// 站点域名会换（2026-11-07 从 mrds66.com 换到 mrds.com，内容/图床/密钥都没变）
+// 主用 mrds.com，探不通就退回旧域名
+const DOMAINS = ["https://mrds.com", "https://www.mrds66.com"];
+let BASE = DOMAINS[0];
+let baseChecked = false;
+
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
@@ -54,6 +59,24 @@ function hdrs(ref) {
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Referer": ref || BASE + "/",
   };
+}
+
+// 探一次主域名，不行就换备用域名（只探一次，结果缓存在模块里）
+async function ensureBase(spider) {
+  if (baseChecked) return BASE;
+  for (const d of DOMAINS) {
+    try {
+      const r = await spider.net.req(d + "/", { headers: hdrs(d + "/") });
+      if (r && r.code === 200 && String(r.content).indexOf("每日大赛") >= 0) {
+        BASE = d;
+        break;
+      }
+    } catch (e) {
+      /* 换下一个 */
+    }
+  }
+  baseChecked = true;
+  return BASE;
 }
 
 function clean(s) {
@@ -181,6 +204,7 @@ export default class Mrds extends Spider {
   }
 
   async homeContent(filter) {
+    await ensureBase(this);
     const classes = [{ type_id: "latest", type_name: "最新" }];
     for (const [slug, name] of CATS) classes.push({ type_id: slug, type_name: name });
     classes.push({ type_id: "web", type_name: "网页" });
@@ -189,6 +213,7 @@ export default class Mrds extends Spider {
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
+    if (tid !== "web") await ensureBase(this);
 
     if (tid === "web") {
       try {
@@ -367,6 +392,7 @@ export default class Mrds extends Spider {
   }
 
   async searchContent(key, quick, pg = "1") {
+    await ensureBase(this);
     const p = Number(pg) || 1;
     const url = BASE + "/search/" + encodeURIComponent(key) + "/" + (p > 1 ? p + "/" : "");
 
