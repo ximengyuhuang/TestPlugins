@@ -303,7 +303,8 @@ export default class Mrds extends Spider {
       const b64 = bytesToB64(bytes);
       const plainB64 = aesX("AES/CBC/PKCS5Padding", false, b64, true, ENC_KEY_B64, ENC_IV_B64, true);
       if (!plainB64) return [404, "text/plain", "decrypt failed"];
-      return [200, "image/jpeg", b64ToBytes(plainB64)];
+      // 返回 Uint8Array（宿主可能只认字节数组，不认普通 Array）
+      return [200, "image/jpeg", new Uint8Array(b64ToBytes(plainB64))];
     } catch (e) {
       this.log("cover decrypt failed: " + e);
       return [404, "text/plain", "fail"];
@@ -385,6 +386,25 @@ export default class Mrds extends Spider {
       vod_remarks: c.cats || "视频+图集",
       vod_tag: "folder",
     }));
+
+    // 临时诊断：本地打一次代理，把 HTTP 码写进第一条备注（真机排查用，定位完就删）
+    if (!this.probedProxy) {
+      this.probedProxy = true;
+      let d = "n/a";
+      try {
+        const pu = list[0] && list[0].vod_pic;
+        if (pu && String(pu).indexOf("proxy") >= 0) {
+          const rr = await this.net.req(pu, { headers: hdrs() });
+          d = "code=" + (rr && rr.code) + " len=" + (rr && rr.content ? rr.content.length : 0);
+        } else {
+          d = "无代理URL";
+        }
+      } catch (e) {
+        d = "err:" + String(e).slice(0, 40);
+      }
+      if (list[0]) list[0].vod_remarks = "自检 " + d;
+      this.log("proxy self-test: " + d);
+    }
 
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
