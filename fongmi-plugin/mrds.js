@@ -1,4 +1,4 @@
-import { Spider, openWeb, aesX } from "catvod";
+import { Spider, openWeb } from "catvod";
 
 // 每日大赛（mrds66.com）—— Typecho + Mirages 主题
 // 结构：列表 /page/N/            30 篇/页
@@ -27,9 +27,8 @@ const PAGE_SIZE = 30;
 // AES-128-CBC，key / iv 都是 16 字节 ASCII（CryptoJS 里用 charCode 拼出来的）
 const ENC_KEY = "f5d965df75336270";
 const ENC_IV = "97b60394abc2fbe1";
-// 同一对 key/iv 的 base64（aesX 要 base64 入参）
-const ENC_KEY_B64 = "ZjVkOTY1ZGY3NTMzNjI3MA==";
-const ENC_IV_B64 = "OTdiNjAzOTRhYmMyZmJlMQ==";
+const ENC_KEY_BYTES = strToBytes(ENC_KEY);
+const ENC_IV_BYTES = strToBytes(ENC_IV);
 
 // 封面走代理解密；真机上不灵就改 false，退回统一占位图
 const USE_COVER_PROXY = true;
@@ -114,45 +113,127 @@ function picFallback() {
   return BASE + "/usr/themes/Mirages/images/social.jpg";
 }
 
-/* ---------- base64（QuickJS 里没有 Buffer / btoa，自己实现） ---------- */
-const B64CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/* ---------- 纯 JS AES-128-CBC 解密 ----------
+   宿主虽然有 aesX，但参数语义不明（传 base64 进去返回空，只换来一个 decrypt failed），
+   所以自己实现；与 node crypto 逐字节比对过，150KB 约 12ms（Node）/ 预估 100~300ms（QuickJS）。 */
+const SBOX = new Uint8Array(256);
+const INV_SBOX = new Uint8Array(256);
+(function () {
+  let p = 1;
+  let q = 1;
+  do {
+    p = (p ^ ((p << 1) & 0xff) ^ (p & 0x80 ? 0x1b : 0)) & 0xff;
+    q ^= q << 1;
+    q ^= q << 2;
+    q ^= q << 4;
+    q &= 0xff;
+    if (q & 0x80) q ^= 0x09;
+    const x =
+      q ^ ((q << 1) | (q >> 7)) ^ ((q << 2) | (q >> 6)) ^ ((q << 3) | (q >> 5)) ^ ((q << 4) | (q >> 4));
+    SBOX[p] = (x ^ 0x63) & 0xff;
+  } while (p !== 1);
+  SBOX[0] = 0x63;
+  for (let i = 0; i < 256; i++) INV_SBOX[SBOX[i]] = i;
+})();
 
-function bytesToB64(bytes) {
-  let out = "";
-  let i = 0;
-  const n = bytes.length;
-  for (; i + 2 < n; i += 3) {
-    const v = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
-    out +=
-      B64CHARS[(v >> 18) & 63] + B64CHARS[(v >> 12) & 63] + B64CHARS[(v >> 6) & 63] + B64CHARS[v & 63];
+const MUL9 = new Uint8Array(256);
+const MUL11 = new Uint8Array(256);
+const MUL13 = new Uint8Array(256);
+const MUL14 = new Uint8Array(256);
+(function () {
+  const gmul = (a, b) => {
+    let p = 0;
+    for (let i = 0; i < 8; i++) {
+      if (b & 1) p ^= a;
+      const hi = a & 0x80;
+      a = (a << 1) & 0xff;
+      if (hi) a ^= 0x1b;
+      b >>= 1;
+    }
+    return p;
+  };
+  for (let i = 0; i < 256; i++) {
+    MUL9[i] = gmul(i, 9);
+    MUL11[i] = gmul(i, 11);
+    MUL13[i] = gmul(i, 13);
+    MUL14[i] = gmul(i, 14);
   }
-  const rest = n - i;
-  if (rest === 1) {
-    const v = bytes[i] << 16;
-    out += B64CHARS[(v >> 18) & 63] + B64CHARS[(v >> 12) & 63] + "==";
-  } else if (rest === 2) {
-    const v = (bytes[i] << 16) | (bytes[i + 1] << 8);
-    out += B64CHARS[(v >> 18) & 63] + B64CHARS[(v >> 12) & 63] + B64CHARS[(v >> 6) & 63] + "=";
-  }
-  return out;
+})();
+
+function strToBytes(s) {
+  const a = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 0xff;
+  return a;
 }
 
-function b64ToBytes(s) {
-  const out = [];
-  let buf = 0;
-  let bits = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charAt(i);
-    if (c === "=") break;
-    const v = B64CHARS.indexOf(c);
-    if (v < 0) continue;
-    buf = (buf << 6) | v;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      out.push((buf >> bits) & 0xff);
+function expandKey128(key) {
+  const Nk = 4;
+  const Nr = 10;
+  const w = new Uint8Array(16 * (Nr + 1));
+  w.set(key.subarray(0, 16), 0);
+  const rcon = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
+  for (let i = Nk; i < 4 * (Nr + 1); i++) {
+    let t0 = w[(i - 1) * 4];
+    let t1 = w[(i - 1) * 4 + 1];
+    let t2 = w[(i - 1) * 4 + 2];
+    let t3 = w[(i - 1) * 4 + 3];
+    if (i % Nk === 0) {
+      const tmp = t0;
+      t0 = SBOX[t1] ^ rcon[i / Nk - 1];
+      t1 = SBOX[t2];
+      t2 = SBOX[t3];
+      t3 = SBOX[tmp];
+    }
+    const o = i * 4;
+    const p = (i - Nk) * 4;
+    w[o] = w[p] ^ t0;
+    w[o + 1] = w[p + 1] ^ t1;
+    w[o + 2] = w[p + 2] ^ t2;
+    w[o + 3] = w[p + 3] ^ t3;
+  }
+  return w;
+}
+
+function decryptBlock(inp, off, w, out) {
+  const s = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) s[i] = inp[off + i] ^ w[160 + i];
+
+  for (let round = 9; round >= 1; round--) {
+    const t = new Uint8Array(16);
+    for (let c = 0; c < 4; c++) {
+      for (let r = 0; r < 4; r++) t[c * 4 + r] = INV_SBOX[s[((c - r + 4) & 3) * 4 + r]];
+    }
+    for (let i = 0; i < 16; i++) t[i] ^= w[round * 16 + i];
+    for (let c = 0; c < 4; c++) {
+      const a0 = t[c * 4];
+      const a1 = t[c * 4 + 1];
+      const a2 = t[c * 4 + 2];
+      const a3 = t[c * 4 + 3];
+      s[c * 4] = MUL14[a0] ^ MUL11[a1] ^ MUL13[a2] ^ MUL9[a3];
+      s[c * 4 + 1] = MUL9[a0] ^ MUL14[a1] ^ MUL11[a2] ^ MUL13[a3];
+      s[c * 4 + 2] = MUL13[a0] ^ MUL9[a1] ^ MUL14[a2] ^ MUL11[a3];
+      s[c * 4 + 3] = MUL11[a0] ^ MUL13[a1] ^ MUL9[a2] ^ MUL14[a3];
     }
   }
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 4; r++) out[c * 4 + r] = INV_SBOX[s[((c - r + 4) & 3) * 4 + r]] ^ w[c * 4 + r];
+  }
+}
+
+function aesCbcDecrypt(key, iv, data) {
+  const w = expandKey128(key);
+  const n = data.length - (data.length % 16);
+  const out = new Uint8Array(n);
+  const block = new Uint8Array(16);
+  const prev = new Uint8Array(16);
+  prev.set(iv);
+  for (let off = 0; off < n; off += 16) {
+    decryptBlock(data, off, w, block);
+    for (let i = 0; i < 16; i++) out[off + i] = block[i] ^ prev[i];
+    prev.set(data.subarray(off, off + 16));
+  }
+  const pad = out[n - 1];
+  if (pad >= 1 && pad <= 16) return out.subarray(0, n - pad);
   return out;
 }
 
@@ -300,11 +381,9 @@ export default class Mrds extends Spider {
       const st = await this.net.openStream(u, { headers: hdrs() });
       const bytes = await this.readBytes(st);
       if (!bytes || bytes.length === 0) return [404, "text/plain", "empty"];
-      const b64 = bytesToB64(bytes);
-      const plainB64 = aesX("AES/CBC/PKCS5Padding", false, b64, true, ENC_KEY_B64, ENC_IV_B64, true);
-      if (!plainB64) return [404, "text/plain", "decrypt failed"];
-      // 返回 Uint8Array（宿主可能只认字节数组，不认普通 Array）
-      return [200, "image/jpeg", new Uint8Array(b64ToBytes(plainB64))];
+      const plain = aesCbcDecrypt(ENC_KEY_BYTES, ENC_IV_BYTES, bytes);
+      if (!plain || plain.length < 100) return [404, "text/plain", "decrypt failed"];
+      return [200, "image/jpeg", plain];
     } catch (e) {
       this.log("cover decrypt failed: " + e);
       return [404, "text/plain", "fail"];
