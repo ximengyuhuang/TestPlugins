@@ -103,6 +103,11 @@ function esc(s) {
     .replace(/ /g, "%20");
 }
 
+// 列表封面只能用它：正文/封面图全是 AES 密文，原生加载器解不开
+function picFallback() {
+  return BASE + "/usr/themes/Mirages/images/social.jpg";
+}
+
 // 列表卡片：<article> 里 <a href="/archives/<id>/">
 //   封面在 <script>loadBannerDirect('…jpeg', …)</script>
 //   标题在 <h2 class="post-card-title">
@@ -119,7 +124,6 @@ function parseCards(html) {
     if (seen[url]) continue;
     seen[url] = 1;
 
-    const banner = block.match(/loadBannerDirect\('([^']+)'/);
     const tm =
       block.match(/class="post-card-title"[^>]*>([\s\S]{0,300}?)<div class="wrap"/) ||
       block.match(/class="post-card-title"[^>]*>([\s\S]{0,300}?)<\/h2>/);
@@ -138,7 +142,10 @@ function parseCards(html) {
     out.push({
       url: url,
       title: title,
-      pic: banner ? banner[1].replace(/^\/\//, "https://") : "",
+      // ⚠ 封面图（banner 也好看、图集首图也好）在 CDN 上都是 AES 密文，
+      // App 的原生图片加载器解不开 → 只能显示首字母。
+      // 所以统一用站点的明文图 social.jpg 当占位，至少列表不空。
+      pic: picFallback(),
       cats: cats,
     });
   }
@@ -205,9 +212,10 @@ export default class Mrds extends Spider {
 
   async homeContent(filter) {
     await ensureBase(this);
-    const classes = [{ type_id: "latest", type_name: "最新" }];
-    for (const [slug, name] of CATS) classes.push({ type_id: slug, type_name: name });
-    classes.push({ type_id: "web", type_name: "网页" });
+    // 全站设 type_flag="1" → 列表行模式（用户指定：这站要列表排版）
+    const classes = [{ type_id: "latest", type_name: "最新", type_flag: "1" }];
+    for (const [slug, name] of CATS) classes.push({ type_id: slug, type_name: name, type_flag: "1" });
+    classes.push({ type_id: "web", type_name: "网页", type_flag: "1" });
     return { class: classes };
   }
 
