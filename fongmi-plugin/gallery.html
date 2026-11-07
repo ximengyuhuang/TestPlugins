@@ -102,8 +102,7 @@ function extractImages(text) {
   return out;
 }
 
-function isJunk(u) {
-  return /(logo|icon|avatar|emoji|spinner|banner|favicon|placeholder|spacer|blank\.|loading\.|1x1)/i.test(u)
+function isJunk(u) {  return /(logo|icon|avatar|emoji|spinner|banner|favicon|placeholder|spacer|blank\.|loading\.|1x1)/i.test(u)
       || /\/themes?\//i.test(u)
       || /\/plugins?\//i.test(u);
 }
@@ -114,6 +113,68 @@ function normalize(u) {
   if (u.indexOf("http") === 0) return u;
   if (u.charAt(0) === "/") return (BASEHOST || "https://img.ziyuanquancdn.com") + u;
   return u;
+}
+
+// ---------- 加密图集（mrds66 这类：AES-128-CBC，key/iv 由插件用 ?k= ?v= 传来）----------
+// 站点把图片整体加密后放 CDN，浏览器端用 CryptoJS 解密；这里换成 WebCrypto（原生、更快）
+var ENC = null;
+var cryptoKey = null;
+var BLOB = {};
+var QUEUE = [];
+var RUNNING = 0;
+var MAXPAR = 6;
+var PLACEHOLDER = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="100%" height="100%" fill="#1a1a1c"/><text x="50%" y="50%" fill="#555" font-size="12" text-anchor="middle">加载失败</text></svg>');
+
+function initEnc(k, v) {
+  if (!k || !v) return;
+  if (!window.isSecureContext || !window.crypto || !crypto.subtle) {
+    tip.style.display = 'block';
+    tip.innerHTML = '这张图需要解密，但当前页面不是 https，浏览器不给用 WebCrypto';
+    return;
+  }
+  var te = new TextEncoder();
+  ENC = { key: te.encode(k), iv: te.encode(v) };
+}
+
+function getKey() {
+  if (!cryptoKey) cryptoKey = crypto.subtle.importKey('raw', ENC.key, { name: 'AES-CBC' }, false, ['decrypt']);
+  return cryptoKey;
+}
+
+function decryptToBlobUrl(url) {
+  return fetch(url, { mode: 'cors' })
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.arrayBuffer();
+    })
+    .then(function (buf) {
+      return getKey().then(function (key) {
+        return crypto.subtle.decrypt({ name: 'AES-CBC', iv: ENC.iv }, key, buf);
+      });
+    })
+    .then(function (plain) {
+      var u = URL.createObjectURL(new Blob([plain], { type: 'image/jpeg' }));
+      BLOB[url] = u;
+      return u;
+    });
+}
+
+function enqueue(im, url) {
+  QUEUE.push({ im: im, url: url });
+  pump();
+}
+
+function pump() {
+  while (RUNNING < MAXPAR && QUEUE.length) {
+    (function (job) {
+      RUNNING++;
+      decryptToBlobUrl(job.url)
+        .then(function (u) { job.im.src = u; })
+        .catch(function () { job.im.style.opacity = 1; job.im.src = PLACEHOLDER; })
+        .then(function () { RUNNING--; pump(); });
+    })(QUEUE.shift());
+  }
 }
 
 function extractTitle(text) {
@@ -143,7 +204,6 @@ function render() {
 
       var im = document.createElement('img');
       // 前 8 张立刻取（首屏要瞬间有图），其余交给浏览器按视口预取
-      im.loading = k < 8 ? 'eager' : 'lazy';
       im.decoding = 'async';
       im.onload = function () {
         im.classList.add('ok');
@@ -152,10 +212,15 @@ function render() {
       };
       im.onerror = function () {
         im.style.opacity = 1;
-        im.src = 'data:image/svg+xml;utf8,' +
-          encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="100%" height="100%" fill="#1a1a1c"/><text x="50%" y="50%" fill="#555" font-size="12" text-anchor="middle">加载失败</text></svg>');
+        im.src = PLACEHOLDER;
       };
-      im.src = IMGS[k];
+      if (ENC) {
+        // 加密图：不走 img 直接加载，先 fetch + 解密再喂 blob URL
+        enqueue(im, IMGS[k]);
+      } else {
+        im.loading = k < 8 ? 'eager' : 'lazy';
+        im.src = IMGS[k];
+      }
 
       var idx = document.createElement('div');
       idx.className = 'idx';
@@ -177,9 +242,15 @@ function updateMeta() {
   document.getElementById('meta').textContent = '共 ' + IMGS.length + ' 张 · 已加载 ' + loaded + ' 张';
 }
 
+// 加密图在 BLOB 里有解密结果就用它，否则（未解密/普通图）直接用原地址
+function srcOf(n) {
+  if (ENC && BLOB[IMGS[n]]) return BLOB[IMGS[n]];
+  return IMGS[n];
+}
+
 function openViewer(n) {
   cur = n;
-  document.getElementById('big').src = IMGS[n];
+  document.getElementById('big').src = srcOf(n);
   document.getElementById('pos').textContent = (n + 1) + ' / ' + IMGS.length;
   document.getElementById('viewer').classList.add('on');
   document.body.style.overflow = 'hidden';
@@ -191,7 +262,7 @@ function closeViewer() {
 var cur = 0;
 function step(d) {
   cur = Math.max(0, Math.min(IMGS.length - 1, cur + d));
-  document.getElementById('big').src = IMGS[cur];
+  document.getElementById('big').src = srcOf(cur);
   document.getElementById('pos').textContent = (cur + 1) + ' / ' + IMGS.length;
 }
 document.addEventListener('keydown', function (e) {
@@ -206,6 +277,7 @@ document.addEventListener('keydown', function (e) {
   var inline = qs('i');
   var t = qs('t');
   BASEHOST = qs('b') || '';
+  initEnc(qs('k'), qs('v'));
 
   // ① 插件直接把图片列表带过来了 → 秒开，不联网
   if (inline) {

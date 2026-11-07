@@ -153,6 +153,17 @@
         "ratio": 0.75
       },
       "ext": {}
+    },
+    {
+      "key": "mrds",
+      "name": "每日大赛",
+      "type": 3,
+      "api": "./mrds.js",
+      "style": {
+        "type": "rect",
+        "ratio": 2
+      },
+      "ext": {}
     }
   ]
 }
