@@ -51,19 +51,39 @@ function stripTags(s) {
   return decode(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-// 从帖子正文（entry-content）提取图集图片
+// 从帖子正文提取图集图片
+// ⚠ 两个坑（2026-11-07 修）：
+// ① 不能从 entry-content 往后随便截 400KB —— 会吞掉文末「相关推荐」的缩略图
+//    （标题 61 photo 的帖子曾解析出 164 张，多出来的 97 张全是别的帖子封面）
+// ② 正文里内嵌的 CrP 插件（class="crp_link post-xxx"）也是别的帖子封面，要剔除
 function parseGalleryImages(html) {
   const i = html.indexOf("entry-content");
-  const seg = i >= 0 ? html.substring(i, i + 400000) : html;
+  let seg = i >= 0 ? html.substring(i) : html;
+  const end = seg.indexOf("</article>");
+  if (end > 0) seg = seg.substring(0, end);
+
   const out = [];
   const seen = {};
-  const re = /<img[^>]+(?:data-src|data-lazy-src|src)="([^"]+\.(?:jpg|jpeg|png|webp))"/gi;
+  const tagRe = /<img[^>]*>/gi;
   let m;
-  while ((m = re.exec(seg)) !== null) {
-    let u = m[1].trim();
+  while ((m = tagRe.exec(seg)) !== null) {
+    const tag = m[0];
+    if (/crp_/i.test(tag)) continue;
+    const before = seg.substring(Math.max(0, m.index - 300), m.index);
+    if (/class="crp_link/.test(before)) continue;
+
+    let u = "";
+    for (const re of [/data-src="([^"]+)"/i, /data-lazy-src="([^"]+)"/i, /src="([^"]+)"/i]) {
+      const mm = tag.match(re);
+      if (mm) {
+        u = mm[1].trim();
+        break;
+      }
+    }
+    if (!u) continue;
     if (u.indexOf("http") !== 0) u = absolute(u);
     if (!u) continue;
-    if (/logo|icon|avatar|emoji|banner|spinner/i.test(u)) continue;
+    if (/logo|icon|avatar|emoji|banner|spinner|placeholder/i.test(u)) continue;
     if (seen[u]) continue;
     seen[u] = 1;
     out.push(u);
