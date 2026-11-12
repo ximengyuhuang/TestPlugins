@@ -304,14 +304,20 @@ export default class CosersLove extends Spider {
 
       let items = [];
       let html = "";
+      let diag = "";
       for (const path of conf.paths) {
         const u = BASE + path + (p > 1 ? (path.indexOf("?") >= 0 ? "&" : "?") + "page=" + p : "");
+        let code = 0;
         let h = "";
         try {
-          h = await this.fetchPage(u);
+          const r = await this.net.req(u, { headers: hdrs() });
+          code = (r && r.code) || 0;
+          h = (r && r.content) || "";
         } catch (e) {
+          code = -1;
           h = "";
         }
+        if (!diag) diag = path + " → " + code + " / len " + h.length;
         if (!h) continue;
         const got = parseLinks(h, conf.prefix);
         if (got.length > 0) {
@@ -319,7 +325,7 @@ export default class CosersLove extends Spider {
           html = h;
           break;
         }
-        if (!html) html = h; // 留一份给兜底扫描
+        if (!html) html = h;
       }
 
       // 兜底：只按 href 抽，名字用 slug
@@ -342,7 +348,17 @@ export default class CosersLove extends Spider {
         vod_remarks: tid === "catf" ? "分类" : tid === "tagf" ? "标签" : "画师",
         vod_tag: "folder",
       }));
-      return this.page(list, p, PAGE_SIZE, list.length >= 20 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + list.length);
+      // 一条都没解析出来时，放一张诊断卡片（点开就是那个页面），方便定位
+      if (list.length === 0) {
+        list.push({
+          vod_id: BASE + conf.paths[0],
+          vod_name: "诊断：" + diag,
+          vod_pic: "",
+          vod_remarks: "点开看原页面",
+          action: "web|" + BASE + conf.paths[0],
+        });
+      }
+      return this.page(list, p, PAGE_SIZE, list.length);
     }
 
     let url;
@@ -396,6 +412,13 @@ export default class CosersLove extends Spider {
 
   async action(op, value) {
     const s = String(op === undefined || op === null ? "" : op);
+
+    // 诊断卡片 / 视频：直接内置浏览器打开
+    if (s.indexOf("web|") === 0 || s.indexOf("web:") === 0) {
+      const u = s.substring(4);
+      return { web: { url: u.indexOf("http") === 0 ? u : BASE + u, mode: "view" } };
+    }
+
     if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 
