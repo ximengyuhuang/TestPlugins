@@ -350,6 +350,27 @@ export default class Mrds extends Spider {
     }
   }
 
+  // 并发探测每篇帖子的媒体构成（8 个一批），顺手把 HTML 灌进缓存
+  async probePages(urls) {
+    const out = {};
+    const BATCH = 8;
+    for (let i = 0; i < urls.length; i += BATCH) {
+      const slice = urls.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (u) => {
+          try {
+            const html = await this.fetchPage(u);
+            if (!html) return;
+            out[u] = { vids: parseVideos(html).length, imgs: parseImages(html).length };
+          } catch (e) {
+            /* 单篇失败不影响整页 */
+          }
+        })
+      );
+    }
+    return out;
+  }
+
   // 读流全部字节
   async readBytes(stream) {
     const chunks = [];
@@ -457,14 +478,40 @@ export default class Mrds extends Spider {
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
-    // 列表阶段不发额外请求，点开卡片才知道有几个视频 / 几张图
-    const list = cards.map((c) => ({
-      vod_id: "mix|" + c.url,
-      vod_name: c.title,
-      vod_pic: this.coverPic(c),
-      vod_remarks: c.cats || "视频+图集",
-      vod_tag: "folder",
-    }));
+    // 列表阶段并发探测每篇的媒体构成（结果进 htmlCache，点开时不再重复请求）
+    const info = await this.probePages(cards.map((c) => c.url));
+
+    const list = [];
+    for (const c of cards) {
+      const k = info[c.url];
+      const pic = this.coverPic(c);
+      // 纯文字 / 公告帖：丢掉
+      if (k && k.vids === 0 && k.imgs === 0) continue;
+      // 只有视频 → 直接进详情
+      if (k && k.vids > 0 && k.imgs === 0) {
+        list.push({ vod_id: c.url, vod_name: c.title, vod_pic: pic, vod_remarks: k.vids + " 个视频" });
+        continue;
+      }
+      // 只有图集 → 直接开画廊
+      if (k && k.vids === 0 && k.imgs > 0) {
+        list.push({
+          vod_id: c.url,
+          vod_name: c.title,
+          vod_pic: pic,
+          vod_remarks: "图集 · " + k.imgs + " 张",
+          action: "gal:" + c.url,
+        });
+        continue;
+      }
+      // 混合（或探测失败）→ 二级菜单
+      list.push({
+        vod_id: "mix|" + c.url,
+        vod_name: c.title,
+        vod_pic: pic,
+        vod_remarks: k ? k.vids + " 视频 · " + k.imgs + " 图" : c.cats || "视频+图集",
+        vod_tag: "folder",
+      });
+    }
 
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }

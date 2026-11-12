@@ -196,6 +196,58 @@ export default class Kanliao extends Spider {
     return r.content;
   }
 
+  // 并发探测每篇的媒体构成（8 个一批），顺手把 HTML 灌进缓存
+  async probePages(urls) {
+    const out = {};
+    const BATCH = 8;
+    for (let i = 0; i < urls.length; i += BATCH) {
+      const slice = urls.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (u) => {
+          try {
+            const html = await this.fetchPage(u);
+            if (!html) return;
+            out[u] = { vids: parseVideos(html).length, imgs: parseImages(html).length };
+          } catch (e) {
+            /* 单篇失败跳过 */
+          }
+        })
+      );
+    }
+    return out;
+  }
+
+  // 按「视频 / 图集 / 混合」三态生成卡片（纯文字帖丢掉）
+  buildCards(cards, info) {
+    const out = [];
+    for (const c of cards) {
+      const k = info[c.url];
+      if (k && k.vids === 0 && k.imgs === 0) continue;
+      if (k && k.vids > 0 && k.imgs === 0) {
+        out.push({ vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: k.vids + " 个视频" });
+        continue;
+      }
+      if (k && k.vids === 0 && k.imgs > 0) {
+        out.push({
+          vod_id: c.url,
+          vod_name: c.title,
+          vod_pic: c.pic,
+          vod_remarks: "图集 · " + k.imgs + " 张",
+          action: "gal:" + c.url,
+        });
+        continue;
+      }
+      out.push({
+        vod_id: "mix|" + c.url,
+        vod_name: c.title,
+        vod_pic: c.pic,
+        vod_remarks: k ? k.vids + " 视频 · " + k.imgs + " 图" : c.cats || "视频+图集",
+        vod_tag: "folder",
+      });
+    }
+    return out;
+  }
+
   async homeContent(filter) {
     await ensureBase(this);
     const classes = [{ type_id: "latest", type_name: "最新", type_flag: "1" }];
@@ -262,13 +314,9 @@ export default class Kanliao extends Spider {
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
-    const list = cards.map((c) => ({
-      vod_id: "mix|" + c.url,
-      vod_name: c.title,
-      vod_pic: c.pic,
-      vod_remarks: c.cats || "视频+图集",
-      vod_tag: "folder",
-    }));
+    // 列表阶段并发探测（结果进 htmlCache，点开时不再重复请求）
+    const info = await this.probePages(cards.map((c) => c.url));
+    const list = this.buildCards(cards, info);
 
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
@@ -368,13 +416,8 @@ export default class Kanliao extends Spider {
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
-    const list = cards.map((c) => ({
-      vod_id: "mix|" + c.url,
-      vod_name: c.title,
-      vod_pic: c.pic,
-      vod_remarks: c.cats || "视频+图集",
-      vod_tag: "folder",
-    }));
+    const info = await this.probePages(cards.map((c) => c.url));
+    const list = this.buildCards(cards, info);
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
 }
