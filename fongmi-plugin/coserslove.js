@@ -20,13 +20,17 @@ const GAL = "https://ximengyuhuang.github.io/TestPlugins/fongmi-plugin/gallery.h
 
 const PAGE_SIZE = 24;
 
-function hdrs(ref) {
-  return {
-    "User-Agent": UA,
+// 请求头：必须用 WebView 的真实 UA + cookie，否则动态页会被 CF 403
+// （静态页 / /categories / /tags 有边缘缓存，所以之前侥幸能通）
+function baseHeaders(ua, cookie, ref) {
+  const h = {
+    "User-Agent": ua || UA,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Referer": ref || BASE + "/",
   };
+  if (cookie) h["Cookie"] = cookie;
+  return h;
 }
 
 function clean(s) {
@@ -172,6 +176,19 @@ export default class CosersLove extends Spider {
     this.log("coserslove ready");
   }
 
+  // 统一请求头：WebView 真实 UA + WebView 里的 cookie（cf_clearance 靠它过关）
+  h(ref) {
+    let ua = "";
+    let ck = "";
+    try {
+      ua = this.net.getUserAgent() || "";
+    } catch (e) {}
+    try {
+      ck = this.net.getCookie(BASE + "/") || "";
+    } catch (e) {}
+    return baseHeaders(ua, ck, ref);
+  }
+
   cacheGet(url) {
     const c = this.htmlCache && this.htmlCache[url];
     return c && Date.now() - c.ts < 180000 ? c.html : "";
@@ -185,7 +202,7 @@ export default class CosersLove extends Spider {
   async fetchPage(url) {
     const hit = this.cacheGet(url);
     if (hit) return hit;
-    const r = await this.net.req(url, { headers: hdrs() });
+    const r = await this.net.req(url, { headers: this.h() });
     if (!r || r.code !== 200) return "";
     this.cacheSet(url, r.content);
     return r.content;
@@ -310,7 +327,7 @@ export default class CosersLove extends Spider {
         let code = 0;
         let h = "";
         try {
-          const r = await this.net.req(u, { headers: hdrs() });
+          const r = await this.net.req(u, { headers: this.h() });
           code = (r && r.code) || 0;
           h = (r && r.content) || "";
         } catch (e) {
@@ -446,7 +463,7 @@ export default class CosersLove extends Spider {
   async searchContent(key, quick, pg = "1") {
     const p = Number(pg) || 1;
     const url = BASE + "/search?q=" + encodeURIComponent(key) + (p > 1 ? "&page=" + p : "");
-    const r = await this.net.req(url, { headers: hdrs() });
+    const r = await this.net.req(url, { headers: this.h() });
     if (!r || r.code !== 200) return this.page([], p, PAGE_SIZE, 0);
     const cards = parseList(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
