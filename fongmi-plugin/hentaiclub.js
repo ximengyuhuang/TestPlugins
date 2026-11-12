@@ -200,10 +200,61 @@ export default class HentaiClub extends Spider {
     return cards.map((c) => ({
       vod_id: c.url,
       vod_name: c.title,
-      vod_pic: c.pic,
+      vod_pic: this.coverPic(c.pic),
       vod_remarks: [c.count ? c.count + "P" : "", c.sort].filter(Boolean).join(" · ") || "图集",
       action: "gal:" + c.url,
     }));
+  }
+
+  // 封面走本地代理：App 原生图片加载器可能被 CDN 挡（8se 就是这么修好的）
+  coverPic(pic) {
+    if (!pic) return "";
+    try {
+      return this.proxyUrl({ u: pic });
+    } catch (e) {
+      return pic;
+    }
+  }
+
+  async readBytes(stream) {
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const buf = await stream.read(65536);
+      if (!buf) break;
+      const a = new Uint8Array(buf);
+      chunks.push(a);
+      total += a.length;
+    }
+    try {
+      stream.close();
+    } catch (e) {}
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.length;
+    }
+    return out;
+  }
+
+  async proxy(params) {
+    const u = (params && (params.u || params.url)) || "";
+    if (!u) return [404, "text/plain", "no url"];
+    const h = hdrs();
+    h["Accept"] = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+    try {
+      const st = await this.net.openStream(u, { headers: h });
+      const bytes = await this.readBytes(st);
+      if (!bytes || bytes.length === 0) return [404, "text/plain", "empty"];
+      let mime = "image/webp";
+      if (bytes[0] === 0xff && bytes[1] === 0xd8) mime = "image/jpeg";
+      else if (bytes[0] === 0x89 && bytes[1] === 0x50) mime = "image/png";
+      return [200, mime, bytes];
+    } catch (e) {
+      this.log("cover proxy failed: " + e);
+      return [404, "text/plain", "fail"];
+    }
   }
 
   async categoryContent(tid, pg, filter, extend) {
