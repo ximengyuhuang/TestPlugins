@@ -206,20 +206,22 @@ function render() {
       // 前 8 张立刻取（首屏要瞬间有图），其余交给浏览器按视口预取
       im.decoding = 'async';
       im.onload = function () {
+        if (im.dataset.ph === '1') return; // 占位图不算「已加载」
         im.classList.add('ok');
         loaded++;
         updateMeta();
       };
       im.onerror = function () {
-        // 原图（.jpg）拿不到时，退回同目录的缩略图（…_600x0.webp），最后才用占位图
         var cur = im.getAttribute('src') || '';
-        if (/\.jpe?g$/i.test(cur) && !im.dataset.fb) {
-          im.dataset.fb = '1';
-          im.src = cur.replace(/\.jpe?g$/i, '_600x0.webp');
-          return;
-        }
-        im.style.opacity = 1;
-        im.src = PLACEHOLDER;
+        cbFallback(im, cur, function (next) {
+          if (next) {
+            im.src = next;
+          } else {
+            im.style.opacity = 1;
+            im.dataset.ph = '1';
+            im.src = PLACEHOLDER;
+          }
+        });
       };
       if (ENC) {
         // 加密图：不走 img 直接加载，先 fetch + 解密再喂 blob URL
@@ -304,13 +306,31 @@ function step(d) {
   document.getElementById('pos').textContent = (cur + 1) + ' / ' + IMGS.length;
 }
 
-// 大图原图取不到时退回缩略图
-function bigFallback(el) {
-  var cur2 = el.getAttribute('src') || '';
-  if (/\.jpe?g$/i.test(cur2) && !el.dataset.fb) {
+// 图片加载失败时的三级兜底：
+//   ① 原图 .jpg 取不到 → 同目录缩略图 …_600x0.webp
+//   ② 还不行 → 公共图片代理 images.weserv.nl（服务端取图，绕开手机端 DNS 屏蔽/防盗链）
+//   ③ 最后才用占位图
+function cbFallback(el, cur, cb) {
+  if (!cur || cur.indexOf('data:') === 0) return cb(null);
+  var step = el.dataset.fb || '';
+  if (step === '' && /\.jpe?g$/i.test(cur)) {
     el.dataset.fb = '1';
-    el.src = cur2.replace(/\.jpe?g$/i, '_600x0.webp');
+    return cb(cur.replace(/\.jpe?g$/i, '_600x0.webp'));
   }
+  if (step === '' || step === '1') {
+    if (cur.indexOf('images.weserv.nl') < 0) {
+      el.dataset.fb = '2';
+      return cb('https://images.weserv.nl/?url=' + encodeURIComponent(cur.replace(/^https?:\/\//, '')));
+    }
+  }
+  return cb(null);
+}
+
+// 大图原图取不到时同样兜底
+function bigFallback(el) {
+  cbFallback(el, el.getAttribute('src') || '', function (next) {
+    if (next) el.src = next;
+  });
 }
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') closeViewer();
