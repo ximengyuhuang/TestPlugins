@@ -252,8 +252,19 @@ export default class Se8 extends Spider {
         out.push({ vod_id: c.url, vod_name: c.title, vod_pic: pic, vod_remarks: remark || "视频" });
         continue;
       }
-      // 图 + 视频：视频藏在相册内部条目里（photoShow 加密 token），暂时取不到流，
-      // 先按纯图集直接开画廊，别让用户多点一次；备注里保留 "22P + 1V" 让用户知道有视频
+      // 图 + 视频：视频是站点里的第三方嵌入播放器（解析成本高、多半也带 CF），
+      // 这里给二级菜单：视频项直接用内置浏览器打开该相册页播放，图片项走画廊
+      if (c.vcount > 0 && c.count > 0) {
+        out.push({
+          vod_id: "mix|" + c.url,
+          vod_name: c.title,
+          vod_pic: pic,
+          vod_remarks: remark,
+          vod_tag: "folder",
+        });
+        continue;
+      }
+      // 纯图集
       out.push({
         vod_id: c.url,
         vod_name: c.title,
@@ -376,25 +387,13 @@ export default class Se8 extends Spider {
           action: "gal|" + pageUrl,
         });
       }
-      let vurl = "";
-      try {
-        const html = await this.fetch(pageUrl);
-        const mv = html.match(/<video[^>]+src="([^"]+)"/) || html.match(/"(https?:\/\/[^"]+?\.(?:m3u8|mp4)[^"]*)"/);
-        if (mv) vurl = mv[1];
-      } catch (e) {
-        /* 忽略 */
-      }
-      if (vurl) {
-        list.push({
-          vod_id: "v|" + pageUrl,
-          vod_name: "▶ 播放视频",
-          vod_pic: "",
-          vod_remarks: "视频",
-        });
-      }
-      if (list.length === 0) {
-        list.push({ vod_id: pageUrl, vod_name: "（没有内容）", vod_pic: "", vod_remarks: "" });
-      }
+      list.push({
+        vod_id: "web|" + pageUrl,
+        vod_name: "▶ 播放视频（网页播放）",
+        vod_pic: "",
+        vod_remarks: "视频",
+        action: "web|" + pageUrl,
+      });
       return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
@@ -447,6 +446,13 @@ export default class Se8 extends Spider {
 
   async action(op, value) {
     const s = String(op === undefined || op === null ? "" : op);
+
+    // 视频：直接在相册页里用内置浏览器播放（第三方播放器嵌入）
+    if (s.indexOf("web|") === 0 || s.indexOf("web:") === 0) {
+      const u = s.substring(4);
+      return { web: { url: u.indexOf("http") === 0 ? u : BASE + u, mode: "view" } };
+    }
+
     if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const pageUrl = s.substring(4);
 
