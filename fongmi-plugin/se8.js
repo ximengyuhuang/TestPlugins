@@ -252,18 +252,8 @@ export default class Se8 extends Spider {
         out.push({ vod_id: c.url, vod_name: c.title, vod_pic: pic, vod_remarks: remark || "视频" });
         continue;
       }
-      // 图 + 视频 → 二级菜单
-      if (c.vcount > 0 && c.count > 0) {
-        out.push({
-          vod_id: "mix|" + c.url,
-          vod_name: c.title,
-          vod_pic: pic,
-          vod_remarks: remark,
-          vod_tag: "folder",
-        });
-        continue;
-      }
-      // 纯图集
+      // 图 + 视频：视频藏在相册内部条目里（photoShow 加密 token），暂时取不到流，
+      // 先按纯图集直接开画廊，别让用户多点一次；备注里保留 "22P + 1V" 让用户知道有视频
       out.push({
         vod_id: c.url,
         vod_name: c.title,
