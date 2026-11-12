@@ -627,7 +627,7 @@ export default class CosplayTele extends Spider {
     // 请求行上限（放 query 里 164 张就被 414 拒了）；query 只留帖子地址做兜底
     // 注意：不能用 encodeURIComponent 整体编码，它会把 "/" 变 %2F，长度翻三倍
     const esc = (s) => String(s).replace(/%/g, "%25").replace(/&/g, "%26").replace(/#/g, "%23").replace(/\+/g, "%2B").replace(/ /g, "%20");
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     const short = imgs.map((x) => (x.indexOf(BASE) === 0 ? x.substring(BASE.length) : x)).join("|");
     const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(BASE) + "&i=" + esc(short);
     return { web: { url: purl + hash, mode: "view" } };

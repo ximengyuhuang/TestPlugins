@@ -624,7 +624,7 @@ export default class Mrds extends Spider {
     const t = html.match(/<title>([^<]*)<\/title>/);
     if (t) title = clean(t[1]).replace(/\s*-\s*每日大赛\s*$/, "");
 
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     const short = imgs.map((x) => (x.indexOf("https://pic.gyezbp.cn") === 0 ? x.substring(21) : x)).join("|");
     // 图片是 AES-128-CBC 整体加密的（站点用 CryptoJS 在浏览器里解），
     // 把 key / iv 交给画廊页，由 WebCrypto 解 —— 见 gallery.html 的 initEnc()

@@ -401,7 +401,7 @@ export default class Xiaocong extends Spider {
     // 的 8KB 请求行上限拦成 414；query 里只留帖子地址做兜底
     const esc = (s) =>
       String(s).replace(/%/g, "%25").replace(/&/g, "%26").replace(/#/g, "%23").replace(/\+/g, "%2B").replace(/ /g, "%20");
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     if (imgs.length === 0) return { web: { url: purl, mode: "view" } };
 
     // 图片只传路径，页面前缀补全

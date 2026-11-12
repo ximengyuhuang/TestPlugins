@@ -550,7 +550,7 @@ export default class Ncg extends Spider {
     const h1 = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
     if (h1) title = clean(h1[1]);
 
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     const hash = "#t=" + encodeURIComponent(title) + "&i=" + esc(imgs.join("|"));
     return { web: { url: purl + hash, mode: "view" } };
   }

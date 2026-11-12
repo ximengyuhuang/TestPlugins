@@ -166,7 +166,7 @@ export default class Ssimg extends Spider {
 
     if (imgs.length === 0) return { msg: "这个帖子没有图片" };
 
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     const hash = "#t=" + encodeURIComponent(title) + "&i=" + esc(imgs.join("|"));
     return { web: { url: purl + hash, mode: "view" } };
   }

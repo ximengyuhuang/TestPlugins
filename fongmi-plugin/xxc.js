@@ -402,7 +402,7 @@ export default class Xxc extends Spider {
     if (media.imgs.length === 0) return { msg: "这个相册没有图片" };
 
     const title = pageTitle(html);
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
 
     // 这站的图片路径带中文百分号编码，一张就 280 字符，50 张能到 14KB。
     // 同一相册的图都在一个目录里 → 用 ?b= 传公共前缀，片段里只放 /0001.webp 这种短名。

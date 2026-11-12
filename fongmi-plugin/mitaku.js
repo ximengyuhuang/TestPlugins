@@ -922,7 +922,7 @@ export default class Mitaku extends Spider {
     if (h1) title = strip(h1[1]);
     else if (ogt) title = decode(ogt[1]);
 
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     const short = imgs.map((x) => (x.indexOf(SITE) === 0 ? x.substring(SITE.length) : x)).join("|");
     const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(SITE) + "&i=" + esc(short);
     return { web: { url: purl + hash, mode: "view" } };

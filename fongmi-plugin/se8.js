@@ -468,7 +468,7 @@ export default class Se8 extends Spider {
       /* 忽略 */
     }
 
-    const purl = GAL + "?u=" + encodeURIComponent(pageUrl);
+    const purl = GAL + "?u=" + encodeURIComponent(pageUrl) + "&_gv=20261113b";
     // 同一相册的图都在 /photos/<hash>/ 下 → 用 ?b= 传公共前缀，片段里只放文件名
     const cut = imgs[0].lastIndexOf("/");
     const dir = cut > 0 ? imgs[0].substring(0, cut) : "";

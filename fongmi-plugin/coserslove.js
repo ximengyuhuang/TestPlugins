@@ -462,7 +462,7 @@ export default class CosersLove extends Spider {
       /* 忽略 */
     }
 
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     const hash = "#t=" + encodeURIComponent(title) + "&i=" + esc(imgs.join("|"));
     return { web: { url: purl + hash, mode: "view" } };
   }

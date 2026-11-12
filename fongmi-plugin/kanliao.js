@@ -419,7 +419,7 @@ export default class Kanliao extends Spider {
     const t = html.match(/<title>([^<]*)<\/title>/);
     if (t) title = clean(t[1]).replace(/\s*-\s*今日看料.*$/, "");
 
-    const purl = GAL + "?u=" + encodeURIComponent(u);
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
     const hash = "#t=" + encodeURIComponent(title) + "&i=" + esc(imgs.join("|"));
     return { web: { url: purl + hash, mode: "view" } };
   }
