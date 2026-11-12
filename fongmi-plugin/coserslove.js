@@ -88,14 +88,26 @@ function parseList(html) {
   }
   // 兜底：没有 JSON-LD 就扫链接（画师页就属于这种，278KB 全 HTML）
   // ⚠ 窗口必须给够：卡片里 <img srcset> 单个标签就能吃掉 300 字
-  if (out.length === 0) {
+  // 另外：分类/标签页的 JSON-LD 常常不带 image，这里顺手用 HTML 里的 <img> 补封面
+  {
     const src = String(html);
     const re = /href="([^"]*\/album\/[0-9a-f\-]{36})"/g;
     let m;
     while ((m = re.exec(src)) !== null) {
       const url = abs(m[1]);
-      if (seen[url]) continue;
       const block = src.substring(m.index, m.index + 1600);
+      const im = block.match(/<img[^>]+src="([^"]+)"/) || block.match(/data-src="([^"]+)"/);
+      const pic = im ? abs(im[1]) : "";
+
+      if (seen[url]) {
+        // 已经有了但没封面 → 补上
+        if (pic) {
+          for (const it of out) {
+            if (it.url === url && !it.pic) it.pic = pic;
+          }
+        }
+        continue;
+      }
 
       let title = "";
       const tm =
@@ -103,13 +115,14 @@ function parseList(html) {
         block.match(/class="[^"]*title[^"]*"[^>]*>([\s\S]{1,120}?)</) ||
         block.match(/alt="([^"]{2,120})"/);
       if (tm) title = clean(tm[1]);
-      if (!title) title = clean(block.match(/>([^<>]{4,80})</) ? block.match(/>([^<>]{4,80})</)[1] : "");
+      if (!title) {
+        const t2 = block.match(/>([^<>]{4,80})</);
+        if (t2) title = clean(t2[1]);
+      }
       if (!title) continue;
 
-      const im = block.match(/<img[^>]+src="([^"]+)"/) || block.match(/data-src="([^"]+)"/);
-
       seen[url] = 1;
-      out.push({ url: url, title: title, pic: im ? abs(im[1]) : "" });
+      out.push({ url: url, title: title, pic: pic });
     }
   }
   return out;
@@ -440,39 +453,63 @@ export default class CosersLove extends Spider {
       return this.page(list, p, PAGE_SIZE, list.length);
     }
 
-    let url;
+    // 每个栏目可能有好几种写法（CF 对不同路径策略不同），逐个试
+    let cands = [];
     if (tid.indexOf("c:") === 0 || tid.indexOf("t:") === 0 || tid.indexOf("a:") === 0) {
       const target = tid.substring(2);
-      url = target + (p > 1 ? "/page/" + p : "");
+      cands = p > 1 ? [target + "/page/" + p, target + "?page=" + p, target + "/" + p] : [target];
     } else if (tid === "video") {
-      url = BASE + "/albums/with-video" + (p > 1 ? "/page/" + p : "");
+      cands =
+        p > 1
+          ? [BASE + "/albums/with-video/page/" + p, BASE + "/albums/with-video?page=" + p]
+          : [BASE + "/albums/with-video", BASE + "/albums/with-video/", BASE + "/?has_video=1", BASE + "/videos"];
     } else {
-      url = BASE + (p > 1 ? "/page/" + p : "/");
+      cands = p > 1 ? [BASE + "/page/" + p, BASE + "/page/" + p + "/", BASE + "/?page=" + p] : [BASE + "/"];
     }
 
     let code = 0;
     let html = "";
-    try {
-      const r = await this.net.req(url, { headers: this.h() });
-      code = (r && r.code) || 0;
-      html = (r && r.content) || "";
-    } catch (e) {
-      code = -1;
+    let used = cands[0];
+    let cards = [];
+    for (const c of cands) {
+      let k = 0;
+      let h = "";
+      try {
+        const r = await this.net.req(c, { headers: this.h() });
+        k = (r && r.code) || 0;
+        h = (r && r.content) || "";
+      } catch (e) {
+        k = -1;
+        h = "";
+      }
+      if (!h) continue;
+      const got = parseList(h);
+      if (got.length > 0) {
+        code = k;
+        html = h;
+        used = c;
+        cards = got;
+        this.cacheSet(c, h);
+        break;
+      }
+      if (!html) {
+        code = k;
+        html = h;
+        used = c;
+      }
     }
-    if (html) this.cacheSet(url, html);
 
-    const cards = html ? parseList(html) : [];
     if (cards.length === 0) {
       // 诊断卡片：把状态码和长度直接显示出来
-      const path = url.replace(BASE, "");
+      const path = used.replace(BASE, "");
       return this.page(
         [
           {
-            vod_id: url,
+            vod_id: used,
             vod_name: "诊断 " + code + "/" + html.length + " " + path,
             vod_pic: "",
             vod_remarks: "点开看原页面",
-            action: "web|" + url,
+            action: "web|" + used,
           },
         ],
         p,
