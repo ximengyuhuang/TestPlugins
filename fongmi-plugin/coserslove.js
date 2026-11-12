@@ -87,20 +87,27 @@ function parseList(html) {
     }
   }
   // 兜底：没有 JSON-LD 就扫链接（画师页就属于这种，278KB 全 HTML）
-  // ⚠ 窗口必须给够：卡片里 <img srcset> 单个标签就能吃掉 300 字
-  // 另外：分类/标签页的 JSON-LD 常常不带 image，这里顺手用 HTML 里的 <img> 补封面
+  // ⚠ 关键：卡片之间必须切清楚。用「上一个 album 链接 ~ 下一个 album 链接」作为卡片范围，
+  //   否则固定 1600 字窗口会吃到邻卡的 <img>，导致封面和标题串位。
   {
     const src = String(html);
     const re = /href="([^"]*\/album\/[0-9a-f\-]{36})"/g;
+    const hits = [];
     let m;
     while ((m = re.exec(src)) !== null) {
-      const url = abs(m[1]);
-      const block = src.substring(m.index, m.index + 1600);
+      hits.push({ url: abs(m[1]), idx: m.index });
+    }
+    for (let i = 0; i < hits.length; i++) {
+      const url = hits[i].url;
+      const start = i === 0 ? Math.max(0, hits[i].idx - 400) : hits[i].idx;
+      const end = i + 1 < hits.length ? hits[i + 1].idx : Math.min(src.length, hits[i].idx + 1600);
+      const block = src.substring(start, end);
+
+      // 封面：只在这一段里找（段落边界 = 卡片边界）
       const im = block.match(/<img[^>]+src="([^"]+)"/) || block.match(/data-src="([^"]+)"/);
       const pic = im ? abs(im[1]) : "";
 
       if (seen[url]) {
-        // 已经有了但没封面 → 补上
         if (pic) {
           for (const it of out) {
             if (it.url === url && !it.pic) it.pic = pic;
