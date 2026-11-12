@@ -107,14 +107,15 @@ function parseCards(html) {
     if (!title) continue;
     seen[url] = 1;
 
-    const cnt = block.match(/<div>(\d+)P<\/div>/);
+    const cnt = block.match(/(\d+)P(?:\s*\+\s*(\d+)V)?/);
     const sub = block.match(/class="subs"[\s\S]{0,200}?<div>\s*<a[^>]*>([\s\S]{0,40}?)<\/a>/);
 
     out.push({
       url: url,
       title: title,
-      pic: pickPic(block),
+      pic: pickPic(block, url),
       count: cnt ? Number(cnt[1]) : 0,
+      vcount: cnt && cnt[2] ? Number(cnt[2]) : 0,
       cat: sub ? clean(sub[1]) : "",
       isVideo: url.indexOf("/video/") >= 0,
     });
@@ -242,21 +243,98 @@ export default class Se8 extends Spider {
   cardsToList(cards) {
     const out = [];
     for (const c of cards) {
-      const remark = [c.count ? c.count + "P" : "", c.cat].filter(Boolean).join(" · ");
-      if (c.isVideo) {
-        // 视频类相册：先给详情，播放时尽力解析
-        out.push({ vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: remark || "视频" });
+      const remark = [(c.count ? c.count + "P" : "") + (c.vcount ? " + " + c.vcount + "V" : ""), c.cat]
+        .filter(Boolean)
+        .join(" · ");
+      const pic = this.coverPic(c.pic);
+      // 视频相册
+      if (c.isVideo || (c.vcount > 0 && c.count === 0)) {
+        out.push({ vod_id: c.url, vod_name: c.title, vod_pic: pic, vod_remarks: remark || "视频" });
         continue;
       }
+      // 图 + 视频 → 二级菜单
+      if (c.vcount > 0 && c.count > 0) {
+        out.push({
+          vod_id: "mix|" + c.url,
+          vod_name: c.title,
+          vod_pic: pic,
+          vod_remarks: remark,
+          vod_tag: "folder",
+        });
+        continue;
+      }
+      // 纯图集
       out.push({
         vod_id: c.url,
         vod_name: c.title,
-        vod_pic: c.pic,
+        vod_pic: pic,
         vod_remarks: remark || "图集",
         action: "gal:" + c.url,
       });
     }
     return out;
+  }
+
+  // ⚠ 列表封面必须走本地代理：App 的原生图片加载器（OkHttp 裸请求）会被
+  // img.xchina.io 的 Cloudflare 挑战挡掉，而插件自己的 net.req 带全套浏览器头能过
+  coverPic(pic) {
+    if (!pic) return "";
+    try {
+      return this.proxyUrl({ u: pic });
+    } catch (e) {
+      return pic;
+    }
+  }
+
+  async readBytes(stream) {
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const buf = await stream.read(65536);
+      if (!buf) break;
+      const a = new Uint8Array(buf);
+      chunks.push(a);
+      total += a.length;
+    }
+    try {
+      stream.close();
+    } catch (e) {}
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.length;
+    }
+    return out;
+  }
+
+  // 封面/图片代理：带完整浏览器头 + WebView cookie 去拉
+  async proxy(params) {
+    const u = (params && (params.u || params.url)) || "";
+    if (!u) return [404, "text/plain", "no url"];
+    const h = hdrs(BASE + "/");
+    h["Accept"] = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+    h["Sec-Fetch-Dest"] = "image";
+    h["Sec-Fetch-Mode"] = "no-cors";
+    h["Sec-Fetch-Site"] = "cross-site";
+    let cookie = "";
+    try {
+      cookie = this.net.getCookie(BASE + "/") || "";
+    } catch (e) {}
+    if (cookie) h["Cookie"] = cookie;
+
+    try {
+      const st = await this.net.openStream(u, { headers: h });
+      const bytes = await this.readBytes(st);
+      if (!bytes || bytes.length === 0) return [404, "text/plain", "empty"];
+      let mime = "image/webp";
+      if (bytes[0] === 0xff && bytes[1] === 0xd8) mime = "image/jpeg";
+      else if (bytes[0] === 0x89 && bytes[1] === 0x50) mime = "image/png";
+      return [200, mime, bytes];
+    } catch (e) {
+      this.log("cover proxy failed: " + e);
+      return [404, "text/plain", "fail"];
+    }
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -291,6 +369,42 @@ export default class Se8 extends Spider {
         vod_remarks: c.count ? c.count + " 本" : "分类",
         vod_tag: "folder",
       }));
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
+    // 二级菜单：图 + 视频的相册
+    if (tid.indexOf("mix|") === 0) {
+      const pageUrl = tid.substring(4);
+      const list = [];
+      const imgs = await this.collectAlbum(pageUrl);
+      if (imgs.length > 0) {
+        list.push({
+          vod_id: "gal|" + pageUrl,
+          vod_name: "🖼 查看图集 (" + imgs.length + " 张)",
+          vod_pic: "",
+          vod_remarks: "图集",
+          action: "gal|" + pageUrl,
+        });
+      }
+      let vurl = "";
+      try {
+        const html = await this.fetch(pageUrl);
+        const mv = html.match(/<video[^>]+src="([^"]+)"/) || html.match(/"(https?:\/\/[^"]+?\.(?:m3u8|mp4)[^"]*)"/);
+        if (mv) vurl = mv[1];
+      } catch (e) {
+        /* 忽略 */
+      }
+      if (vurl) {
+        list.push({
+          vod_id: "v|" + pageUrl,
+          vod_name: "▶ 播放视频",
+          vod_pic: "",
+          vod_remarks: "视频",
+        });
+      }
+      if (list.length === 0) {
+        list.push({ vod_id: pageUrl, vod_name: "（没有内容）", vod_pic: "", vod_remarks: "" });
+      }
       return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
