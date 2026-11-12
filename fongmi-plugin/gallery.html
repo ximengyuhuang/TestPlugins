@@ -61,7 +61,7 @@
 <div id="viewer">
   <div class="top"><span id="pos"></span><span class="close" onclick="closeViewer()">×</span></div>
   <div class="arrow prev" onclick="step(1)">‹</div>
-  <div class="stage"><img id="big" src=""></div>
+  <div class="stage"><img id="big" src="" onerror="bigFallback(this)"></div>
   <div class="arrow next" onclick="step(-1)">›</div>
 </div>
 
@@ -211,6 +211,13 @@ function render() {
         updateMeta();
       };
       im.onerror = function () {
+        // 原图（.jpg）拿不到时，退回同目录的缩略图（…_600x0.webp），最后才用占位图
+        var cur = im.getAttribute('src') || '';
+        if (/\.jpe?g$/i.test(cur) && !im.dataset.fb) {
+          im.dataset.fb = '1';
+          im.src = cur.replace(/\.jpe?g$/i, '_600x0.webp');
+          return;
+        }
         im.style.opacity = 1;
         im.src = PLACEHOLDER;
       };
@@ -253,7 +260,9 @@ var lbPushed = false;   // 大图是否占了一个 history 记录（用来实�
 
 function openViewer(n) {
   cur = n;
-  document.getElementById('big').src = srcOf(n);
+  var big = document.getElementById('big');
+  delete big.dataset.fb;
+  big.src = srcOf(n);
   document.getElementById('pos').textContent = (n + 1) + ' / ' + IMGS.length;
   document.getElementById('viewer').classList.add('on');
   document.body.style.overflow = 'hidden';
@@ -289,8 +298,19 @@ window.addEventListener('popstate', function () {
 
 function step(d) {
   cur = Math.max(0, Math.min(IMGS.length - 1, cur + d));
-  document.getElementById('big').src = srcOf(cur);
+  var big = document.getElementById('big');
+  delete big.dataset.fb;
+  big.src = srcOf(cur);
   document.getElementById('pos').textContent = (cur + 1) + ' / ' + IMGS.length;
+}
+
+// 大图原图取不到时退回缩略图
+function bigFallback(el) {
+  var cur2 = el.getAttribute('src') || '';
+  if (/\.jpe?g$/i.test(cur2) && !el.dataset.fb) {
+    el.dataset.fb = '1';
+    el.src = cur2.replace(/\.jpe?g$/i, '_600x0.webp');
+  }
 }
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') closeViewer();
