@@ -381,7 +381,10 @@ export default class CosersLove extends Spider {
     const u = s.substring(4);
 
     const imgs = await this.collectAlbum(u);
-    if (imgs.length === 0) return { msg: "这个图集没抓到图片" };
+    if (imgs.length === 0) {
+      // 抓不到图也别死路：直接把这个相册页在内置浏览器里打开
+      return { web: { url: u, mode: "view" } };
+    }
 
     let title = "";
     try {
