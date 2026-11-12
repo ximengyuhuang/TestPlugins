@@ -350,6 +350,7 @@ export default class CosersLove extends Spider {
     return {
       class: [
         { type_id: "latest", type_name: "最新", type_flag: "0" },
+        { type_id: "video", type_name: "有视频", type_flag: "0" },
         { type_id: "catf", type_name: "分类", type_flag: "1" },
         { type_id: "tagf", type_name: "标签", type_flag: "1" },
         { type_id: "artf", type_name: "画师", type_flag: "1" },
@@ -359,14 +360,37 @@ export default class CosersLove extends Spider {
     };
   }
 
-  cardsToList(cards) {
-    return cards.map((c) => ({
-      vod_id: c.url,
-      vod_name: c.title,
-      vod_pic: c.pic,
-      vod_remarks: "图集",
-      action: "gal:" + c.url,
-    }));
+  cardsToList(cards, asFolder) {
+    return cards.map((c) => {
+      if (asFolder) {
+        // 「有视频」那栏：这些相册里有视频 → 点开先给二级菜单（图集 / 视频）
+        return {
+          vod_id: "mix|" + c.url,
+          vod_name: c.title,
+          vod_pic: c.pic,
+          vod_remarks: "含视频",
+          vod_tag: "folder",
+        };
+      }
+      return {
+        vod_id: c.url,
+        vod_name: c.title,
+        vod_pic: c.pic,
+        vod_remarks: "图集",
+        action: "gal:" + c.url,
+      };
+    });
+  }
+
+  // 从相册页找视频地址（m3u8 / mp4 / <video src>）
+  extractVideo(html) {
+    const h = String(html);
+    const m =
+      h.match(/"(https?:[^"]+?\.m3u8[^"]*)"/) ||
+      h.match(/<video[^>]+src="([^"]+)"/) ||
+      h.match(/<source[^>]+src="([^"]+)"/) ||
+      h.match(/"(https?:[^"]+?\.mp4[^"]*)"/);
+    return m ? m[1].replace(/\\\//g, "/") : "";
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -389,6 +413,49 @@ export default class CosersLove extends Spider {
         this.log("openWeb failed: " + e);
       }
       return this.page([], 1, PAGE_SIZE, 0);
+    }
+
+    // 二级菜单：含视频的相册
+    if (tid.indexOf("mix|") === 0) {
+      const albumUrl = tid.substring(4);
+      const list = [];
+      let imgs = [];
+      let vurl = "";
+      try {
+        const html = await this.fetchPage(albumUrl);
+        if (html) {
+          vurl = this.extractVideo(html);
+          imgs = parseAlbum(html);
+        }
+      } catch (e) {
+        /* 忽略 */
+      }
+      if (imgs.length > 0) {
+        list.push({
+          vod_id: "gal2|" + albumUrl,
+          vod_name: "🖼 查看图集 (" + imgs.length + " 张)",
+          vod_pic: "",
+          vod_remarks: "图集",
+          action: "gal2|" + albumUrl,
+        });
+      }
+      if (vurl) {
+        list.push({
+          vod_id: "v|" + vurl,
+          vod_name: "▶ 播放视频",
+          vod_pic: "",
+          vod_remarks: "视频",
+        });
+      }
+      // 拿不到直链就用网页播（站点播放器能选第 1/2/3 集）
+      list.push({
+        vod_id: "web|" + albumUrl,
+        vod_name: "▶ 播放视频（网页，可选集）",
+        vod_pic: "",
+        vod_remarks: "视频",
+        action: "web|" + albumUrl,
+      });
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
     // 三个索引：分类 / 标签 / 画师
@@ -529,7 +596,7 @@ export default class CosersLove extends Spider {
         (p - 1) * PAGE_SIZE + 1
       );
     }
-    return this.page(this.cardsToList(cards), p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
+    return this.page(this.cardsToList(cards, tid === "video"), p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
 
   async detailContent(ids) {
@@ -573,6 +640,33 @@ export default class CosersLove extends Spider {
       return { web: { url: u.indexOf("http") === 0 ? u : BASE + u, mode: "view" } };
     }
 
+    if (s.indexOf("gal2|") === 0) {
+      // 二级菜单里的「查看图集」：直接拼画廊（图片同样走代理）
+      const a2 = s.substring(5);
+      const real2 = await this.collectAlbum(a2);
+      if (real2.length === 0) return { web: { url: a2, mode: "view" } };
+      let t2 = "";
+      try {
+        const h2 = await this.fetchPage(a2);
+        const mt = h2 && h2.match(/<title>([^<]*)<\/title>/);
+        if (mt) t2 = clean(mt[1]).replace(/\s*-\s*Cosers爱\s*$/, "");
+      } catch (e) {
+        /* 忽略 */
+      }
+      const pj = real2.map((x) => {
+        try {
+          return this.proxyUrl({ u: x });
+        } catch (e) {
+          return x;
+        }
+      });
+      return {
+        web: {
+          url: GAL + "?u=" + encodeURIComponent(a2) + "&_gv=20261113c#t=" + encodeURIComponent(t2) + "&i=" + esc(pj.join("|")),
+          mode: "view",
+        },
+      };
+    }
     if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 
@@ -655,6 +749,6 @@ export default class CosersLove extends Spider {
     if (!r || r.code !== 200) return this.page([], p, PAGE_SIZE, 0);
     const cards = parseList(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
-    return this.page(this.cardsToList(cards), p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
+    return this.page(this.cardsToList(cards, tid === "video"), p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
 }
