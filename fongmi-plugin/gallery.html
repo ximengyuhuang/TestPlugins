@@ -62,7 +62,7 @@
 <div id="viewer">
   <div class="top"><span id="pos"></span><span class="close" onclick="closeViewer()">×</span></div>
   <div class="arrow prev" onclick="step(1)">‹</div>
-  <div class="stage"><img id="big" src="" onerror="bigFallback(this)"></div>
+  <div class="stage"><img id="big" src="" referrerpolicy="no-referrer" onerror="bigFallback(this)"></div>
   <div class="arrow next" onclick="step(-1)">›</div>
 </div>
 
@@ -206,6 +206,7 @@ function render() {
       var im = document.createElement('img');
       // 前 8 张立刻取（首屏要瞬间有图），其余交给浏览器按视口预取
       im.decoding = 'async';
+      im.referrerPolicy = 'no-referrer'; // 防止防盗链返回水印图
       im.onload = function () {
         if (im.dataset.ph === '1') return; // 占位图不算「已加载」
         im.classList.add('ok');
