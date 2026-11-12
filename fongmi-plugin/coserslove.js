@@ -304,7 +304,7 @@ export default class CosersLove extends Spider {
 
       let items = [];
       let html = "";
-      let diag = "";
+      const traces = [];
       for (const path of conf.paths) {
         const u = BASE + path + (p > 1 ? (path.indexOf("?") >= 0 ? "&" : "?") + "page=" + p : "");
         let code = 0;
@@ -317,7 +317,7 @@ export default class CosersLove extends Spider {
           code = -1;
           h = "";
         }
-        if (!diag) diag = path + " → " + code + " / len " + h.length;
+        traces.push(path + "=" + code + "/" + h.length);
         if (!h) continue;
         const got = parseLinks(h, conf.prefix);
         if (got.length > 0) {
@@ -327,6 +327,7 @@ export default class CosersLove extends Spider {
         }
         if (!html) html = h;
       }
+      const diag = traces.join(" ");
 
       // 兜底：只按 href 抽，名字用 slug
       if (items.length === 0 && html) {
