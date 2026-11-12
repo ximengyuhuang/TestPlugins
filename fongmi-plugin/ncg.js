@@ -94,17 +94,30 @@ function parseCards(html) {
 
     const img = block.match(/<img[^>]+src="(https:\/\/nudecosplaygirls\.com\/wp-content\/uploads\/[^"]+)"/);
     const isVideo = /post_format-post-format-video|format-video/.test(block);
+    const idm = block.match(/post-(\d+)/);
 
-    out.push({ url: url, title: title, pic: img ? img[1] : "", isVideo: isVideo });
+    out.push({
+      url: url,
+      id: idm ? idm[1] : "",
+      title: title,
+      pic: img ? img[1] : "",
+      isVideo: isVideo,
+    });
   }
   return out;
 }
 
-// 详情页正文：从 entry-content 开始截
+// 详情页正文：从 entry-content 到「分享按钮」为止（再往后是相关推荐，别算进来）
 function contentSeg(html) {
   const h = String(html);
-  const i = h.indexOf("entry-content");
-  return i >= 0 ? h.substring(i) : h;
+  let i = h.indexOf("entry-content");
+  if (i < 0) i = 0;
+  let end = h.length;
+  for (const marker of ["addtoany_share_save_container", "</article>", "entry-footer"]) {
+    const k = h.indexOf(marker, i);
+    if (k > i && k < end) end = k;
+  }
+  return h.slice(i, end);
 }
 
 function parseVideos(html) {
@@ -122,19 +135,20 @@ function parseVideos(html) {
   return out;
 }
 
-// 图集：<figure class="wp-block-image …"><img class="wp-image-xxx" src="…">
+// 图集：新帖 <img class="wp-image-xxx">，老帖就是 <p><img src="…">，两种都收
+// 排除：18+ 角标、站徽、卡片缩略图（-364x205）
 function parseImages(html) {
   const seg = contentSeg(html);
   const out = [];
   const seen = {};
-  const re = /<img[^>]+class="[^"]*wp-image-\d+[^"]*"[^>]*>/g;
+  const re = /<img[^>]+src="([^"]+)"/g;
   let m;
   while ((m = re.exec(seg)) !== null) {
-    const tag = m[0];
-    const src = (tag.match(/src="([^"]+)"/) || [])[1];
+    const src = m[1];
     if (!src) continue;
-    // 只排站徽/广告图；⚠ 不能用 avatar 过滤，这站很多作品名里就带 "Avatar"
-    if (/18plus|logo|\/icon|banner\.|spinner|placeholder/i.test(src)) continue;
+    if (/18plus|logo|\/icon|banner\.|spinner|placeholder|-364x205\./i.test(src)) continue;
+    if (!/\.(jpe?g|png|webp|gif)(\?|$)/i.test(src)) continue;
+    if (src.indexOf("wp-content/uploads") < 0) continue;
     if (seen[src]) continue;
     seen[src] = 1;
     out.push(src);
@@ -167,6 +181,32 @@ export default class Ncg extends Spider {
     if (!r || r.code !== 200) return "";
     this.cacheSet(url, r.content);
     return r.content;
+  }
+
+  // 用 WP REST 一次批量判断每篇「有几个视频 / 几张图」，避免每张卡片都发一次请求。
+  // 拿不到就返回 null，退回「一律当混合帖」的保守做法。
+  async classify(ids) {
+    const list = (ids || []).filter(Boolean);
+    if (list.length === 0) return null;
+    try {
+      const url =
+        BASE + "/wp-json/wp/v2/posts?include=" + list.join(",") + "&per_page=100&_fields=id,content";
+      const r = await this.net.req(url, {
+        headers: { "User-Agent": UA, Accept: "application/json", "Referer": BASE + "/" },
+      });
+      if (!r || r.code !== 200) return null;
+      const arr = JSON.parse(r.content);
+      if (!Array.isArray(arr)) return null;
+      const map = {};
+      for (const p of arr) {
+        const html = (p.content && p.content.rendered) || "";
+        map[String(p.id)] = { vids: parseVideos(html).length, imgs: parseImages(html).length };
+      }
+      return map;
+    } catch (e) {
+      this.log("classify failed: " + e);
+      return null;
+    }
   }
 
   // /top-categories/ 上的 504 个标签（带数量）
@@ -359,13 +399,39 @@ export default class Ncg extends Spider {
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
-    const list = cards.map((c) => ({
-      vod_id: "mix|" + c.url,
-      vod_name: c.title,
-      vod_pic: c.pic,
-      vod_remarks: c.isVideo ? "视频" : "图集",
-      vod_tag: "folder",
-    }));
+    // 列表阶段用一次 REST 批量判断每篇的媒体构成
+    const cls = await this.classify(cards.map((c) => c.id));
+
+    const list = cards
+      .map((c) => {
+        const k = cls && cls[c.id];
+        // 纯文字帖（Blog）没有视频也没有图，直接丢掉
+        if (k && k.vids === 0 && k.imgs === 0) return null;
+        // 只有视频 → 直接进详情播放
+        if (k && k.vids > 0 && k.imgs === 0) {
+          return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: k.vids + " 个视频" };
+        }
+        // 只有图集 → 点卡片直接开画廊
+        if (k && k.vids === 0 && k.imgs > 0) {
+          return {
+            vod_id: c.url,
+            vod_name: c.title,
+            vod_pic: c.pic,
+            vod_remarks: "图集 · " + k.imgs + " 张",
+            action: "gal:" + c.url,
+          };
+        }
+        // 混合（或拿不到信息）→ 二级菜单
+        const remarks = k ? k.vids + " 视频 · " + k.imgs + " 图" : c.isVideo ? "视频" : "图集";
+        return {
+          vod_id: "mix|" + c.url,
+          vod_name: c.title,
+          vod_pic: c.pic,
+          vod_remarks: remarks,
+          vod_tag: "folder",
+        };
+      })
+      .filter(Boolean);
 
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
@@ -468,13 +534,30 @@ export default class Ncg extends Spider {
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
-    const list = cards.map((c) => ({
-      vod_id: "mix|" + c.url,
-      vod_name: c.title,
-      vod_pic: c.pic,
-      vod_remarks: c.isVideo ? "视频" : "图集",
-      vod_tag: "folder",
-    }));
+    const cls = await this.classify(cards.map((c) => c.id));
+    const list = cards.map((c) => {
+      const k = cls && cls[c.id];
+      if (k && k.vids > 0 && k.imgs === 0) {
+        return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: k.vids + " 个视频" };
+      }
+      if (k && k.vids === 0 && k.imgs > 0) {
+        return {
+          vod_id: c.url,
+          vod_name: c.title,
+          vod_pic: c.pic,
+          vod_remarks: "图集 · " + k.imgs + " 张",
+          action: "gal:" + c.url,
+        };
+      }
+      const remarks = k ? k.vids + " 视频 · " + k.imgs + " 图" : c.isVideo ? "视频" : "图集";
+      return {
+        vod_id: "mix|" + c.url,
+        vod_name: c.title,
+        vod_pic: c.pic,
+        vod_remarks: remarks,
+        vod_tag: "folder",
+      };
+    });
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
 }
