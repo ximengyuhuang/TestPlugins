@@ -86,17 +86,30 @@ function parseList(html) {
       });
     }
   }
-  // 兜底：没有 JSON-LD 就扫链接
+  // 兜底：没有 JSON-LD 就扫链接（画师页就属于这种，278KB 全 HTML）
+  // ⚠ 窗口必须给够：卡片里 <img srcset> 单个标签就能吃掉 300 字
   if (out.length === 0) {
-    const re = /href="([^"]*\/album\/[0-9a-f\-]{36})"[^>]*>([\s\S]{0,120}?)<\/a>/g;
+    const src = String(html);
+    const re = /href="([^"]*\/album\/[0-9a-f\-]{36})"/g;
     let m;
-    while ((m = re.exec(String(html))) !== null) {
+    while ((m = re.exec(src)) !== null) {
       const url = abs(m[1]);
       if (seen[url]) continue;
-      const t = clean(m[2]);
-      if (!t) continue;
+      const block = src.substring(m.index, m.index + 1600);
+
+      let title = "";
+      const tm =
+        block.match(/<h[1-4][^>]*>([\s\S]{1,120}?)<\/h[1-4]>/) ||
+        block.match(/class="[^"]*title[^"]*"[^>]*>([\s\S]{1,120}?)</) ||
+        block.match(/alt="([^"]{2,120})"/);
+      if (tm) title = clean(tm[1]);
+      if (!title) title = clean(block.match(/>([^<>]{4,80})</) ? block.match(/>([^<>]{4,80})</)[1] : "");
+      if (!title) continue;
+
+      const im = block.match(/<img[^>]+src="([^"]+)"/) || block.match(/data-src="([^"]+)"/);
+
       seen[url] = 1;
-      out.push({ url: url, title: t, pic: "" });
+      out.push({ url: url, title: title, pic: im ? abs(im[1]) : "" });
     }
   }
   return out;
