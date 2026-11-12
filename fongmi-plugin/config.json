@@ -175,6 +175,17 @@
         "ratio": 1.78
       },
       "ext": {}
+    },
+    {
+      "key": "sfm",
+      "name": "SFM Compile",
+      "type": 3,
+      "api": "./sfm.js",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
+      "ext": {}
     }
   ]
 }
