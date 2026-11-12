@@ -103,38 +103,46 @@ function parseList(html) {
 }
 
 // 通用：抽某种前缀的链接（分类/标签/画师索引页用）
-// 容错：链接文字可能套了很多层标签，甚至没有文字（画师头像链接）
 function parseLinks(html, prefix) {
   const out = [];
   const seen = {};
-  const re = new RegExp('href="([^"]*' + prefix + '[^"\/]+)"[^>]*>([\\s\\S]{0,300}?)<\\/a>', "g");
+  const src = String(html);
+  const isUuidText = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s);
+  const re = new RegExp('href="([^"]*' + prefix + '[^"\/]+)"', "g");
   let m;
-  while ((m = re.exec(String(html))) !== null) {
+  while ((m = re.exec(src)) !== null) {
     const url = abs(m[1]);
     if (seen[url]) continue;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(url.split("/").filter(Boolean).pop() || "");
-    let name = clean(m[2]);
-    if (!name || /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(name)) {
-      // 画师卡片：图在 a 里，名字在 a 外面 → 往后找标题 / alt
-      const after = String(html).substring(m.index, m.index + 900);
-      const nm =
-        after.match(/<h[1-4][^>]*>([\s\S]{1,60}?)<\/h[1-4]>/) ||
-        after.match(/class="[^"]*(?:name|title)[^"]*"[^>]*>([\s\S]{1,60}?)</) ||
-        after.match(/alt="([^"]{1,60})"/);
-      if (nm) name = clean(nm[1]);
+
+    // 取这个链接之后的一大块（img 的 srcset 经常就超过 300 字，窗口必须够大）
+    const block = src.substring(m.index, m.index + 1600);
+
+    let name = "";
+    const nm =
+      block.match(/<h[1-4][^>]*>([\s\S]{1,60}?)<\/h[1-4]>/) ||
+      block.match(/class="[^"]*(?:name|title|coser)[^"]*"[^>]*>([\s\S]{1,60}?)</) ||
+      block.match(/alt="([^"]{2,60})"/);
+    if (nm) name = clean(nm[1]);
+    if (!name || isUuidText(name)) {
+      // 退而求其次：块里第一个像名字的文本节点
+      const cands = [...block.matchAll(/>([^<>]{2,30})</g)]
+        .map((x) => clean(x[1]))
+        .filter(
+          (t) =>
+            t &&
+            !/^\d+$/.test(t) &&
+            !/^(作品|图集|分类|标签|画师|照片|共|更多|查看|加载)/.test(t) &&
+            !isUuidText(t)
+        );
+      if (cands.length) name = cands[0];
     }
     if (!name) name = decodeURIComponent(url.split("/").filter(Boolean).pop() || "");
     if (!name) continue;
-    void isUuid;
-    // 封面：锚点内或附近的 <img src>（画师卡片是 图 + 名字，图在 a 里）
+
     let pic = "";
-    const inA = m[2] && m[2].match(/<img[^>]+src="([^"]+)"/);
-    if (inA) pic = abs(inA[1]);
-    if (!pic) {
-      const around = String(html).substring(m.index, m.index + 900);
-      const nm2 = around.match(/<img[^>]+src="([^"]+)"/) || around.match(/data-src="([^"]+)"/);
-      if (nm2) pic = abs(nm2[1]);
-    }
+    const im = block.match(/<img[^>]+src="([^"]+)"/) || block.match(/data-src="([^"]+)"/);
+    if (im) pic = abs(im[1]);
+
     seen[url] = 1;
     out.push({ url: url, name: name, pic: pic });
   }
@@ -410,7 +418,7 @@ export default class CosersLove extends Spider {
       if (list.length === 0) {
         list.push({
           vod_id: BASE + conf.paths[0],
-          vod_name: "诊断：" + diag,
+          vod_name: "诊断 " + diag,
           vod_pic: "",
           vod_remarks: "点开看原页面",
           action: "web|" + BASE + conf.paths[0],
@@ -448,7 +456,7 @@ export default class CosersLove extends Spider {
         [
           {
             vod_id: url,
-            vod_name: "诊断：" + path + " → " + code + " / len " + html.length,
+            vod_name: "诊断 " + code + "/" + html.length + " " + path,
             vod_pic: "",
             vod_remarks: "点开看原页面",
             action: "web|" + url,
