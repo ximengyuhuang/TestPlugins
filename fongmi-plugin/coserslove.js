@@ -126,8 +126,17 @@ function parseLinks(html, prefix) {
     if (!name) name = decodeURIComponent(url.split("/").filter(Boolean).pop() || "");
     if (!name) continue;
     void isUuid;
+    // 封面：锚点内或附近的 <img src>（画师卡片是 图 + 名字，图在 a 里）
+    let pic = "";
+    const inA = m[2] && m[2].match(/<img[^>]+src="([^"]+)"/);
+    if (inA) pic = abs(inA[1]);
+    if (!pic) {
+      const around = String(html).substring(m.index, m.index + 900);
+      const nm2 = around.match(/<img[^>]+src="([^"]+)"/) || around.match(/data-src="([^"]+)"/);
+      if (nm2) pic = abs(nm2[1]);
+    }
     seen[url] = 1;
-    out.push({ url: url, name: name });
+    out.push({ url: url, name: name, pic: pic });
   }
   return out;
 }
@@ -228,34 +237,58 @@ export default class CosersLove extends Spider {
     return { url: "", html: "" };
   }
 
-  // 一个相册可能有多页：/album/<uuid>、/album/<uuid>/2、/3 …
+  // 相册分页：优先按页面里真实的分页链接翻（/album/<uuid>/2、/3 …），
+  // 拿不到分页链接时才按数字递增猜
   async collectAlbum(albumUrl) {
     const base = String(albumUrl).replace(/\/+$/, "");
     const out = [];
     const seen = {};
-    for (let p = 1; p <= 40; p++) {
-      const u = p <= 1 ? base : base + "/" + p;
+    const seenPages = {};
+    let queue = [base];
+    let guard = 0;
+
+    while (queue.length > 0 && guard < 40) {
+      guard++;
+      const u = queue.shift();
+      if (seenPages[u]) continue;
+      seenPages[u] = 1;
+
       let html = "";
       try {
         html = await this.fetchPage(u);
       } catch (e) {
         html = "";
       }
-      if (!html && p === 1) {
+      if (!html && u === base) {
         const rel = base.replace(BASE, "");
         const r2 = await this.fetchFirst([base + "/", BASE + "/en" + rel]);
         html = r2.html;
       }
-      if (!html) break;
+      if (!html) continue;
+
       const imgs = parseAlbum(html);
-      let added = 0;
       for (const im of imgs) {
         if (seen[im]) continue;
         seen[im] = 1;
         out.push(im);
-        added++;
       }
-      if (added === 0) break;
+
+      // 找这一页里的其它分页链接
+      const rel = base.replace(BASE, "");
+      const paging = new Set();
+      const rePage = new RegExp('href="([^"]*' + rel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '/(\\d+))"', "g");
+      let mp;
+      while ((mp = rePage.exec(html)) !== null) {
+        const cand = abs(mp[1]);
+        if (!seenPages[cand]) paging.add(cand);
+      }
+      if (paging.size > 0) {
+        queue = queue.concat([...paging].sort());
+      } else if (out.length > 0) {
+        // 没有分页链接 → 猜下一页，最多试 3 页（避免白跑）
+        const next = base + "/" + (seenPages.size);
+        if (!seenPages[next] && Object.keys(seenPages).length < 6) queue.push(next);
+      }
     }
     return out;
   }
@@ -369,7 +402,7 @@ export default class CosersLove extends Spider {
       const list = items.map((x) => ({
         vod_id: conf.idp + x.url,
         vod_name: x.name,
-        vod_pic: "",
+        vod_pic: x.pic || "",
         vod_remarks: tid === "catf" ? "分类" : tid === "tagf" ? "标签" : "画师",
         vod_tag: "folder",
       }));
@@ -396,10 +429,36 @@ export default class CosersLove extends Spider {
       url = BASE + (p > 1 ? "/page/" + p : "/");
     }
 
-    const html = await this.fetchPage(url);
-    if (!html) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
-    const cards = parseList(html);
-    if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
+    let code = 0;
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: this.h() });
+      code = (r && r.code) || 0;
+      html = (r && r.content) || "";
+    } catch (e) {
+      code = -1;
+    }
+    if (html) this.cacheSet(url, html);
+
+    const cards = html ? parseList(html) : [];
+    if (cards.length === 0) {
+      // 诊断卡片：把状态码和长度直接显示出来
+      const path = url.replace(BASE, "");
+      return this.page(
+        [
+          {
+            vod_id: url,
+            vod_name: "诊断：" + path + " → " + code + " / len " + html.length,
+            vod_pic: "",
+            vod_remarks: "点开看原页面",
+            action: "web|" + url,
+          },
+        ],
+        p,
+        PAGE_SIZE,
+        (p - 1) * PAGE_SIZE + 1
+      );
+    }
     return this.page(this.cardsToList(cards), p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
 
