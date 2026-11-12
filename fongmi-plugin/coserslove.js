@@ -285,25 +285,44 @@ export default class CosersLove extends Spider {
     // 三个索引：分类 / 标签 / 画师
     if (tid === "catf" || tid === "tagf" || tid === "artf") {
       const conf = {
-        catf: { path: "/categories", prefix: "/category/", idp: "c:" },
-        tagf: { path: "/tags", prefix: "/tag/", idp: "t:" },
-        artf: { path: "/cosers", prefix: "/coser/", idp: "a:" },
+        catf: {
+          paths: ["/categories", "/categories/", "/all-categories", "/category", "/category/", "/discover", "/categories/all"],
+          prefix: "/category/",
+          idp: "c:",
+        },
+        tagf: {
+          paths: ["/tags", "/tags/", "/all-tags", "/tag", "/tag/", "/discover/tags"],
+          prefix: "/tag/",
+          idp: "t:",
+        },
+        artf: {
+          paths: ["/cosers", "/cosers/", "/all-cosers", "/coser", "/coser/", "/discover/cosers"],
+          prefix: "/coser/",
+          idp: "a:",
+        },
       }[tid];
-      let html = await this.fetchPage(BASE + conf.path + (p > 1 ? "/page/" + p : ""));
-      let items = html ? parseLinks(html, conf.prefix) : [];
-      // 兜底 1：尾斜杠 / 数字分页再试
-      if (items.length === 0) {
-        const r2 = await this.fetchFirst([
-          BASE + conf.path + "/" + (p > 1 ? "page/" + p : ""),
-          BASE + conf.path + "/" + (p > 1 ? p : ""),
-          BASE + conf.path + (p > 1 ? "?page=" + p : ""),
-        ]);
-        if (r2.html) {
-          html = r2.html;
-          items = parseLinks(html, conf.prefix);
+
+      let items = [];
+      let html = "";
+      for (const path of conf.paths) {
+        const u = BASE + path + (p > 1 ? (path.indexOf("?") >= 0 ? "&" : "?") + "page=" + p : "");
+        let h = "";
+        try {
+          h = await this.fetchPage(u);
+        } catch (e) {
+          h = "";
         }
+        if (!h) continue;
+        const got = parseLinks(h, conf.prefix);
+        if (got.length > 0) {
+          items = got;
+          html = h;
+          break;
+        }
+        if (!html) html = h; // 留一份给兜底扫描
       }
-      // 兜底 2：只按 href 抽，名字用 slug
+
+      // 兜底：只按 href 抽，名字用 slug
       if (items.length === 0 && html) {
         const seen2 = {};
         const re = new RegExp('href="([^"]*' + conf.prefix + '[^"\/]+)"', "g");
