@@ -143,17 +143,28 @@ function parseAlbum(html) {
     }
   }
   if (out.length === 0) {
-    // 兜底：页面里所有 lg.avif
-    const re = /https:\/\/img\.coserslove\.com\/pic\/[^"'\s]+?\/lg\.avif/g;
+    // 兜底：页面里所有 avif（优先大图）
+    const rank = { xl: 3, lg: 2, md: 1 };
+    const found = {};
+    const re = /https:\/\/img\.coserslove\.com\/pic\/[^"'\s]+?\/(xl|lg|md)\.avif/g;
     let m;
     while ((m = re.exec(String(html))) !== null) {
-      if (seen[m[0]]) continue;
-      seen[m[0]] = 1;
-      out.push(m[0]);
+      const u = m[0];
+      const size = m[1];
+      const key = u.replace(/\/(xl|lg|md)\.avif$/, "");
+      if (!found[key] || rank[size] > rank[found[key].size]) found[key] = { u: u, size: size };
+    }
+    for (const k of Object.keys(found)) {
+      if (seen[found[k].u]) continue;
+      seen[found[k].u] = 1;
+      out.push(found[k].u);
     }
   }
   return out;
 }
+
+// 一个相册可能有多页：/album/<uuid>、/album/<uuid>/2、/3 …（collectAlbum 是类方法，见下）
+
 
 export default class CosersLove extends Spider {
   init(extend) {
@@ -178,6 +189,51 @@ export default class CosersLove extends Spider {
     if (!r || r.code !== 200) return "";
     this.cacheSet(url, r.content);
     return r.content;
+  }
+
+  // 依次试多个地址，返回第一个有内容的
+  async fetchFirst(urls) {
+    for (const u of urls) {
+      try {
+        const h = await this.fetchPage(u);
+        if (h && h.length > 1000) return { url: u, html: h };
+      } catch (e) {
+        /* 试下一个 */
+      }
+    }
+    return { url: "", html: "" };
+  }
+
+  // 一个相册可能有多页：/album/<uuid>、/album/<uuid>/2、/3 …
+  async collectAlbum(albumUrl) {
+    const base = String(albumUrl).replace(/\/+$/, "");
+    const out = [];
+    const seen = {};
+    for (let p = 1; p <= 40; p++) {
+      const u = p <= 1 ? base : base + "/" + p;
+      let html = "";
+      try {
+        html = await this.fetchPage(u);
+      } catch (e) {
+        html = "";
+      }
+      if (!html && p === 1) {
+        const rel = base.replace(BASE, "");
+        const r2 = await this.fetchFirst([base + "/", BASE + "/en" + rel]);
+        html = r2.html;
+      }
+      if (!html) break;
+      const imgs = parseAlbum(html);
+      let added = 0;
+      for (const im of imgs) {
+        if (seen[im]) continue;
+        seen[im] = 1;
+        out.push(im);
+        added++;
+      }
+      if (added === 0) break;
+    }
+    return out;
   }
 
   async homeContent(filter) {
@@ -233,8 +289,33 @@ export default class CosersLove extends Spider {
         tagf: { path: "/tags", prefix: "/tag/", idp: "t:" },
         artf: { path: "/cosers", prefix: "/coser/", idp: "a:" },
       }[tid];
-      const html = await this.fetchPage(BASE + conf.path + (p > 1 ? "/page/" + p : ""));
-      const items = parseLinks(html, conf.prefix);
+      let html = await this.fetchPage(BASE + conf.path + (p > 1 ? "/page/" + p : ""));
+      let items = html ? parseLinks(html, conf.prefix) : [];
+      // 兜底 1：尾斜杠 / 数字分页再试
+      if (items.length === 0) {
+        const r2 = await this.fetchFirst([
+          BASE + conf.path + "/" + (p > 1 ? "page/" + p : ""),
+          BASE + conf.path + "/" + (p > 1 ? p : ""),
+          BASE + conf.path + (p > 1 ? "?page=" + p : ""),
+        ]);
+        if (r2.html) {
+          html = r2.html;
+          items = parseLinks(html, conf.prefix);
+        }
+      }
+      // 兜底 2：只按 href 抽，名字用 slug
+      if (items.length === 0 && html) {
+        const seen2 = {};
+        const re = new RegExp('href="([^"]*' + conf.prefix + '[^"\/]+)"', "g");
+        let m2;
+        while ((m2 = re.exec(html)) !== null) {
+          const u = abs(m2[1]);
+          if (seen2[u]) continue;
+          seen2[u] = 1;
+          const slug = decodeURIComponent(u.split("/").filter(Boolean).pop() || "");
+          if (slug) items.push({ url: u, name: slug });
+        }
+      }
       const list = items.map((x) => ({
         vod_id: conf.idp + x.url,
         vod_name: x.name,
@@ -299,15 +380,17 @@ export default class CosersLove extends Spider {
     if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 
-    const html = await this.fetchPage(u);
-    if (!html) return { msg: "打不开这个图集" };
-
-    const imgs = parseAlbum(html);
+    const imgs = await this.collectAlbum(u);
     if (imgs.length === 0) return { msg: "这个图集没抓到图片" };
 
     let title = "";
-    const t = html.match(/<title>([^<]*)<\/title>/);
-    if (t) title = clean(t[1]).replace(/\s*-\s*Cosers爱\s*$/, "");
+    try {
+      const html = await this.fetchPage(u);
+      const t = html && html.match(/<title>([^<]*)<\/title>/);
+      if (t) title = clean(t[1]).replace(/\s*-\s*Cosers爱\s*$/, "");
+    } catch (e) {
+      /* 忽略 */
+    }
 
     const purl = GAL + "?u=" + encodeURIComponent(u);
     const hash = "#t=" + encodeURIComponent(title) + "&i=" + esc(imgs.join("|"));
