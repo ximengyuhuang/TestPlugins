@@ -197,6 +197,17 @@
         "ratio": 1.78
       },
       "ext": {}
+    },
+    {
+      "key": "xxc",
+      "name": "xxcosplay",
+      "type": 3,
+      "api": "./xxc.js",
+      "style": {
+        "type": "rect",
+        "ratio": 0.7
+      },
+      "ext": {}
     }
   ]
 }
