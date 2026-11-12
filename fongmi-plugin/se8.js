@@ -53,6 +53,25 @@ function abs(u) {
   return BASE + (u.charAt(0) === "/" ? u : "/" + u);
 }
 
+// 封面：站点可能用 background-image / data-bg / <img src> 三种写法，逐个兜
+function pickPic(block) {
+  const cands = [];
+  const b1 = block.match(/background-image:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/);
+  if (b1) cands.push(b1[1]);
+  const d1 = block.match(/data-(?:background[_-]image|bg|original|src)="([^"]+)"/);
+  if (d1) cands.push(d1[1].split(/[\s,]+/)[0]);
+  const s1 = block.match(/data-srcset="([^"]+)"/);
+  if (s1) cands.push(s1[1].split(/[\s,]+/)[0]);
+  const i1 = block.match(/<img[^>]+src="([^"]+)"/);
+  if (i1) cands.push(i1[1]);
+  const any = block.match(/(https?:\/\/[^"'\s)]+?\.(?:webp|jpe?g|png))/);
+  if (any) cands.push(any[1]);
+  for (const c of cands) {
+    if (c && c.indexOf("data:") !== 0 && c.indexOf("//") > 0) return c;
+  }
+  return "";
+}
+
 // 卡片：<div class="item photo"> … <a href="/photo/id-xxx.html" title="标题">
 //   <div class="img" style="background-image:url('…/00021_600x0.webp')">
 //   <div class="tags"><div>30P</div>
@@ -78,14 +97,13 @@ function parseCards(html) {
     if (!title) continue;
     seen[url] = 1;
 
-    const bg = block.match(/background-image:\s*url\('([^']+)'\)/) || block.match(/background-image:\s*url\("([^"]+)"\)/);
     const cnt = block.match(/<div>(\d+)P<\/div>/);
     const sub = block.match(/class="subs"[\s\S]{0,200}?<div>\s*<a[^>]*>([\s\S]{0,40}?)<\/a>/);
 
     out.push({
       url: url,
       title: title,
-      pic: bg ? bg[1] : "",
+      pic: pickPic(block),
       count: cnt ? Number(cnt[1]) : 0,
       cat: sub ? clean(sub[1]) : "",
       isVideo: url.indexOf("/video/") >= 0,
