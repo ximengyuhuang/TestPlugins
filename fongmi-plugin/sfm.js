@@ -12,9 +12,38 @@ const UA =
 
 const PAGE_SIZE = 8;
 
-const ORDERS = [
-  { n: "最新", v: "" },
-  { n: "最多播放", v: "most_views" },
+// 站点自己的顶部导航（截图里那 6 个入口），照搬
+const NAV = [
+  { id: "latest", name: "最新", path: "/", query: "" },
+  { id: "top", name: "Top Animations", path: "/tag/sound/", query: "?order=most_views" },
+  { id: "trending", name: "Trending", path: "/", query: "?filter-by=trending" },
+  { id: "owf", name: "Overwatch", path: null, query: "" },
+  { id: "sound", name: "Sound", path: "/tag/sound/", query: "" },
+  {
+    id: "long",
+    name: "Longer Clips",
+    path: "/tag/20secs,30secs+,1min+,2mins+,3mins+,4mins+,5mins+,9mins+/",
+    query: "",
+  },
+  { id: "catf", name: "全部分类", path: null, query: "" },
+  { id: "web", name: "网页", path: null, query: "" },
+];
+
+// Overwatch 下拉里的 13 个角色
+const OW_CHARS = [
+  ["kiriko", "Kiriko"],
+  ["ana", "Ana"],
+  ["ashe", "Ashe"],
+  ["brigitte", "Brigitte"],
+  ["dva", "Dva"],
+  ["mei", "Mei"],
+  ["mercy", "Mercy"],
+  ["pharah", "Pharah"],
+  ["sombra", "Sombra"],
+  ["symmetra", "Symmetra"],
+  ["tracer", "Tracer"],
+  ["widowmaker", "Widowmaker"],
+  ["zarya", "Zarya"],
 ];
 
 function hdrs(ref) {
@@ -150,26 +179,19 @@ export default class Sfm extends Spider {
 
   async homeContent(filter) {
     await this.loadCats();
-    const classes = [
-      { type_id: "latest", type_name: "最新", type_flag: "1" },
-      { type_id: "catf", type_name: "分类 (" + (this.catCache ? this.catCache.length : 0) + ")", type_flag: "1" },
-      { type_id: "web", type_name: "网页", type_flag: "1" },
-    ];
-    const filters = {};
-    for (const c of classes) {
-      if (c.type_id === "catf" || c.type_id === "web") continue;
-      filters[c.type_id] = [{ key: "order", name: "排序", value: ORDERS }];
-    }
-    for (const c of this.catCache) {
-      filters["c:" + c.slug] = [{ key: "order", name: "排序", value: ORDERS }];
-    }
-    return { class: classes, filters: filters };
+    // 完全照搬站点自己的导航（Top Animations / Trending / Overwatch / Sound / Longer Clips / All-Category）
+    const classes = NAV.map((n) => ({
+      type_id: n.id,
+      type_name: n.id === "catf" ? "全部分类 (" + (this.catCache ? this.catCache.length : 0) + ")" : n.name,
+      type_flag: "1",
+    }));
+    return { class: classes };
   }
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
-    const order = (extend && extend.order) || "";
-    const q = order ? "?order=" + order : "";
+    void filter;
+    void extend;
 
     if (tid === "web") {
       try {
@@ -180,7 +202,16 @@ export default class Sfm extends Spider {
       return this.page([], 1, PAGE_SIZE, 0);
     }
 
-    // 分类信封：字母层
+    // Overwatch 下拉：全部 + 13 个角色
+    if (tid === "owf") {
+      const list = [{ vod_id: "c:overwatch", vod_name: "全部 Overwatch", vod_pic: "", vod_remarks: "8125 个", vod_tag: "folder" }];
+      for (const [slug, name] of OW_CHARS) {
+        list.push({ vod_id: "c:overwatch/" + slug, vod_name: name, vod_pic: "", vod_remarks: "角色", vod_tag: "folder" });
+      }
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
+    // 全部分类：字母层
     if (tid === "catf") {
       await this.loadCats();
       const list = this.groupLetters(this.catCache).map((g) => ({
@@ -201,18 +232,19 @@ export default class Sfm extends Spider {
         vod_id: "c:" + c.slug,
         vod_name: c.name,
         vod_pic: "",
-        vod_remarks: "分类",
+        vod_remarks: c.count ? c.count + " 个" : "分类",
         vod_tag: "folder",
       }));
       return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
     let url;
-    if (tid === "latest" || !tid) {
-      url = BASE + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
+    if (tid.indexOf("c:") === 0) {
+      // 分类（支持二级：overwatch/mercy）
+      url = BASE + "/category/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "");
     } else {
-      const slug = tid.indexOf("c:") === 0 ? tid.substring(2) : tid;
-      url = BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
+      const nav = NAV.find((n) => n.id === tid) || NAV[0];
+      url = BASE + nav.path + (p > 1 ? "page/" + p + "/" : "") + nav.query;
     }
 
     const r = await this.net.req(url, { headers: hdrs() });
