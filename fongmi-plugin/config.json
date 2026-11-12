@@ -241,6 +241,17 @@
         "ratio": 0.67
       },
       "ext": {}
+    },
+    {
+      "key": "rule34videos",
+      "name": "Rule34Videos",
+      "type": 3,
+      "api": "./rule34videos.js",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
+      "ext": {}
     }
   ]
 }
