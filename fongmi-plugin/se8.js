@@ -53,8 +53,8 @@ function abs(u) {
   return BASE + (u.charAt(0) === "/" ? u : "/" + u);
 }
 
-// 封面：站点可能用 background-image / data-bg / <img src> 三种写法，逐个兜
-function pickPic(block) {
+// 封面：站点可能用 background-image / data-bg / <img src> / 相对路径 多种写法
+function pickPic(block, albumUrl) {
   const cands = [];
   const b1 = block.match(/background-image:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/);
   if (b1) cands.push(b1[1]);
@@ -64,11 +64,21 @@ function pickPic(block) {
   if (s1) cands.push(s1[1].split(/[\s,]+/)[0]);
   const i1 = block.match(/<img[^>]+src="([^"]+)"/);
   if (i1) cands.push(i1[1]);
-  const any = block.match(/(https?:\/\/[^"'\s)]+?\.(?:webp|jpe?g|png))/);
-  if (any) cands.push(any[1]);
-  for (const c of cands) {
-    if (c && c.indexOf("data:") !== 0 && c.indexOf("//") > 0) return c;
+  const any = block.match(/(https?:\/\/[^"'\s)]+?\.(?:webp|jpe?g|png))|(\/photos2?\/[^"'\s)]+?\.(?:webp|jpe?g|png))/);
+  if (any) cands.push(any[1] || any[2]);
+
+  for (let c of cands) {
+    if (!c) continue;
+    c = c.replace(/&quot;/g, "").replace(/&#39;/g, "").replace(/&amp;/g, "&").trim();
+    if (!c || c.indexOf("data:") === 0) continue;
+    if (c.indexOf("//") === 0) return "https:" + c;
+    if (c.charAt(0) === "/") return BASE + c;
+    if (c.indexOf("http") === 0) return c;
   }
+
+  // 兜底：用相册 hash 推首图缩略图（图床已验证可用）
+  const h = String(albumUrl || "").match(/id-([0-9a-z]+)/i);
+  if (h) return "https://img.xchina.io/photos/" + h[1] + "/0001_600x0.webp";
   return "";
 }
 
@@ -199,20 +209,31 @@ export default class Se8 extends Spider {
     const html = await this.fetch(BASE + "/categories.html");
     const list = [];
     const seen = {};
-    const re = /<a[^>]+href="(https:\/\/8se\.me\/(?:photos|videos)\/series-[^"]+)"[^>]*>([\s\S]{0,80}?)<\/a>/g;
+    // 线上用相对路径、存档里是绝对路径，两种都要认
+    const re = /<a[^>]+href="((?:https:\/\/8se\.me)?\/(?:photos|videos)\/series-[^"#?]+)"[^>]*>([\s\S]{0,120}?)<\/a>/g;
     let m;
     while ((m = re.exec(html)) !== null) {
-      const url = m[1];
+      const url = abs(m[1]);
       if (seen[url]) continue;
       const text = clean(m[2]);
       if (!text) continue;
       seen[url] = 1;
       const c = text.match(/^(.*?)\s*\((\d+)\)/);
-      list.push({
-        url: url,
-        name: c ? c[1] : text,
-        count: c ? Number(c[2]) : 0,
-      });
+      list.push({ url: url, name: c ? c[1] : text, count: c ? Number(c[2]) : 0 });
+    }
+    // 兜底：任何指向 series 的链接，名字取链接文字或 title
+    if (list.length === 0) {
+      const re2 = /<a[^>]+href="((?:https:\/\/8se\.me)?\/(?:photos|videos)\/series-[^"#?]+)"[^>]*(?:title="([^"]*)")?[^>]*>([\s\S]{0,120}?)<\/a>/g;
+      let n;
+      while ((n = re2.exec(html)) !== null) {
+        const url = abs(n[1]);
+        if (seen[url]) continue;
+        const text = clean(n[3]) || clean(n[2] || "");
+        if (!text) continue;
+        seen[url] = 1;
+        const c = text.match(/^(.*?)\s*\((\d+)\)/);
+        list.push({ url: url, name: c ? c[1] : text, count: c ? Number(c[2]) : 0 });
+      }
     }
     this.catCache = list;
     return list;
