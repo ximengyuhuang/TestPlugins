@@ -441,14 +441,15 @@ export default class Mrds extends Spider {
       if (html) {
         const vids = parseVideos(html);
         const imgs = parseImages(html);
-        vids.forEach((v, i) => {
+        // 多个视频不再拆成多条，统一进详情页当「选集」切换
+        if (vids.length > 0) {
           list.push({
-            vod_id: "v|" + pageUrl + "|" + i,
-            vod_name: "▶ 播放视频" + (vids.length > 1 ? " " + (i + 1) : ""),
+            vod_id: "v|" + pageUrl + "|0",
+            vod_name: "▶ 播放视频" + (vids.length > 1 ? "（" + vids.length + " 个版本）" : ""),
             vod_pic: "",
-            vod_remarks: vids.length > 1 ? "版本 " + (i + 1) : "视频",
+            vod_remarks: vids.length > 1 ? vids.length + " 集" : "视频",
           });
-        });
+        }
         if (imgs.length > 0) {
           list.push({
             vod_id: "gal|" + pageUrl,
@@ -523,10 +524,10 @@ export default class Mrds extends Spider {
       if (id.indexOf("v|") === 0) {
         const parts = id.split("|");
         const pageUrl = parts[1] || "";
-        const idx = Number(parts[2]) || 0;
         let title = "";
         let pic = "";
         let content = "";
+        let playUrl = "正片$" + id;
         const html = await this.fetchPage(pageUrl);
         if (html) {
           const t = html.match(/<title>([^<]*)<\/title>/);
@@ -536,6 +537,14 @@ export default class Mrds extends Spider {
           const vids = parseVideos(html);
           const imgs = parseImages(html);
           content = "视频 " + vids.length + " 个 · 图集 " + imgs.length + " 张";
+          // 多个视频 → 做成选集，播放页里直接切换
+          if (vids.length > 1) {
+            playUrl = vids
+              .map((v, i) => "版本 " + (i + 1) + "$v|" + pageUrl + "|" + i)
+              .join("#");
+          } else if (vids.length === 1) {
+            playUrl = "正片$v|" + pageUrl + "|0";
+          }
         }
         list.push({
           vod_id: id,
@@ -543,7 +552,7 @@ export default class Mrds extends Spider {
           vod_pic: pic,
           vod_content: content,
           vod_play_from: "每日大赛",
-          vod_play_url: "正片$" + id,
+          vod_play_url: playUrl,
         });
         continue;
       }
@@ -563,9 +572,11 @@ export default class Mrds extends Spider {
         vod_pic: "",
         vod_content: vids.length ? "视频 " + vids.length + " 个" : "该帖没有视频",
         vod_play_from: "每日大赛",
-        vod_play_url: "正片$v|" + pageUrl + "|0",
+        vod_play_url:
+          vids.length > 1
+            ? vids.map((v, i) => "版本 " + (i + 1) + "$v|" + pageUrl + "|" + i).join("#")
+            : "正片$v|" + pageUrl + "|0",
       });
-      void vids;
     }
     return { list: list };
   }

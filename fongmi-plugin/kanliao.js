@@ -276,14 +276,15 @@ export default class Kanliao extends Spider {
       if (html) {
         const vids = parseVideos(html);
         const imgs = parseImages(html);
-        vids.forEach((v, i) => {
+        // 多个视频统一进详情页做选集
+        if (vids.length > 0) {
           list.push({
-            vod_id: "v|" + pageUrl + "|" + i,
-            vod_name: "▶ 播放视频" + (vids.length > 1 ? " " + (i + 1) : ""),
+            vod_id: "v|" + pageUrl + "|0",
+            vod_name: "▶ 播放视频" + (vids.length > 1 ? "（" + vids.length + " 个版本）" : ""),
             vod_pic: "",
-            vod_remarks: vids.length > 1 ? "版本 " + (i + 1) : "视频",
+            vod_remarks: vids.length > 1 ? vids.length + " 集" : "视频",
           });
-        });
+        }
         if (imgs.length > 0) {
           list.push({
             vod_id: "gal|" + pageUrl,
@@ -333,6 +334,7 @@ export default class Kanliao extends Spider {
       let title = "";
       let pic = "";
       let content = "";
+      let playUrl = "正片$" + (isV ? id : "v|" + pageUrl + "|0");
       const html = await this.fetchPage(pageUrl);
       if (html) {
         const t = html.match(/<title>([^<]*)<\/title>/);
@@ -342,6 +344,12 @@ export default class Kanliao extends Spider {
         const vids = parseVideos(html);
         const imgs = parseImages(html);
         content = "视频 " + vids.length + " 个 · 图集 " + imgs.length + " 张";
+        // 多个视频 → 选集
+        if (vids.length > 1) {
+          playUrl = vids.map((v, i) => "版本 " + (i + 1) + "$v|" + pageUrl + "|" + i).join("#");
+        } else if (vids.length === 1) {
+          playUrl = "正片$v|" + pageUrl + "|0";
+        }
       }
 
       const vid = isV ? id : "v|" + pageUrl + "|0";
@@ -351,7 +359,7 @@ export default class Kanliao extends Spider {
         vod_pic: pic,
         vod_content: content,
         vod_play_from: "今日看料",
-        vod_play_url: "正片$" + vid,
+        vod_play_url: playUrl,
       });
       void idx;
     }
