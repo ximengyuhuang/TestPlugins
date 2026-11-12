@@ -60,9 +60,9 @@
 
 <div id="viewer">
   <div class="top"><span id="pos"></span><span class="close" onclick="closeViewer()">×</span></div>
-  <div class="arrow prev" onclick="step(-1)">‹</div>
+  <div class="arrow prev" onclick="step(1)">‹</div>
   <div class="stage"><img id="big" src=""></div>
-  <div class="arrow next" onclick="step(1)">›</div>
+  <div class="arrow next" onclick="step(-1)">›</div>
 </div>
 
 <script>
@@ -248,18 +248,45 @@ function srcOf(n) {
   return IMGS[n];
 }
 
+var cur = 0;
+var lbPushed = false;   // 大图是否占了一个 history 记录（用来实现「返回一次只关大图」）
+
 function openViewer(n) {
   cur = n;
   document.getElementById('big').src = srcOf(n);
   document.getElementById('pos').textContent = (n + 1) + ' / ' + IMGS.length;
   document.getElementById('viewer').classList.add('on');
   document.body.style.overflow = 'hidden';
+  if (!lbPushed) {
+    try {
+      history.pushState({ gv: 1 }, '');
+      lbPushed = true;
+    } catch (e) {}
+  }
 }
-function closeViewer() {
+
+// fromPop=true 表示是返回键触发的，不要再调 history.back()
+function closeViewer(fromPop) {
   document.getElementById('viewer').classList.remove('on');
   document.body.style.overflow = '';
+  if (lbPushed && !fromPop) {
+    lbPushed = false;
+    try {
+      history.back();
+    } catch (e) {}
+  } else {
+    lbPushed = false;
+  }
 }
-var cur = 0;
+
+// 返回键：大图开着 → 只关大图；大图已关 → 退出图集页
+window.addEventListener('popstate', function () {
+  if (document.getElementById('viewer').classList.contains('on')) {
+    lbPushed = false;
+    closeViewer(true);
+  }
+});
+
 function step(d) {
   cur = Math.max(0, Math.min(IMGS.length - 1, cur + d));
   document.getElementById('big').src = srcOf(cur);
@@ -267,8 +294,8 @@ function step(d) {
 }
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') closeViewer();
-  if (e.key === 'ArrowLeft') step(-1);
-  if (e.key === 'ArrowRight') step(1);
+  if (e.key === 'ArrowLeft') step(1);
+  if (e.key === 'ArrowRight') step(-1);
 });
 
 // 启动
