@@ -112,13 +112,20 @@ function parseLinks(html, prefix) {
   while ((m = re.exec(String(html))) !== null) {
     const url = abs(m[1]);
     if (seen[url]) continue;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(url.split("/").filter(Boolean).pop() || "");
     let name = clean(m[2]);
-    if (!name) {
-      // 没文字就用 alt / title，再不行用 slug
-      const seg = m[2].match(/alt="([^"]{1,60})"/) || m[2].match(/title="([^"]{1,60})"/);
-      name = seg ? clean(seg[1]) : decodeURIComponent(url.split("/").filter(Boolean).pop() || "");
+    if (!name || /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(name)) {
+      // 画师卡片：图在 a 里，名字在 a 外面 → 往后找标题 / alt
+      const after = String(html).substring(m.index, m.index + 900);
+      const nm =
+        after.match(/<h[1-4][^>]*>([\s\S]{1,60}?)<\/h[1-4]>/) ||
+        after.match(/class="[^"]*(?:name|title)[^"]*"[^>]*>([\s\S]{1,60}?)</) ||
+        after.match(/alt="([^"]{1,60})"/);
+      if (nm) name = clean(nm[1]);
     }
+    if (!name) name = decodeURIComponent(url.split("/").filter(Boolean).pop() || "");
     if (!name) continue;
+    void isUuid;
     seen[url] = 1;
     out.push({ url: url, name: name });
   }
