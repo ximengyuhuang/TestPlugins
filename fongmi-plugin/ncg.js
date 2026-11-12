@@ -132,13 +132,25 @@ function parseVideos(html) {
   const seg = contentSeg(html);
   const out = [];
   const seen = {};
-  const re = /<video[^>]+src="([^"]+\.mp4[^"]*)"/g;
-  let m;
-  while ((m = re.exec(seg)) !== null) {
-    const u = m[1];
-    if (seen[u]) continue;
-    seen[u] = 1;
+  const key = (u) => u.replace(/\?.*$/, "");
+  const push = (u) => {
+    if (!u) return;
+    const k = key(u);
+    if (seen[k]) return;
+    seen[k] = 1;
     out.push(u);
+  };
+  // ① 普通 <video src="…mp4">
+  let m;
+  const re1 = /<video[^>]+src="([^"]+\.mp4[^"]*)"/g;
+  while ((m = re1.exec(seg)) !== null) push(m[1]);
+  // ② WordPress 的 wp-video-shortcode：地址在 <source src> 上
+  const re2 = /<source[^>]+src="([^"]+\.mp4[^"]*)"/g;
+  while ((m = re2.exec(seg)) !== null) push(m[1]);
+  // ③ 兜底：播放器里给老浏览器的 <a href="…mp4"> 下载链接
+  if (out.length === 0) {
+    const re3 = /<a[^>]+href="([^"]+\.mp4[^"]*)"/g;
+    while ((m = re3.exec(seg)) !== null) push(m[1]);
   }
   return out;
 }
@@ -191,30 +203,27 @@ export default class Ncg extends Spider {
     return r.content;
   }
 
-  // 用 WP REST 一次批量判断每篇「有几个视频 / 几张图」，避免每张卡片都发一次请求。
-  // 拿不到就返回 null，退回「一律当混合帖」的保守做法。
-  async classify(ids) {
-    const list = (ids || []).filter(Boolean);
-    if (list.length === 0) return null;
-    try {
-      const url =
-        BASE + "/wp-json/wp/v2/posts?include=" + list.join(",") + "&per_page=100&_fields=id,content";
-      const r = await this.net.req(url, {
-        headers: { "User-Agent": UA, Accept: "application/json", "Referer": BASE + "/" },
-      });
-      if (!r || r.code !== 200) return null;
-      const arr = JSON.parse(r.content);
-      if (!Array.isArray(arr)) return null;
-      const map = {};
-      for (const p of arr) {
-        const html = (p.content && p.content.rendered) || "";
-        map[String(p.id)] = { vids: parseVideos(html).length, imgs: parseImages(html).length };
-      }
-      return map;
-    } catch (e) {
-      this.log("classify failed: " + e);
-      return null;
+  // 并发探测每篇的媒体构成（8 个一批），顺手把 HTML 灌进缓存，点开时不再重复请求。
+  // ⚠ 不能用 wp-json 的 content 来判断：部分帖子的视频是插件渲染的，REST 里内容残缺
+  //   （实测第 4 页 12 篇只剩 1 篇能识别），必须以渲染后的页面为准。
+  async probePages(urls) {
+    const out = {};
+    const BATCH = 8;
+    for (let i = 0; i < urls.length; i += BATCH) {
+      const slice = urls.slice(i, i + BATCH);
+      await Promise.all(
+        slice.map(async (u) => {
+          try {
+            const html = await this.fetchPage(u);
+            if (!html) return;
+            out[u] = { vids: parseVideos(html).length, imgs: parseImages(html).length };
+          } catch (e) {
+            /* 单篇失败不影响整页 */
+          }
+        })
+      );
     }
+    return out;
   }
 
   // /top-categories/ 上的 504 个标签（带数量）
@@ -408,11 +417,11 @@ export default class Ncg extends Spider {
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
     // 列表阶段用一次 REST 批量判断每篇的媒体构成
-    const cls = await this.classify(cards.map((c) => c.id));
+    const info = await this.probePages(cards.map((c) => c.url));
 
     const list = cards
       .map((c) => {
-        const k = cls && cls[c.id];
+        const k = info[c.url];
         const known = !!(k && (k.vids > 0 || k.imgs > 0));
         // 只有视频 → 直接进详情播放
         if (known && k.vids > 0 && k.imgs === 0) {
@@ -556,10 +565,10 @@ export default class Ncg extends Spider {
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
-    const cls = await this.classify(cards.map((c) => c.id));
+    const info = await this.probePages(cards.map((c) => c.url));
     const list = cards
       .map((c) => {
-        const k = cls && cls[c.id];
+        const k = info[c.url];
         const known = !!(k && (k.vids > 0 || k.imgs > 0));
         if (known && k.vids > 0 && k.imgs === 0) {
           return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: k.vids + " 个视频" };
