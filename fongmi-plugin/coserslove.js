@@ -447,10 +447,76 @@ export default class CosersLove extends Spider {
     if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 
-    // ⚠ 这站对非登录访问只给「带 coserslove.com 水印的预览图」
-    // 实测 lg/md/xl 三种尺寸 × 带/不带 Referer，全是水印，真图要登录后鉴权。
-    // 所以不拼画廊，直接开相册页 —— 内置浏览器里看到的是正常图。
-    return { web: { url: u, mode: "view" } };
+    const real = await this.collectAlbum(u);
+    if (real.length === 0) return { web: { url: u, mode: "view" } };
+
+    let title = "";
+    try {
+      const html = await this.fetchPage(u);
+      const t = html && html.match(/<title>([^<]*)<\/title>/);
+      if (t) title = clean(t[1]).replace(/\s*-\s*Cosers爱\s*$/, "");
+    } catch (e) {
+      /* 忽略 */
+    }
+
+    // ⚠ 图片必须走插件代理：这站对「没有登录 cookie 的请求」只给带水印的预览图。
+    // 代理里带 WebView 的 cookie（含 cf_clearance 和登录态）+ 站内 Referer，才能拿到干净图。
+    const proxied = real.map((x) => {
+      try {
+        return this.proxyUrl({ u: x });
+      } catch (e) {
+        return x;
+      }
+    });
+
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113c";
+    const hash = "#t=" + encodeURIComponent(title) + "&i=" + esc(proxied.join("|"));
+    return { web: { url: purl + hash, mode: "view" } };
+  }
+
+  async readBytes(stream) {
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const buf = await stream.read(65536);
+      if (!buf) break;
+      const a = new Uint8Array(buf);
+      chunks.push(a);
+      total += a.length;
+    }
+    try {
+      stream.close();
+    } catch (e) {}
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.length;
+    }
+    return out;
+  }
+
+  // 图片代理：带登录 cookie + 站内 Referer
+  async proxy(params) {
+    const u = (params && (params.u || params.url)) || "";
+    if (!u) return [404, "text/plain", "no url"];
+    const h = this.h(BASE + "/");
+    h["Accept"] = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+    h["Sec-Fetch-Dest"] = "image";
+    h["Sec-Fetch-Site"] = "same-site";
+    try {
+      const st = await this.net.openStream(u, { headers: h });
+      const bytes = await this.readBytes(st);
+      if (!bytes || bytes.length === 0) return [404, "text/plain", "empty"];
+      let mime = "image/avif";
+      if (bytes[0] === 0xff && bytes[1] === 0xd8) mime = "image/jpeg";
+      else if (bytes[0] === 0x89 && bytes[1] === 0x50) mime = "image/png";
+      else if (bytes[0] === 0x52 && bytes[1] === 0x49) mime = "image/webp";
+      return [200, mime, bytes];
+    } catch (e) {
+      this.log("img proxy failed: " + e);
+      return [404, "text/plain", "fail"];
+    }
   }
 
   async searchContent(key, quick, pg = "1") {
