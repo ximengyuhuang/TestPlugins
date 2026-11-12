@@ -350,7 +350,6 @@ export default class CosersLove extends Spider {
     return {
       class: [
         { type_id: "latest", type_name: "最新", type_flag: "0" },
-        { type_id: "video", type_name: "短视频", type_flag: "0" },
         { type_id: "catf", type_name: "分类", type_flag: "1" },
         { type_id: "tagf", type_name: "标签", type_flag: "1" },
         { type_id: "artf", type_name: "画师", type_flag: "1" },
@@ -511,6 +510,7 @@ export default class CosersLove extends Spider {
       }
     }
 
+    if (cards.length === 0 && p > 1) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
     if (cards.length === 0) {
       // 诊断卡片：把状态码和长度直接显示出来
       const path = used.replace(BASE, "");
