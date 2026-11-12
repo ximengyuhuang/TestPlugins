@@ -447,24 +447,10 @@ export default class CosersLove extends Spider {
     if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 
-    const imgs = await this.collectAlbum(u);
-    if (imgs.length === 0) {
-      // 抓不到图也别死路：直接把这个相册页在内置浏览器里打开
-      return { web: { url: u, mode: "view" } };
-    }
-
-    let title = "";
-    try {
-      const html = await this.fetchPage(u);
-      const t = html && html.match(/<title>([^<]*)<\/title>/);
-      if (t) title = clean(t[1]).replace(/\s*-\s*Cosers爱\s*$/, "");
-    } catch (e) {
-      /* 忽略 */
-    }
-
-    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
-    const hash = "#t=" + encodeURIComponent(title) + "&i=" + esc(imgs.join("|"));
-    return { web: { url: purl + hash, mode: "view" } };
+    // ⚠ 这站对非登录访问只给「带 coserslove.com 水印的预览图」
+    // 实测 lg/md/xl 三种尺寸 × 带/不带 Referer，全是水印，真图要登录后鉴权。
+    // 所以不拼画廊，直接开相册页 —— 内置浏览器里看到的是正常图。
+    return { web: { url: u, mode: "view" } };
   }
 
   async searchContent(key, quick, pg = "1") {
