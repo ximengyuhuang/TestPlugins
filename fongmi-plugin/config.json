@@ -186,6 +186,17 @@
         "ratio": 1.78
       },
       "ext": {}
+    },
+    {
+      "key": "ncg",
+      "name": "NudeCosplayGirls",
+      "type": 3,
+      "api": "./ncg.js",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      },
+      "ext": {}
     }
   ]
 }
