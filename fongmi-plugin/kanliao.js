@@ -315,9 +315,20 @@ export default class Kanliao extends Spider {
     const cards = parseCards(r.content);
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
+    // ⚠ 站点每页都会把置顶帖（10267 那种公告）再放一遍，第 2 页起要跳过已出现过的
+    this.seenByTid = this.seenByTid || {};
+    if (p <= 1) this.seenByTid[tid] = {};
+    const seen = this.seenByTid[tid] || (this.seenByTid[tid] = {});
+    const fresh = [];
+    for (const c of cards) {
+      if (seen[c.url]) continue;
+      seen[c.url] = 1;
+      fresh.push(c);
+    }
+
     // 列表阶段并发探测（结果进 htmlCache，点开时不再重复请求）
-    const info = await this.probePages(cards.map((c) => c.url));
-    const list = this.buildCards(cards, info);
+    const info = await this.probePages(fresh.map((c) => c.url));
+    const list = this.buildCards(fresh, info);
 
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }

@@ -73,7 +73,15 @@ function abs(u) {
 function parseCards(html) {
   const out = [];
   const seen = {};
-  const parts = String(html).split(/<article class="entry-tpl-/).slice(1);
+  let src = String(html);
+  // ⚠ 分类页里还塞了「Trending Now」侧栏，里面的卡片和主列表同款 article 标记，
+  // 不裁掉就会把同一个视频重复带出来（实测第 2/3 页各多 3~4 条重复）
+  const ci = src.indexOf("g1-collection-items");
+  if (ci >= 0) {
+    const ce = src.indexOf("</ul>", ci);
+    if (ce > ci) src = src.substring(ci, ce);
+  }
+  const parts = src.split(/<article class="entry-tpl-/).slice(1);
   for (const p of parts) {
     const block = p.substring(0, 6000);
     let url = "";
@@ -405,14 +413,13 @@ export default class Ncg extends Spider {
     const list = cards
       .map((c) => {
         const k = cls && cls[c.id];
-        // 纯文字帖（Blog）没有视频也没有图，直接丢掉
-        if (k && k.vids === 0 && k.imgs === 0) return null;
+        const known = !!(k && (k.vids > 0 || k.imgs > 0));
         // 只有视频 → 直接进详情播放
-        if (k && k.vids > 0 && k.imgs === 0) {
+        if (known && k.vids > 0 && k.imgs === 0) {
           return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: k.vids + " 个视频" };
         }
         // 只有图集 → 点卡片直接开画廊
-        if (k && k.vids === 0 && k.imgs > 0) {
+        if (known && k.vids === 0 && k.imgs > 0) {
           return {
             vod_id: c.url,
             vod_name: c.title,
@@ -421,15 +428,23 @@ export default class Ncg extends Spider {
             action: "gal:" + c.url,
           };
         }
-        // 混合（或拿不到信息）→ 二级菜单
-        const remarks = k ? k.vids + " 视频 · " + k.imgs + " 图" : c.isVideo ? "视频" : "图集";
-        return {
-          vod_id: "mix|" + c.url,
-          vod_name: c.title,
-          vod_pic: c.pic,
-          vod_remarks: remarks,
-          vod_tag: "folder",
-        };
+        // 混合
+        if (known) {
+          return {
+            vod_id: "mix|" + c.url,
+            vod_name: c.title,
+            vod_pic: c.pic,
+            vod_remarks: k.vids + " 视频 · " + k.imgs + " 图",
+            vod_tag: "folder",
+          };
+        }
+        // REST 没给出信息（部分帖子视频是插件渲染的，REST content 是空的）
+        // → 按卡片自带的 format-video 判断，绝不因为「没探测到」就丢掉
+        if (c.isVideo) {
+          return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: "视频" };
+        }
+        // 既不是视频格式、REST 也说没图 → 纯文字帖（Blog），丢掉
+        return null;
       })
       .filter(Boolean);
 
@@ -542,29 +557,37 @@ export default class Ncg extends Spider {
     if (cards.length === 0) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
 
     const cls = await this.classify(cards.map((c) => c.id));
-    const list = cards.map((c) => {
-      const k = cls && cls[c.id];
-      if (k && k.vids > 0 && k.imgs === 0) {
-        return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: k.vids + " 个视频" };
-      }
-      if (k && k.vids === 0 && k.imgs > 0) {
-        return {
-          vod_id: c.url,
-          vod_name: c.title,
-          vod_pic: c.pic,
-          vod_remarks: "图集 · " + k.imgs + " 张",
-          action: "gal:" + c.url,
-        };
-      }
-      const remarks = k ? k.vids + " 视频 · " + k.imgs + " 图" : c.isVideo ? "视频" : "图集";
-      return {
-        vod_id: "mix|" + c.url,
-        vod_name: c.title,
-        vod_pic: c.pic,
-        vod_remarks: remarks,
-        vod_tag: "folder",
-      };
-    });
+    const list = cards
+      .map((c) => {
+        const k = cls && cls[c.id];
+        const known = !!(k && (k.vids > 0 || k.imgs > 0));
+        if (known && k.vids > 0 && k.imgs === 0) {
+          return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: k.vids + " 个视频" };
+        }
+        if (known && k.vids === 0 && k.imgs > 0) {
+          return {
+            vod_id: c.url,
+            vod_name: c.title,
+            vod_pic: c.pic,
+            vod_remarks: "图集 · " + k.imgs + " 张",
+            action: "gal:" + c.url,
+          };
+        }
+        if (known) {
+          return {
+            vod_id: "mix|" + c.url,
+            vod_name: c.title,
+            vod_pic: c.pic,
+            vod_remarks: k.vids + " 视频 · " + k.imgs + " 图",
+            vod_tag: "folder",
+          };
+        }
+        if (c.isVideo) {
+          return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: "视频" };
+        }
+        return null;
+      })
+      .filter(Boolean);
     return this.page(list, p, PAGE_SIZE, (p + 1) * PAGE_SIZE);
   }
 }
