@@ -252,10 +252,29 @@ export default class CosersLove extends Spider {
   async fetchPage(url) {
     const hit = this.cacheGet(url);
     if (hit) return hit;
-    const r = await this.net.req(url, { headers: this.h() });
-    if (!r || r.code !== 200) return "";
-    this.cacheSet(url, r.content);
-    return r.content;
+    const r = await this.reqRetry(url, 2);
+    if (!r.html || r.code !== 200) return "";
+    this.cacheSet(url, r.html);
+    return r.html;
+  }
+
+  // 带重试的请求：CF 对连续请求偶尔判爬虫，隔一下再试通常能过
+  async reqRetry(url, tries = 3) {
+    let code = 0;
+    let html = "";
+    for (let i = 0; i < tries; i++) {
+      try {
+        const r = await this.net.req(url, { headers: this.h() });
+        code = (r && r.code) || 0;
+        html = (r && r.content) || "";
+      } catch (e) {
+        code = -1;
+        html = "";
+      }
+      if (html && code === 200) return { code: code, html: html };
+      if (i < tries - 1) await new Promise((res) => setTimeout(res, 600 + i * 700));
+    }
+    return { code: code, html: html };
   }
 
   // 依次试多个地址，返回第一个有内容的
@@ -331,7 +350,7 @@ export default class CosersLove extends Spider {
     return {
       class: [
         { type_id: "latest", type_name: "最新", type_flag: "0" },
-        { type_id: "video", type_name: "有视频", type_flag: "0" },
+        { type_id: "video", type_name: "短视频", type_flag: "0" },
         { type_id: "catf", type_name: "分类", type_flag: "1" },
         { type_id: "tagf", type_name: "标签", type_flag: "1" },
         { type_id: "artf", type_name: "画师", type_flag: "1" },
@@ -462,7 +481,7 @@ export default class CosersLove extends Spider {
       cands =
         p > 1
           ? [BASE + "/albums/with-video/page/" + p, BASE + "/albums/with-video?page=" + p]
-          : [BASE + "/albums/with-video", BASE + "/albums/with-video/", BASE + "/?has_video=1", BASE + "/videos"];
+          : [BASE + "/reels", BASE + "/reels/", BASE + "/albums/with-video", BASE + "/videos"];
     } else {
       cands = p > 1 ? [BASE + "/page/" + p, BASE + "/page/" + p + "/", BASE + "/?page=" + p] : [BASE + "/"];
     }
@@ -472,16 +491,9 @@ export default class CosersLove extends Spider {
     let used = cands[0];
     let cards = [];
     for (const c of cands) {
-      let k = 0;
-      let h = "";
-      try {
-        const r = await this.net.req(c, { headers: this.h() });
-        k = (r && r.code) || 0;
-        h = (r && r.content) || "";
-      } catch (e) {
-        k = -1;
-        h = "";
-      }
+      const rr = await this.reqRetry(c, 2);
+      const k = rr.code;
+      const h = rr.html;
       if (!h) continue;
       const got = parseList(h);
       if (got.length > 0) {
