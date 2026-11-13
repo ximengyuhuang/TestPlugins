@@ -428,24 +428,28 @@ export default class CosersLove extends Spider {
       const list = [];
       let imgs = [];
       let vurl = "";
+      let stated = 0;
       try {
         const html = await this.fetchPage(albumUrl);
         if (html) {
           vurl = this.extractVideo(html);
           imgs = parseAlbum(html);
+          // 页面上的「52 张照片」是最准的总数
+          const mc = html.match(/(\d+)\s*张照片/);
+          if (mc) stated = Number(mc[1]) || 0;
         }
       } catch (e) {
         /* 忽略 */
       }
-      if (imgs.length > 0) {
-        list.push({
-          vod_id: "gal2|" + albumUrl,
-          vod_name: "🖼 查看图集 (" + imgs.length + " 张)",
-          vod_pic: "",
-          vod_remarks: "图集",
-          action: "gal2|" + albumUrl,
-        });
-      }
+      // 图集项永远给（张数用页面标注的，抓不到就留空）
+      const cnt = stated || imgs.length;
+      list.push({
+        vod_id: "gal2|" + albumUrl,
+        vod_name: "🖼 查看图集" + (cnt ? " (" + cnt + " 张)" : ""),
+        vod_pic: "",
+        vod_remarks: "图集",
+        action: "gal2|" + albumUrl,
+      });
       if (vurl) {
         list.push({
           vod_id: "v|" + vurl,
