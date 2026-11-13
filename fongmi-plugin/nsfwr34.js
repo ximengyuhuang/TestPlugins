@@ -93,12 +93,25 @@ function parseCards(html) {
     title = strip(title);
     if (!title) title = decodeURIComponent(url.split("/").filter(Boolean).pop() || "视频");
 
+    // 封面：优先用站内 wp-content 的 jpg（约 28KB）
+    // ⚠ data-thumbnail-image-2 指向 Bunny CDN 的 preview.webp，单张 1.3MB，
+    //   App 里加载不出来会显示字母占位（实测踩过）
     let pic = "";
-    const im =
-      seg.match(/data-thumbnail-image-2="([^"]+)"/) ||
-      seg.match(/data-thumbnail-image="([^"]+)"/) ||
-      seg.match(/<img[^>]+src="([^"]+)"/);
-    if (im) pic = unesc(im[1]);
+    const pool = [seg.match(/<img[^>]+src="([^"]+)"/)];
+    const all = [...seg.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]);
+    let siteImg = "";
+    for (const u of all) {
+      if (u.indexOf("wp-content/uploads") >= 0) {
+        siteImg = u;
+        break;
+      }
+    }
+    if (siteImg) pic = unesc(siteImg);
+    if (!pic) {
+      const alt = seg.match(/data-thumbnail-image-2="([^"]+)"/) || seg.match(/data-thumbnail-image="([^"]+)"/);
+      if (alt) pic = unesc(alt[1]);
+    }
+    if (!pic && pool[0]) pic = unesc(pool[0][1]);
 
     let dur = "";
     const dm = seg.match(/class="video-length[^"]*"[^>]*>([^<]*)</);
