@@ -368,7 +368,6 @@ export default class Nsfwr34 extends Spider {
 
       let title = "";
       let pic = "";
-      let dur = "";
       let stream = "";
       if (html) {
         const h1 = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
@@ -381,8 +380,8 @@ export default class Nsfwr34 extends Spider {
           html.match(/property="og:image"\s+content="([^"]+)"/) ||
           html.match(/content="([^"]+)"\s+property="og:image"/);
         if (og) pic = unesc(og[1]);
-        const dm = html.match(/class="video-length[^"]*"[^>]*>([^<]*)</);
-        if (dm) dur = strip(dm[1]);
+        // ⚠ 详情页里有 17 个 video-length（都是「相关视频」的），
+        // 取第一个会和列表上的时长对不上，所以详情页不显示时长，以列表为准
         stream = parseStream(html);
       }
 
@@ -390,7 +389,6 @@ export default class Nsfwr34 extends Spider {
         vod_id: pageUrl,
         vod_name: title || "NSFWR34",
         vod_pic: pic,
-        vod_remarks: dur,
         vod_content: stream ? "m3u8 直链" : "未找到直链",
         vod_play_from: "NSFWR34",
         vod_play_url: "正片$" + pageUrl,
