@@ -163,17 +163,27 @@ export default class Photos18 extends Spider {
     } catch (e) {
       this.log("loadCats failed: " + e);
     }
-    const classes = [
-      { type_id: "created", type_name: "最新", type_flag: "0" },
-      { type_id: "views", type_name: "最火", type_flag: "0" },
-      { type_id: "score", type_name: "推薦", type_flag: "0" },
-    ];
+    // chip 只放分类；排序收进「筛选」按钮（跟老站一致）
+    const classes = [{ type_id: "latest", type_name: "最新", type_flag: "0" }];
     for (const c of cats) {
       classes.push({ type_id: "cat:" + c.id, type_name: c.name, type_flag: "0" });
     }
     classes.push({ type_id: "search", type_name: "搜索", type_flag: "1" });
     classes.push({ type_id: "web", type_name: "网页", type_flag: "1" });
-    return { class: classes };
+
+    const sortFilter = [
+      {
+        key: "sort",
+        name: "排序",
+        value: [
+          { n: "最新", v: "created" },
+          { n: "最火", v: "views" },
+          { n: "推薦", v: "score" },
+        ],
+      },
+    ];
+    const filters = { latest: sortFilter };
+    return { class: classes, filters: filters };
   }
 
   cardsToList(cards) {
@@ -189,7 +199,6 @@ export default class Photos18 extends Spider {
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     void filter;
-    void extend;
 
     if (tid === "web" || tid === "search") {
       try {
@@ -202,10 +211,11 @@ export default class Photos18 extends Spider {
 
     let url;
     const q = "?page=" + p + "&per-page=" + PER_PAGE;
+    const sort = (extend && extend.sort) || "created";
     if (tid.indexOf("cat:") === 0) {
       url = BASE + "/cat/" + tid.substring(4) + q;
     } else {
-      url = BASE + "/sort/" + tid + q;
+      url = BASE + "/sort/" + sort + q;
     }
 
     const html = await this.fetchPage(url);
