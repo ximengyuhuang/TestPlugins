@@ -149,16 +149,29 @@ export default class Rule34Videos extends Spider {
   }
 
   async homeContent(filter) {
+    // 排序做成「筛选」按钮，chip 只留真正的入口
+    const filters = {
+      feed: [
+        {
+          key: "sort",
+          name: "排序",
+          value: [
+            { n: "最新", v: "date" },
+            { n: "最多查看", v: "view" },
+            { n: "最受喜爱", v: "likes" },
+          ],
+        },
+      ],
+    };
     return {
       class: [
-        { type_id: "date", type_name: "最新", type_flag: "0" },
-        { type_id: "view", type_name: "最多查看", type_flag: "0" },
-        { type_id: "likes", type_name: "最受喜爱", type_flag: "0" },
+        { type_id: "feed", type_name: "视频", type_flag: "0" },
         { type_id: "tagf", type_name: "标签", type_flag: "1" },
         { type_id: "artf", type_name: "画师", type_flag: "1" },
         { type_id: "search", type_name: "搜索", type_flag: "1" },
         { type_id: "web", type_name: "网页", type_flag: "1" },
       ],
+      filters: filters,
     };
   }
 
@@ -174,7 +187,6 @@ export default class Rule34Videos extends Spider {
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     void filter;
-    void extend;
 
     if (tid === "web") {
       try {
@@ -228,7 +240,9 @@ export default class Rule34Videos extends Spider {
     } else if (tid.indexOf("a:") === 0) {
       url = tid.substring(2) + "?page=" + p;
     } else {
-      const ob = tid === "view" ? "-view" : tid === "likes" ? "-annotated_likes_count" : "-date";
+      // sort 来自筛选：date / view / likes
+      const sel = (extend && extend.sort) || "date";
+      const ob = sel === "view" ? "-view" : sel === "likes" ? "-annotated_likes_count" : "-date";
       url = BASE + LANG + "/?order_by=" + ob + "&page=" + p;
     }
 
