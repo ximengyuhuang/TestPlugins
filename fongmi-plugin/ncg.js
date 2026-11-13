@@ -293,19 +293,45 @@ export default class Ncg extends Spider {
   }
 
   async homeContent(filter) {
+    // chip 只留入口；「内容类型」和「排序」收进筛选按钮
+    const filters = {
+      latest: [
+        {
+          key: "media",
+          name: "内容",
+          value: [
+            { n: "全部", v: "all" },
+            { n: "Videos", v: "video" },
+            { n: "Albums", v: "album" },
+            { n: "Top Cosplayers", v: "top" },
+            { n: "Hot Cosplayers", v: "hot" },
+          ],
+        },
+        {
+          key: "sort",
+          name: "排序",
+          value: [
+            { n: "最新", v: "date" },
+            { n: "最早", v: "asc" },
+            { n: "随机", v: "rand" },
+          ],
+        },
+      ],
+    };
     return {
-      class: NAV.map((n) => ({
-        type_id: n.id,
-        type_name: n.name,
-        type_flag: "0",
-      })),
+      class: [
+        { type_id: "latest", type_name: "最新", type_flag: "0" },
+        { type_id: "tagf", type_name: "标签", type_flag: "1" },
+        { type_id: "modf", type_name: "模特 A-Z", type_flag: "1" },
+        { type_id: "web", type_name: "网页", type_flag: "1" },
+      ],
+      filters: filters,
     };
   }
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     void filter;
-    void extend;
 
     if (tid === "web") {
       try {
@@ -407,7 +433,21 @@ export default class Ncg extends Spider {
       url = BASE + "/tag/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "");
     } else {
       const nav = NAV.find((n) => n.id === tid) || NAV[0];
-      url = BASE + nav.path + (p > 1 ? "page/" + p + "/" : "") + nav.query;
+      let path = nav.path;
+      let q = nav.query || "";
+      // 「最新」支持筛选：内容类型 + 排序（WordPress 的 ?order= / ?orderby=）
+      if (tid === "latest") {
+        const media = (extend && extend.media) || "all";
+        if (media === "video") path = "/category/nude-cosplay-videos/";
+        else if (media === "album") path = "/category/nude-cosplay-albums/";
+        else if (media === "top") path = "/category/nude-cosplay/";
+        else if (media === "hot") path = "/category/nude-cosplayers/";
+
+        const sel = (extend && extend.sort) || "date";
+        if (sel === "asc") q = "?order=asc";
+        else if (sel === "rand") q = "?orderby=rand";
+      }
+      url = BASE + path + (p > 1 ? "page/" + p + "/" : "") + q;
     }
 
     const r = await this.net.req(url, { headers: hdrs() });
