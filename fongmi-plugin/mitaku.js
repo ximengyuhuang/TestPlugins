@@ -514,7 +514,21 @@ export default class Mitaku extends Spider {
       type_flag: "1",
     });
 
-    return { class: classes };
+    // 排序收进「筛选」按钮（WordPress 支持 ?orderby= / ?order=）
+    const sortFilter = [
+      {
+        key: "sort",
+        name: "排序",
+        value: [
+          { n: "最新", v: "date" },
+          { n: "最早", v: "asc" },
+          { n: "随机", v: "rand" },
+        ],
+      },
+    ];
+    const filters = {};
+    for (const [tid] of CATS) filters[tid] = sortFilter;
+    return { class: classes, filters: filters };
   }
 
   // 从标题提取作者（"Tokar 浵卡 – Kisaki (Blue Archive)" → "Tokar 浵卡"）
@@ -667,7 +681,11 @@ export default class Mitaku extends Spider {
           break;
         }
       }
-      url = SITE + path + (p > 1 ? "page/" + p + "/" : "");
+      const sel = (extend && extend.sort) || "date";
+      let q = "";
+      if (sel === "asc") q = "?order=asc";
+      else if (sel === "rand") q = "?orderby=rand";
+      url = SITE + path + (p > 1 ? "page/" + p + "/" : "") + q;
     }
 
     const r = await this.net.req(url, { headers: headers() });
