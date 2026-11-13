@@ -209,7 +209,25 @@ export default class R34Anim extends Spider {
     classes.push({ type_id: "tagf", type_name: "标签", type_flag: "1" });
     classes.push({ type_id: "search", type_name: "搜索", type_flag: "1" });
     classes.push({ type_id: "web", type_name: "网页", type_flag: "1" });
-    return { class: classes };
+
+    // 排序收进「筛选」（WordPress 的 ?order= / ?orderby=，实测有效）
+    const sortF = [
+      {
+        key: "sort",
+        name: "排序",
+        value: [
+          { n: "最新", v: "date" },
+          { n: "最早", v: "asc" },
+          { n: "随机", v: "rand" },
+        ],
+      },
+    ];
+    const filters = {};
+    for (const c of classes) {
+      if (c.type_id === "web" || c.type_id === "search") continue;
+      filters[c.type_id] = sortF;
+    }
+    return { class: classes, filters: filters };
   }
 
   cardsToList(cards) {
@@ -224,7 +242,6 @@ export default class R34Anim extends Spider {
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     void filter;
-    void extend;
 
     if (tid === "web") {
       try {
@@ -269,13 +286,18 @@ export default class R34Anim extends Spider {
       return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
+    const sel = (extend && extend.sort) || "date";
+    let q = "";
+    if (sel === "asc") q = "?order=asc";
+    else if (sel === "rand") q = "?orderby=rand";
+
     let url = "";
     if (tid.indexOf("t:") === 0) {
-      url = BASE + "/rule34-tag/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "");
+      url = BASE + "/rule34-tag/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
     } else if (tid.indexOf("c:") === 0) {
-      url = BASE + "/rule34/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "");
+      url = BASE + "/rule34/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
     } else {
-      url = BASE + "/" + (p > 1 ? "page/" + p + "/" : "");
+      url = BASE + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
     }
 
     const html = await this.fetchPage(url);
