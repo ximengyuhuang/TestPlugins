@@ -84,6 +84,30 @@ function parseCards(html) {
   return out;
 }
 
+// Top10 页：<ul class="wpp-list"><li><a href="帖子"><img data-src="封面">
+function parseTop10(html) {
+  const out = [];
+  const seen = {};
+  const parts = String(html).split("<li class=");
+  for (let i = 1; i < parts.length; i++) {
+    const seg = parts[i].slice(0, 1200);
+    const a = seg.match(/<a href="(https:\/\/www\.r34anim\.com\/[^"]+)"[^>]*>/);
+    if (!a) continue;
+    const url = a[1];
+    if (seen[url]) continue;
+    if (/\/rule34(-tag)?\/|\/page\/|all-tags|wp-json|top-10/.test(url)) continue;
+    seen[url] = 1;
+    const im = seg.match(/data-src="([^"]+)"/) || seg.match(/<img[^>]+src="(https:[^"]+)"/);
+    out.push({
+      url: url,
+      title: decodeURIComponent(url.replace(BASE, "").split("/").filter(Boolean).pop() || "视频")
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (m) => m.toUpperCase()),
+      pic: im ? im[1] : "",
+    });
+  }
+  return out;
+}
 // 详情页取 mp4（<source src> 或 <video src> 或全页正则）
 function parseMp4(html) {
   const t = String(html);
@@ -201,7 +225,12 @@ export default class R34Anim extends Spider {
   }
 
   async homeContent(filter) {
+    // 照搬站点导航：Home | All Tags | Only 1+ Min | Only 3+ Min | Top 10
     const classes = [{ type_id: "latest", type_name: "最新", type_flag: "0" }];
+    classes.push({ type_id: "dur1", type_name: "1分+", type_flag: "0" });
+    classes.push({ type_id: "dur3", type_name: "3分+", type_flag: "0" });
+    classes.push({ type_id: "top10", type_name: "Top 10", type_flag: "0" });
+
     const cats = await this.loadCats();
     for (const c of cats) {
       classes.push({ type_id: "c:" + c.slug, type_name: c.name, type_flag: "0" });
@@ -224,7 +253,7 @@ export default class R34Anim extends Spider {
     ];
     const filters = {};
     for (const c of classes) {
-      if (c.type_id === "web" || c.type_id === "search") continue;
+      if (c.type_id === "web" || c.type_id === "search" || c.type_id === "top10") continue;
       filters[c.type_id] = sortF;
     }
     return { class: classes, filters: filters };
@@ -291,8 +320,18 @@ export default class R34Anim extends Spider {
     if (sel === "asc") q = "?order=asc";
     else if (sel === "rand") q = "?orderby=rand";
 
+    // Top 10 是独立页面（wpp-list 结构），单独解析
+    if (tid === "top10") {
+      const html = await this.fetchPage(BASE + "/top-10-sfm-rule34-videos/");
+      const cards = html ? parseTop10(html) : [];
+      return this.page(this.cardsToList(cards), 1, Math.max(cards.length, 1), Math.max(cards.length, 1));
+    }
+
     let url = "";
-    if (tid.indexOf("t:") === 0) {
+    if (tid === "dur1" || tid === "dur3") {
+      const slug = tid === "dur1" ? "1-min" : "3-min";
+      url = BASE + "/rule34-tag/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
+    } else if (tid.indexOf("t:") === 0) {
       url = BASE + "/rule34-tag/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
     } else if (tid.indexOf("c:") === 0) {
       url = BASE + "/rule34/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "") + q;
