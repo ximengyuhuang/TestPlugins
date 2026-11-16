@@ -81,6 +81,15 @@ function shortTitle(raw) {
   return { name: name, remark: remark };
 }
 
+// 从标题里取作者："Tokar 浵卡 (laurus0711) - Lacus Clyne…" → "Tokar 浵卡"
+function authorOf(raw) {
+  let s = stripTags(raw || "");
+  s = s.split(/\s+cosplay\s+/i)[0];
+  s = s.split(/\s*[-–—|｜]\s*/)[0];
+  s = s.replace(/\s*\([a-z0-9._\-]+\)\s*/gi, " ").replace(/\s{2,}/g, " ").trim();
+  return s.length >= 2 && s.length <= 40 ? s : "";
+}
+
 // 从帖子正文提取图集图片
 // ⚠ 两个坑（2026-11-07 修）：
 // ① 不能从 entry-content 往后随便截 400KB —— 会吞掉文末「相关推荐」的缩略图
@@ -524,6 +533,10 @@ export default class CosplayTele extends Spider {
       // 作者层的视频 = 用名字搜索
       return await this.searchContent(tid.substring(5), true, String(p));
     }
+    // 详情页作者链接：按作者名搜
+    if (tid.indexOf("s:") === 0) {
+      return await this.searchContent(tid.substring(2), true, String(p));
+    }
     if (tid === "catf") {
       const list = this.letterFolders("cat");
       return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
@@ -687,6 +700,7 @@ export default class CosplayTele extends Spider {
       let title = "CosplayTele";
       let pic = "";
       let content = "";
+      let remark = "";
 
       try {
         // 优先用二级菜单探测时缓存下来的页面（省一次网络往返）
@@ -702,7 +716,12 @@ export default class CosplayTele extends Spider {
         }
         if (html) {
           const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
+          const rawTitle = h1 ? stripTags(h1[1]) : "";
           if (h1) title = shortTitle(h1[1]).name || title;
+
+          // 作者（标题里 "Tokar 浵卡 (…) - 作品名" 的第一段），做成可点击：点了搜该作者
+          const author = authorOf(rawTitle);
+          if (author) remark = this.link(author, { id: "s:" + author });
 
           const imgs = parseGalleryImages(html);
           if (imgs.length) {
@@ -731,6 +750,7 @@ export default class CosplayTele extends Spider {
         vod_id: pageUrl,
         vod_name: title,
         vod_pic: pic,
+        vod_remarks: remark,
         vod_content: content,
         vod_play_from: "CosplayTele",
         vod_play_url: "正片$" + pageUrl,
