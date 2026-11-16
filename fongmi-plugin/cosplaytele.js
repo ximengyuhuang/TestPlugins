@@ -6,6 +6,9 @@ import { Spider, openWeb } from "catvod";
 
 const BASE = "https://cosplaytele.com";
 
+// 每页条数：App 现在是 2 列卡片，12 条只有 6 行，一屏见底
+const PAGE = 18;
+
 // 画廊页（App 内 WebView 打开）
 // 线上：     https://ximengyuhuang.github.io/TestPlugins/fongmi-plugin/gallery.html
 // 本地调试改回：http://192.168.110.70:8000/gallery.html
@@ -49,6 +52,33 @@ function absolute(u) {
 
 function stripTags(s) {
   return decode(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+// 标题瘦身（适配新版卡片：标题 2 行 13sp、备注是封面角标）
+// "Byoru cosplay Lucky Bikini (61 photos and 30 videos)"
+//   → name "Byoru · Lucky Bikini" / remark "61P·30V"
+function shortTitle(raw) {
+  const full = stripTags(raw || "");
+  let name = full;
+  let remark = "";
+  // 真站标题里的统计有多种包法："46 photos and 1 video" / “61 photos and 30 videos” / (…)
+  const m = name.match(
+    /[(（"“「『']\s*(\d+)\s*photos?(?:\s*(?:and|,|\+|&)\s*(\d+)\s*videos?)?\s*[)）"”」』']/i
+  );
+  if (m) {
+    remark = m[1] + "P" + (m[2] ? "·" + m[2] + "V" : "");
+    name = name.replace(m[0], " ");
+  }
+  name = name
+    .replace(/\s*\(([a-z0-9._\-]+)\)\s*/gi, " ")
+    .replace(/\s+cosplay\s+/i, " · ")
+    .replace(/\s+-\s+/g, " · ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s|·\-–—]+/, "")
+    .replace(/[\s|·\-–—]+$/, "")
+    .trim();
+  if (!name) name = full || "CosplayTele";
+  return { name: name, remark: remark };
 }
 
 // 从帖子正文提取图集图片
@@ -290,11 +320,12 @@ function parseCards(html) {
     seen[url] = 1;
 
     const img = block.match(/<img[^>]*src="([^"]+)"/);
+    const t = shortTitle(a[2]);
     out.push({
       vod_id: url,
-      vod_name: stripTags(a[2]),
+      vod_name: t.name,
       vod_pic: img ? absolute(img[1]) : "",
-      vod_remarks: "",
+      vod_remarks: t.remark,
     });
     if (out.length >= 24) break;
   }
@@ -362,17 +393,17 @@ export default class CosplayTele extends Spider {
     // 二级结构：分类 / 标签 / 作者 各收成一个文件夹入口
     classes.push({
       type_id: "catf",
-      type_name: "分类 (" + (this.cats ? this.cats.length : 0) + ")",
+      type_name: "分类 " + (this.cats ? this.cats.length : 0),
       type_flag: "1",
     });
     classes.push({
       type_id: "tagf",
-      type_name: "标签 (" + (this.tags ? this.tags.length : 0) + ")",
+      type_name: "标签 " + (this.tags ? this.tags.length : 0),
       type_flag: "1",
     });
     classes.push({
       type_id: "authf",
-      type_name: "作者 (" + ((this.authors || []).length) + ")",
+      type_name: "作者 " + ((this.authors || []).length),
       type_flag: "1",
     });
 
@@ -536,7 +567,7 @@ export default class CosplayTele extends Spider {
       if (hasVideo) {
         list.push({
           vod_id: pageUrl,
-          vod_name: "▶ 播放视频",
+          vod_name: "播放视频",
           vod_pic: cover,
           vod_remarks: "视频",
         });
@@ -544,7 +575,7 @@ export default class CosplayTele extends Spider {
       if (imgCount > 0) {
         list.push({
           vod_id: "gal|" + pageUrl,
-          vod_name: "🖼 查看图集" + (imgCount ? " (" + imgCount + " 张)" : ""),
+          vod_name: "查看图集" + (imgCount ? " · " + imgCount + " 张" : ""),
           vod_pic: "",
           vod_remarks: "图集",
           action: "gal|" + pageUrl,
@@ -563,7 +594,7 @@ export default class CosplayTele extends Spider {
       } catch (e) {
         this.log("openWeb failed: " + e);
       }
-      return this.page([], 1, 12, 0);
+      return this.page([], 1, PAGE, 0);
     }
 
     let url;
@@ -589,17 +620,17 @@ export default class CosplayTele extends Spider {
     });
 
     // 空页视为到底；否则允许继续翻页
-    if (cards.length === 0) return this.page([], p, 12, (p - 1) * 12);
+    if (cards.length === 0) return this.page([], p, PAGE, (p - 1) * PAGE);
 
     // 每个帖子 -> 二级入口（视频 / 图集）
     const list = cards.map((c) => ({
       vod_id: "mix|" + c.vod_id,
       vod_name: c.vod_name,
       vod_pic: c.vod_pic,
-      vod_remarks: "视频+图集",
+      vod_remarks: c.vod_remarks || "视频+图集",
       vod_tag: "folder",
     }));
-    return this.page(list, p, 12, (p + 1) * 12);
+    return this.page(list, p, PAGE, (p + 1) * PAGE);
   }
 
   // 图集卡片点击 → 内联图片列表打开画廊
@@ -656,7 +687,7 @@ export default class CosplayTele extends Spider {
         }
         if (html) {
           const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
-          if (h1) title = stripTags(h1[1]) || title;
+          if (h1) title = shortTitle(h1[1]).name || title;
 
           const img = html.match(/<img[^>]*src="(https:\/\/cosplaytele\.com\/wp-content\/uploads\/[^"]+)"/);
           if (img) pic = absolute(img[1]);
@@ -672,13 +703,15 @@ export default class CosplayTele extends Spider {
           // 播放页简介只显示 3 行（activity_video.xml: maxLines=3）
           const line1 = [
             date ? "发布: " + date[1].substring(0, 10) : "",
-            cats.length ? "分类: " + cats.join(", ") : "",
+            cats.length
+              ? "分类: " + cats.slice(0, 3).join(", ") + (cats.length > 3 ? " +" + (cats.length - 3) : "")
+              : "",
           ]
             .filter(Boolean)
             .join(" | ");
 
           const excerpt = html.match(/<p class="from_the_blog_excerpt[^"]*">([\s\S]*?)<\/p>/);
-          const line2 = excerpt ? stripTags(excerpt[1]).substring(0, 140) : "";
+          const line2 = excerpt ? stripTags(excerpt[1]).substring(0, 80) : "";
 
           content = [line1, line2].filter(Boolean).join("\n");
         }
@@ -766,7 +799,7 @@ export default class CosplayTele extends Spider {
     if (!r || r.code !== 200) return this.page([], p, 12, 0);
 
     const cards = parseCards(r.content);
-    const total = cards.length >= 12 ? (p + 1) * 12 : (p - 1) * 12 + cards.length;
+    const total = cards.length >= PAGE ? (p + 1) * PAGE : (p - 1) * PAGE + cards.length;
     return this.page(cards, p, 12, total);
   }
 }

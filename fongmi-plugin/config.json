@@ -18,7 +18,7 @@
       "api": "./cosplaytele.js",
       "style": {
         "type": "rect",
-        "ratio": 1.5
+        "ratio": 1.7
       },
       "ext": {}
     },
