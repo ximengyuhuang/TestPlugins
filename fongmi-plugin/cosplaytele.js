@@ -693,6 +693,15 @@ export default class CosplayTele extends Spider {
   }
 
   // ---------------- 详情 ----------------
+  // link() 在宿主里一定存在；这里兜一层，避免某个链接失败把整段详情带崩
+  safeLink(name, target) {
+    try {
+      return this.link(name, target);
+    } catch (e) {
+      return name;
+    }
+  }
+
   async detailContent(ids) {
     const list = [];
     for (const id of ids) {
@@ -701,6 +710,7 @@ export default class CosplayTele extends Spider {
       let pic = "";
       let content = "";
       let remark = "";
+      let author = "";
 
       try {
         // 优先用二级菜单探测时缓存下来的页面（省一次网络往返）
@@ -720,8 +730,8 @@ export default class CosplayTele extends Spider {
           if (h1) title = shortTitle(h1[1]).name || title;
 
           // 作者（标题里 "Tokar 浵卡 (…) - 作品名" 的第一段），做成可点击：点了搜该作者
-          const author = authorOf(rawTitle);
-          if (author) remark = this.link(author, { id: "s:" + author });
+          author = authorOf(rawTitle);
+          if (author) remark = this.safeLink(author, { id: "s:" + author });
 
           const imgs = parseGalleryImages(html);
           if (imgs.length) {
@@ -739,11 +749,27 @@ export default class CosplayTele extends Spider {
 
           // 简介只给 3 行：第一行日期，第二行起是可点击的分类 / 标签
           const head = date ? date[1].substring(0, 10) : "";
-          const catLine = cats.map((c) => this.link(c, { id: "go:" + c })).join(" · ");
+          const catLine = cats.map((c) => this.safeLink(c, { id: "go:" + c })).join(" · ");
           content = [head, catLine].filter(Boolean).join("\n");
         }
       } catch (e) {
         this.log("detail failed: " + e);
+      }
+
+      // 相关推荐：按作者名再搜一批，做成第二个播放分组（点了直接播那一帖）
+      const recs = [];
+      try {
+        if (author) {
+          const rs = await this.searchContent(author, true, "1");
+          for (const v of rs.list || []) {
+            const nm = String(v.vod_name || "").replace(/[$#|]/g, " ").trim();
+            if (!v.vod_id || v.vod_id === pageUrl || !nm) continue;
+            recs.push(nm + "$rec|" + v.vod_id);
+            if (recs.length >= 8) break;
+          }
+        }
+      } catch (e) {
+        this.log("rec failed: " + e);
       }
 
       list.push({
@@ -752,27 +778,19 @@ export default class CosplayTele extends Spider {
         vod_pic: pic,
         vod_remarks: remark,
         vod_content: content,
-        vod_play_from: "CosplayTele",
-        vod_play_url: "正片$" + pageUrl,
+        vod_play_from: "CosplayTele" + (recs.length ? "$$$相关推荐" : ""),
+        vod_play_url: "正片$" + pageUrl + (recs.length ? "$$$" + recs.join("#") : ""),
       });
     }
     return { list: list };
   }
 
   // ---------------- 播放 ----------------
-  async playerContent(flag, id, vipFlags) {
-    const pageUrl = absolute(id);
-
-    // 解出来的 m3u8 缓存 30 分钟，重复播放不再走整个链路
+  // 解析一篇文章页 → {url, ts}；带 playCache / embedCache 两层缓存
+  async resolve(pageUrl) {
     this.playCache = this.playCache || {};
     const hit = this.playCache[pageUrl];
-    if (hit && Date.now() - hit.ts < 1800000) {
-      return {
-        parse: 0,
-        url: hit.url,
-        header: { "User-Agent": UA, "Referer": "https://cossora.stream/" },
-      };
-    }
+    if (hit && Date.now() - hit.ts < 1800000) return hit;
 
     // 文章页也可能已缓存（二级菜单探测时抓过）
     let html = "";
@@ -809,11 +827,20 @@ export default class CosplayTele extends Spider {
       this.embedCache[embed] = { url: url, ts: Date.now() };
     }
 
-    this.playCache[pageUrl] = { url: url, ts: Date.now() };
+    const rec = { url: url, ts: Date.now() };
+    this.playCache[pageUrl] = rec;
+    return rec;
+  }
+
+  async playerContent(flag, id, vipFlags) {
+    // "rec|<帖子地址>" 来自详情页「相关推荐」分组
+    const raw = id.indexOf("rec|") === 0 ? id.substring(4) : id;
+    const pageUrl = absolute(raw);
+    const r = await this.resolve(pageUrl);
 
     return {
       parse: 0,
-      url: url,
+      url: r.url,
       header: { "User-Agent": UA, "Referer": "https://cossora.stream/" },
     };
   }
