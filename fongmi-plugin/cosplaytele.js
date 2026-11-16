@@ -553,8 +553,8 @@ export default class CosplayTele extends Spider {
           hasVideo = rr.content.indexOf("cossora.stream/embed") >= 0;
           const imgs = parseGalleryImages(rr.content);
           imgCount = imgs.length;
-          const og = rr.content.match(/property="og:image"[^>]*content="([^"]+)"/);
-          if (og) cover = og[1];
+          // 这站没有 og:image，封面直接取正文第一张图
+          if (imgs.length) cover = imgs[0];
           // 缓存给 detailContent 复用
           this.htmlCache = this.htmlCache || {};
           this.htmlCache[pageUrl] = { html: rr.content, ts: Date.now() };
@@ -576,7 +576,7 @@ export default class CosplayTele extends Spider {
         list.push({
           vod_id: "gal|" + pageUrl,
           vod_name: "查看图集" + (imgCount ? " · " + imgCount + " 张" : ""),
-          vod_pic: "",
+          vod_pic: cover,
           vod_remarks: "图集",
           action: "gal|" + pageUrl,
         });
@@ -646,7 +646,7 @@ export default class CosplayTele extends Spider {
       if (r && r.code === 200) {
         imgs = parseGalleryImages(r.content);
         const t = r.content.match(/<title>([^<]*)<\/title>/);
-        if (t) title = decode(t[1]).replace(/\s*-\s*CosplayTele\s*$/, "");
+        if (t) title = shortTitle(decode(t[1]).replace(/\s*[-–—]\s*Cosplaytele\s*$/i, "")).name;
       }
     } catch (e) {
       this.log("gallery failed: " + e);
@@ -689,8 +689,13 @@ export default class CosplayTele extends Spider {
           const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
           if (h1) title = shortTitle(h1[1]).name || title;
 
-          const img = html.match(/<img[^>]*src="(https:\/\/cosplaytele\.com\/wp-content\/uploads\/[^"]+)"/);
-          if (img) pic = absolute(img[1]);
+          const imgs = parseGalleryImages(html);
+          if (imgs.length) {
+            pic = imgs[0];
+          } else {
+            const img = html.match(/<img[^>]*src="(https:\/\/cosplaytele\.com\/wp-content\/uploads\/[^"]+)"/);
+            if (img) pic = absolute(img[1]);
+          }
 
           const lines = [];
 
