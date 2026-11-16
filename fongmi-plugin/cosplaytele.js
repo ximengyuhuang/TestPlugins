@@ -597,23 +597,38 @@ export default class CosplayTele extends Spider {
       return this.page([], 1, PAGE, 0);
     }
 
-    let url;
-    if (tid.indexOf("tag:") === 0) {
-      url = BASE + "/tag/" + tid.substring(4) + "/" + (p > 1 ? "page/" + p + "/" : "");
-    } else {
-      const slug = tid.indexOf("cat:") === 0 ? tid.substring(4) : tid || "video-cosplayyy";
-      url = BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
-    }
-
     // 排序：站点支持 ?order=asc|desc
     const order = (extend && extend.order) || "desc";
-    if (order === "asc") url += "?order=asc";
+    const suffix = (p > 1 ? "page/" + p + "/" : "") + (order === "asc" ? "?order=asc" : "");
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 12, 0);
+    // go:<slug> 来自详情页里可点击的分类/标签：先按分类取，取不到再按标签取
+    let cards = [];
+    if (tid.indexOf("go:") === 0) {
+      const slug = tid.substring(3);
+      for (const kind of ["category", "tag"]) {
+        const r = await this.net.req(BASE + "/" + kind + "/" + slug + "/" + suffix, { headers: headers() });
+        if (r && r.code === 200) {
+          const c = parseCards(r.content);
+          if (c.length) {
+            cards = c;
+            break;
+          }
+        }
+      }
+    } else {
+      let url;
+      if (tid.indexOf("tag:") === 0) {
+        url = BASE + "/tag/" + tid.substring(4) + "/" + suffix;
+      } else {
+        const slug = tid.indexOf("cat:") === 0 ? tid.substring(4) : tid || "video-cosplayyy";
+        url = BASE + "/category/" + slug + "/" + suffix;
+      }
+      const r = await this.net.req(url, { headers: headers() });
+      if (r && r.code === 200) cards = parseCards(r.content);
+    }
 
     if (p === 1 || !this.seen) this.seen = {};
-    const cards = parseCards(r.content).filter((c) => {
+    cards = cards.filter((c) => {
       if (this.seen[c.vod_id]) return false;
       this.seen[c.vod_id] = 1;
       return true;
@@ -658,7 +673,7 @@ export default class CosplayTele extends Spider {
     // 请求行上限（放 query 里 164 张就被 414 拒了）；query 只留帖子地址做兜底
     // 注意：不能用 encodeURIComponent 整体编码，它会把 "/" 变 %2F，长度翻三倍
     const esc = (s) => String(s).replace(/%/g, "%25").replace(/&/g, "%26").replace(/#/g, "%23").replace(/\+/g, "%2B").replace(/ /g, "%20");
-    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
+    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261117a";
     const short = imgs.map((x) => (x.indexOf(BASE) === 0 ? x.substring(BASE.length) : x)).join("|");
     const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(BASE) + "&i=" + esc(short);
     return { web: { url: purl + hash, mode: "view" } };
@@ -697,28 +712,16 @@ export default class CosplayTele extends Spider {
             if (img) pic = absolute(img[1]);
           }
 
-          const lines = [];
-
           const date = html.match(/<time[^>]*datetime="([^"]+)"/);
           const cats = [];
           const reC = /href="https:\/\/cosplaytele\.com\/category\/([a-z0-9\-]+)\/"/g;
           let m;
           while ((m = reC.exec(html)) !== null) if (cats.indexOf(m[1]) < 0) cats.push(m[1]);
 
-          // 播放页简介只显示 3 行（activity_video.xml: maxLines=3）
-          const line1 = [
-            date ? "发布: " + date[1].substring(0, 10) : "",
-            cats.length
-              ? "分类: " + cats.slice(0, 3).join(", ") + (cats.length > 3 ? " +" + (cats.length - 3) : "")
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" | ");
-
-          const excerpt = html.match(/<p class="from_the_blog_excerpt[^"]*">([\s\S]*?)<\/p>/);
-          const line2 = excerpt ? stripTags(excerpt[1]).substring(0, 80) : "";
-
-          content = [line1, line2].filter(Boolean).join("\n");
+          // 简介只给 3 行：第一行日期，第二行起是可点击的分类 / 标签
+          const head = date ? date[1].substring(0, 10) : "";
+          const catLine = cats.map((c) => this.link(c, { id: "go:" + c })).join(" · ");
+          content = [head, catLine].filter(Boolean).join("\n");
         }
       } catch (e) {
         this.log("detail failed: " + e);

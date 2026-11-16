@@ -4,33 +4,41 @@
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes,viewport-fit=cover">
-<meta name="theme-color" content="#111">
+<meta name="theme-color" content="#f6f7f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
 <title>图集</title>
 <style>
+  /* 跟随 App：浅色为主，系统深色时自动切换 */
+  :root{--bg:#f6f7f8;--fg:#18191c;--fg2:#61666d;--fg3:#9499a0;--line:#e3e5e7;
+    --chip:#e9eaec;--hd:rgba(246,247,248,.94);--pink:#fb7299}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#121212;--fg:#f1f1f1;--fg2:#a8a8a8;--fg3:#8a8a8a;--line:#2a2a2a;
+      --chip:#1e1e1e;--hd:rgba(18,18,18,.94)}
+  }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{background:#0f0f10;color:#e6e6e6;
+  html,body{background:var(--bg);color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Noto Sans CJK SC","PingFang SC",sans-serif}
-  header{position:sticky;top:0;z-index:20;background:rgba(15,15,16,.96);
-    backdrop-filter:blur(8px);padding:12px 14px;border-bottom:1px solid #242426}
-  header h1{font-size:15px;font-weight:600;color:#fff;line-height:1.35;
+  header{position:sticky;top:0;z-index:20;background:var(--hd);
+    backdrop-filter:blur(8px);padding:12px 14px;border-bottom:1px solid var(--line)}
+  header h1{font-size:15px;font-weight:600;color:var(--fg);line-height:1.35;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  header .meta{margin-top:4px;font-size:12px;color:#8b8b90}
+  header .meta{margin-top:4px;font-size:12px;color:var(--fg2)}
   #grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px}
   @media(min-width:640px){#grid{grid-template-columns:repeat(3,1fr)}}
   @media(min-width:900px){#grid{grid-template-columns:repeat(4,1fr)}}
-  .cell{position:relative;background:#1a1a1c;border-radius:8px;overflow:hidden;
+  .cell{position:relative;background:var(--chip);border-radius:8px;overflow:hidden;
     aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;cursor:pointer}
   .cell img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
     transition:opacity .25s}
   .cell img.ok{opacity:1}
   .cell .idx{position:absolute;right:6px;bottom:6px;font-size:11px;color:#fff;
     background:rgba(0,0,0,.55);padding:1px 6px;border-radius:9px}
-  #sentinel{padding:18px;text-align:center;color:#6d6d72;font-size:13px}
-  #tip{padding:40px 20px;text-align:center;color:#8b8b90;font-size:14px;line-height:1.7}
-  .spin{width:22px;height:22px;border:2px solid #333;border-top-color:#8b8b90;
+  #sentinel{padding:18px;text-align:center;color:var(--fg3);font-size:13px}
+  #tip{padding:40px 20px;text-align:center;color:var(--fg2);font-size:14px;line-height:1.7}
+  .spin{width:22px;height:22px;border:2px solid var(--line);border-top-color:var(--pink);
     border-radius:50%;margin:0 auto 10px;animation:r .8s linear infinite}
   @keyframes r{to{transform:rotate(360deg)}}
-  /* 全屏 */
+  /* 全屏看图固定黑底 */
   #viewer{position:fixed;inset:0;background:#000;z-index:100;display:none;
     flex-direction:column;touch-action:pan-y}
   #viewer.on{display:flex}
@@ -124,8 +132,12 @@ var BLOB = {};
 var QUEUE = [];
 var RUNNING = 0;
 var MAXPAR = 6;
+// 占位图跟随主题，避免浅色页面里冒出一块黑
+var PH_DARK = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 var PLACEHOLDER = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="100%" height="100%" fill="#1a1a1c"/><text x="50%" y="50%" fill="#555" font-size="12" text-anchor="middle">加载失败</text></svg>');
+  '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="100%" height="100%" fill="' +
+    (PH_DARK ? '#1e1e1e' : '#e9eaec') + '"/><text x="50%" y="50%" fill="' +
+    (PH_DARK ? '#8a8a8a' : '#9499a0') + '" font-size="12" text-anchor="middle">加载失败</text></svg>');
 
 function initEnc(k, v) {
   if (!k || !v) return;
@@ -375,13 +387,13 @@ document.addEventListener('keydown', function (e) {
       tip.style.display = 'none';
       if (IMGS.length === 0) {
         tip.style.display = 'block';
-        tip.innerHTML = '没有解析到图片<br><span style="font-size:12px;color:#666">可能该帖不是图集</span>';
+        tip.innerHTML = '没有解析到图片<br><span style="font-size:12px;color:var(--fg3)">可能该帖不是图集</span>';
         return;
       }
       render();
     })
     .catch(function (e) {
-      tip.innerHTML = '加载失败：' + e.message + '<br><span style="font-size:12px;color:#666">检查网络后重试</span>';
+      tip.innerHTML = '加载失败：' + e.message + '<br><span style="font-size:12px;color:var(--fg3)">检查网络后重试</span>';
     });
 })();
 </script>
