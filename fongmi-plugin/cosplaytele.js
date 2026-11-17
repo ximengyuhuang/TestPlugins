@@ -756,8 +756,9 @@ export default class CosplayTele extends Spider {
         this.log("detail failed: " + e);
       }
 
-      // 相关推荐：按作者名再搜一批，做成第二个播放分组（点了直接播那一帖）
+      // 相关推荐：按作者名再搜一批；既作为 list[1..] 给 App 的推荐卡片条，也留一个播放分组
       const recs = [];
+      const recVods = [];
       try {
         if (author) {
           const rs = await this.searchContent(author, true, "1");
@@ -765,7 +766,13 @@ export default class CosplayTele extends Spider {
             const nm = String(v.vod_name || "").replace(/[$#|]/g, " ").trim();
             if (!v.vod_id || v.vod_id === pageUrl || !nm) continue;
             recs.push(nm + "$rec|" + v.vod_id);
-            if (recs.length >= 8) break;
+            recVods.push({
+              vod_id: v.vod_id,
+              vod_name: nm,
+              vod_pic: v.vod_pic || "",
+              vod_remarks: v.vod_remarks || "",
+            });
+            if (recs.length >= 10) break;
           }
         }
       } catch (e) {
@@ -781,6 +788,9 @@ export default class CosplayTele extends Spider {
         vod_play_from: "CosplayTele" + (recs.length ? "$$$相关推荐" : ""),
         vod_play_url: "正片$" + pageUrl + (recs.length ? "$$$" + recs.join("#") : ""),
       });
+
+      // list[1..] = 推荐卡片数据（App 侧改造后的 RecBinder 会读这一段）
+      for (const rv of recVods) list.push(rv);
     }
     return { list: list };
   }
