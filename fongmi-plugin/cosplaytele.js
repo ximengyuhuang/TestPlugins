@@ -827,22 +827,34 @@ export default class CosplayTele extends Spider {
       this.embedCache[embed] = { url: url, ts: Date.now() };
     }
 
-    const rec = { url: url, ts: Date.now() };
+    const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
+    const title = h1 ? shortTitle(h1[1]).name : "";
+    const imgs = parseGalleryImages(html);
+    const pic = imgs.length ? imgs[0] : "";
+
+    const rec = { url: url, ts: Date.now(), title: title, pic: pic };
     this.playCache[pageUrl] = rec;
     return rec;
   }
 
   async playerContent(flag, id, vipFlags) {
     // "rec|<帖子地址>" 来自详情页「相关推荐」分组
-    const raw = id.indexOf("rec|") === 0 ? id.substring(4) : id;
+    const isRec = id.indexOf("rec|") === 0;
+    const raw = isRec ? id.substring(4) : id;
     const pageUrl = absolute(raw);
     const r = await this.resolve(pageUrl);
 
-    return {
+    const out = {
       parse: 0,
       url: r.url,
       header: { "User-Agent": UA, "Referer": "https://cossora.stream/" },
     };
+
+    // 放推荐时把该帖的标题/封面回填给详情页，避免「播的是 A、标题还写着 B」
+    if (isRec && r.title) {
+      out.list = [{ vod_id: pageUrl, vod_name: r.title, vod_pic: r.pic || "" }];
+    }
+    return out;
   }
 
   // ---------------- 搜索 ----------------
