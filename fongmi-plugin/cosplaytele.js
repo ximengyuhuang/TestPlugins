@@ -765,7 +765,7 @@ export default class CosplayTele extends Spider {
           for (const v of rs.list || []) {
             const nm = String(v.vod_name || "").replace(/[$#|]/g, " ").trim();
             if (!v.vod_id || v.vod_id === pageUrl || !nm) continue;
-            recs.push(nm + "$rec|" + v.vod_id);
+            recs.push(nm + "$rec|" + v.vod_id + "|" + (v.vod_pic || ""));
             recVods.push({
               vod_id: v.vod_id,
               vod_name: nm,
@@ -848,9 +848,13 @@ export default class CosplayTele extends Spider {
   }
 
   async playerContent(flag, id, vipFlags) {
-    // "rec|<帖子地址>" 来自详情页「相关推荐」分组
+    // "rec|<帖子地址>|<封面>" 来自详情页「相关推荐」分组
     const isRec = id.indexOf("rec|") === 0;
-    const raw = isRec ? id.substring(4) : id;
+    let raw = id;
+    if (isRec) {
+      const parts = id.split("|");
+      raw = parts[1] || "";
+    }
     const pageUrl = absolute(raw);
     const r = await this.resolve(pageUrl);
 
