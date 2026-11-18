@@ -383,48 +383,55 @@ export default class CosplayTele extends Spider {
 
   // ---------------- 发现页 ----------------
   async homeContent(filter) {
-    const classes = [
-      { type_id: "video-cosplayyy", type_name: "视频" },
-      // 在浏览器里看图集/原站，放第二位
-      { type_id: "web", type_name: "网页" },
-      { type_id: "cosplay-nudee", type_name: "Nude" },
-      { type_id: "cosplay-ero", type_name: "Ero" },
-      { type_id: "cosplay", type_name: "全部" },
+    // 站点顶部导航（与原站一致）：CosplayTele / EXPLORE / TOP SEARCH / LEVEL COSPLAY / TOP COSPLAY
+    // 有二级的分类只给 sub，客户端弹文字列表；没有二级的直接用 nav| 地址拉列表
+    const nav = [
+      { type_id: "nav|https://cosplaytele.com/", type_name: "CosplayTele" },
+      {
+        type_id: "",
+        type_name: "EXPLORE",
+        sub: [
+          { id: "nav|https://cosplaytele.com/explore-categories/", name: "Explore Categories" },
+          { id: "nav|https://cosplaytele.com/best-cosplayer/", name: "Best Cosplayer" },
+          { id: "nav|https://cosplaytele.com/category/video-cosplayyy/", name: "Video Cosplay" },
+        ],
+      },
+      { type_id: "nav|https://cosplaytele.com/top-search/", type_name: "TOP SEARCH" },
+      {
+        type_id: "",
+        type_name: "LEVEL COSPLAY",
+        sub: [
+          { id: "nav|https://cosplaytele.com/category/cosplay-nudee/", name: "Cosplay Nude" },
+          { id: "nav|https://cosplaytele.com/category/cosplay-ero/", name: "Cosplay Ero" },
+          { id: "nav|https://cosplaytele.com/category/cosplay/", name: "Cosplay" },
+        ],
+      },
+      {
+        type_id: "",
+        type_name: "TOP COSPLAY",
+        sub: [
+          { id: "nav|https://cosplaytele.com/24-hours/", name: "24 hours" },
+          { id: "nav|https://cosplaytele.com/3-day/", name: "3 day" },
+          { id: "nav|https://cosplaytele.com/7-day/", name: "7 Day" },
+        ],
+      },
     ];
+    return { class: nav, filters: {} };
+  }
 
-    // 动态补全：站点 sitemap 里有 606 个分类 / 313 个标签，这里各取前 N 个
-    await this.ensureCats();
-    await this.ensureTags();
-
-    // 作者：站点没有作者索引页，从列表标题里提取（"作者 cosplay 作品"）
-    await this.buildAuthors();
-
-    // 二级结构：分类 / 标签 / 作者 各收成一个文件夹入口
-    classes.push({
-      type_id: "catf",
-      type_name: "分类 " + (this.cats ? this.cats.length : 0),
-      type_flag: "1",
-    });
-    classes.push({
-      type_id: "tagf",
-      type_name: "标签 " + (this.tags ? this.tags.length : 0),
-      type_flag: "1",
-    });
-    classes.push({
-      type_id: "authf",
-      type_name: "作者 " + ((this.authors || []).length),
-      type_flag: "1",
-    });
-
-    // 排序筛选器（站点只支持正序/倒序）：只给视频列表层
-    const orders = [
-      { n: "最新在前", v: "desc" },
-      { n: "最早在前", v: "asc" },
-    ];
-    const filters = {};
-    for (const c of classes) filters[c.type_id] = [{ key: "order", name: "顺序", value: orders }];
-
-    return { class: classes, filters: filters };
+  // 原站导航页 / 首页：抓一页列表
+  async navList(url, p) {
+    let u = url;
+    if (p > 1) u = url.replace(/\/+$/, "") + "/page/" + p + "/";
+    let cards = [];
+    try {
+      const r = await this.net.req(u, { headers: headers(url) });
+      if (r && r.code === 200) cards = parseCards(r.content);
+    } catch (e) {
+      this.log("nav list failed: " + e);
+    }
+    if (!cards.length) return this.page([], p, 1, 0);
+    return this.page(cards, p, Math.max(cards.length, 1), Math.max(cards.length, 1));
   }
 
   // 按首字母分组（cats / tags 各自分组）
@@ -517,6 +524,7 @@ export default class CosplayTele extends Spider {
 
   // ---------------- 分类列表 ----------------
   async categoryContent(tid, pg, filter, extend) {
+    if (tid.indexOf("nav|") === 0) return await this.navList(tid.substring(4), Number(pg) || 1);
     const p = Number(pg) || 1;
 
     // 实例被重建时兜底：分类 / 标签索引按需补
