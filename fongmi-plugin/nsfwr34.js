@@ -97,6 +97,9 @@ function parseCards(html) {
     // ⚠ data-thumbnail-image-2 指向 Bunny CDN 的 preview.webp，单张 1.3MB，
     //   App 里加载不出来会显示字母占位（实测踩过）
     let pic = "";
+    // 新版站点封面放在 div 的 style="background-image:url(...)" 里
+    const bg = seg.match(/background-image:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/);
+    if (bg) pic = unesc(bg[1].trim());
     const pool = [seg.match(/<img[^>]+src="([^"]+)"/)];
     const all = [...seg.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]);
     let siteImg = "";
@@ -106,7 +109,7 @@ function parseCards(html) {
         break;
       }
     }
-    if (siteImg) pic = unesc(siteImg);
+    if (!pic && siteImg) pic = unesc(siteImg);
     if (!pic) {
       const alt = seg.match(/data-thumbnail-image-2="([^"]+)"/) || seg.match(/data-thumbnail-image="([^"]+)"/);
       if (alt) pic = unesc(alt[1]);
