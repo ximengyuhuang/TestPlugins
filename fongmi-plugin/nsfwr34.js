@@ -104,7 +104,8 @@ function parseCards(html) {
     const all = [...seg.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]);
     let siteImg = "";
     for (const u of all) {
-      if (u.indexOf("wp-content/uploads") >= 0) {
+      // webp-express 的路径是 wp-content/webp-express/webp-images/uploads/...
+      if (u.indexOf("/uploads/") >= 0 || u.indexOf("wp-content/uploads") >= 0) {
         siteImg = u;
         break;
       }
