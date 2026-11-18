@@ -520,22 +520,25 @@ export default class Nsfwr34 extends Spider {
     }
 
     if (s.indexOf("au|") === 0) {
-      // au|<slug>：作者页头部的名字 + 头像
+      // au|<slug>：作者页的名字 + 头像（作者页没有 h1，头像多为 gravatar）
       const slug = s.substring(3);
       let name = slug;
       let avatar = "";
       try {
         const html = await this.fetchPage(BASE + "/author/" + slug + "/");
         if (html) {
-          const h1 = html.match(/<h1[^>]*>([\s\S]{0,120}?)<\/h1>/);
-          if (h1) {
-            const t = strip(h1[1]);
-            if (t) name = t;
+          const t = html.match(/<title>([^<]*)<\/title>/);
+          if (t) {
+            let n = strip(t[1]).replace(/\s*[-–—|]\s*NSFW Rule 34.*$/i, "").replace(/\s*Archives?\s*$/i, "").trim();
+            if (n.length > 0 && n.length < 40) name = n;
           }
-          const av =
-            html.match(/<img[^>]+class="[^"]*\bavatar\b[^"]*"[^>]+src="([^"]+)"/i) ||
-            html.match(/<img[^>]+src="([^"]+)"[^>]+class="[^"]*\bavatar\b[^"]*"/i);
-          if (av) avatar = unesc(av[1]);
+          const g = html.match(/https:\/\/secure\.gravatar\.com\/avatar\/[a-z0-9]+\?s=\d+/i);
+          if (g) {
+            avatar = g[0].replace(/&#0?38;/g, "&");
+          } else {
+            const av = html.match(/<img[^>]+(?:class="[^"]*avatar[^"]*"[^>]+src="([^"]+)"|src="([^"]+)"[^>]+class="[^"]*avatar[^"]*")/i);
+            if (av) avatar = unesc(av[1] || av[2] || "");
+          }
         }
       } catch (e) {
         this.log("author info failed: " + e);
