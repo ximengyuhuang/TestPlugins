@@ -519,6 +519,30 @@ export default class Nsfwr34 extends Spider {
       };
     }
 
+    if (s.indexOf("au|") === 0) {
+      // au|<slug>：作者页头部的名字 + 头像
+      const slug = s.substring(3);
+      let name = slug;
+      let avatar = "";
+      try {
+        const html = await this.fetchPage(BASE + "/author/" + slug + "/");
+        if (html) {
+          const h1 = html.match(/<h1[^>]*>([\s\S]{0,120}?)<\/h1>/);
+          if (h1) {
+            const t = strip(h1[1]);
+            if (t) name = t;
+          }
+          const av =
+            html.match(/<img[^>]+class="[^"]*\bavatar\b[^"]*"[^>]+src="([^"]+)"/i) ||
+            html.match(/<img[^>]+src="([^"]+)"[^>]+class="[^"]*\bavatar\b[^"]*"/i);
+          if (av) avatar = unesc(av[1]);
+        }
+      } catch (e) {
+        this.log("author info failed: " + e);
+      }
+      return { name: name, avatar: avatar };
+    }
+
     if (s.indexOf("rel|") === 0) {
       // rel|<页面地址>|<页码>：按该视频的分类继续翻页，供详情页"推荐视频"无限加载
       const parts = s.substring(4).split("|");
