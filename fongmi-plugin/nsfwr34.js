@@ -335,7 +335,9 @@ export default class Nsfwr34 extends Spider {
     }
 
     let url = "";
-    if (tid.indexOf("t:") === 0) {
+    if (tid.indexOf("a:") === 0) {
+      url = BASE + "/author/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "");
+    } else if (tid.indexOf("t:") === 0) {
       url = BASE + "/video_tag/" + tid.substring(2) + "/" + (p > 1 ? "page/" + p + "/" : "");
     } else {
       let path = "/video/";
@@ -373,6 +375,11 @@ export default class Nsfwr34 extends Spider {
       let title = "";
       let pic = "";
       let stream = "";
+      let authorName = "";
+      let authorSlug = "";
+      let cats = [];
+      let tags = [];
+      let recs = [];
       if (html) {
         const h1 = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
         if (h1) title = strip(h1[1]);
@@ -389,14 +396,75 @@ export default class Nsfwr34 extends Spider {
         stream = parseStream(html);
       }
 
+      if (html) {
+        const h1Pos = html.indexOf("<h1");
+        // 作者：标题附近的第一个 /author/ 链接
+        const near = h1Pos >= 0 ? html.substring(Math.max(0, h1Pos - 3000), h1Pos + 4000) : "";
+        const am = near.match(/href="https:\/\/nsfwr34\.com\/author\/([a-z0-9_\-]+)\/"[^>]*>([^<]{1,40})</i);
+        if (am) {
+          authorSlug = am[1];
+          authorName = strip(am[2]);
+        }
+        // 分类（标题附近）
+        const cmap = {
+          "2d-rule-34": "c2d",
+          "3d-porn": "c3d",
+          "4k": "c4k",
+          "vertical-videos": "cvert",
+        };
+        const seenCat = {};
+        for (const cm of near.matchAll(/href="https:\/\/nsfwr34\.com\/categories\/([a-z0-9\-]+)\/"[^>]*>([^<]{1,30})</g)) {
+          const slug = cm[1];
+          const tid = cmap[slug];
+          if (!tid || seenCat[tid]) continue;
+          seenCat[tid] = 1;
+          cats.push({ name: strip(cm[2]), id: tid });
+        }
+        // 标签：h1 之后的 video_tag 链接（排除侧边栏）
+        if (h1Pos >= 0) {
+          const after = html.substring(h1Pos);
+          const seenTag = {};
+          let count = 0;
+          for (const tm of after.matchAll(/href="https:\/\/nsfwr34\.com\/video_tag\/([a-z0-9\-]+)\/"[^>]*>([^<]{1,40})</g)) {
+            const slug = tm[1];
+            if (seenTag[slug]) continue;
+            seenTag[slug] = 1;
+            tags.push({ name: strip(tm[2]), id: "t:" + slug });
+            if (++count >= 14) break;
+          }
+        }
+        // 相关推荐
+        const relPos = html.indexOf("Related Videos");
+        if (relPos > 0) {
+          recs = parseCards(html.substring(relPos)).slice(0, 10);
+        }
+      }
+
+      const link = (name, id) => '[a=cr:{"id":"' + id + '"}]{' + name.replace(/[\[\]]/g, "") + '}[/a]';
+      const contentLines = [];
+      if (cats.length) contentLines.push(cats.map((c) => '[a=cr:{"id":"' + c.id + '"}]{' + c.name + '}[/a]').join(" · "));
+      if (tags.length) contentLines.push(tags.map((t) => '[a=cr:{"id":"' + t.id + '"}]{' + t.name + '}[/a]').join(" · "));
+
       list.push({
         vod_id: pageUrl,
         vod_name: title || "NSFWR34",
         vod_pic: pic,
-        vod_content: stream ? "m3u8 直链" : "未找到直链",
+        vod_content: contentLines.join("\n") || (stream ? "m3u8 直链" : "未找到直链"),
+        vod_remarks: authorSlug ? '[a=cr:{"id":"a:' + authorSlug + '"}]{' + authorName + '}[/a]' : "",
         vod_play_from: "NSFWR34",
         vod_play_url: "正片$" + pageUrl,
+        gallery: false,
       });
+
+      for (const rec of recs) {
+        if (!rec.url || rec.url === pageUrl) continue;
+        list.push({
+          vod_id: rec.url,
+          vod_name: rec.title,
+          vod_pic: rec.pic,
+          vod_remarks: rec.dur || "",
+        });
+      }
     }
     return { list: list };
   }
