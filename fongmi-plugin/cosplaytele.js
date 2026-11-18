@@ -664,7 +664,20 @@ export default class CosplayTele extends Spider {
   // 图集卡片点击 → 内联图片列表打开画廊
   async action(op, value) {
     const s = String(op === undefined || op === null ? "" : op);
-    if (s.indexOf("gal|") !== 0) return { msg: "未知操作" };
+    if (s.indexOf("sug|") === 0) {
+    const q = s.substring(4).toLowerCase().trim();
+    try {
+      await this.ensureTags();
+    } catch (e) {
+    }
+    const all = this.tags || [];
+    const tags = all
+      .filter((t) => !q || String(t).toLowerCase().indexOf(q) >= 0)
+      .slice(0, 40);
+    return { tag: tags };
+  }
+
+  if (s.indexOf("gal|") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 
     let imgs = [];
