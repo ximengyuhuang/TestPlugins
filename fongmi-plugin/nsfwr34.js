@@ -415,6 +415,38 @@ export default class Nsfwr34 extends Spider {
   async action(op, value) {
     void value;
     const s = String(op === undefined || op === null ? "" : op);
+    if (s.indexOf("side|") === 0) {
+      // 站点左侧边栏（原站 #sidebar-secondary 里的内容类条目）
+      // id 用插件已有的 type_id，客户端直接当分类打开
+      return {
+        groups: [
+          {
+            name: "浏览",
+            items: [{ name: "4K Videos", id: "c4k" }],
+          },
+          {
+            name: "游戏标签",
+            items: [
+              { name: "FUTA", id: "t:futa" },
+              { name: "Overwatch", id: "t:overwatch-porn" },
+              { name: "Marvel Rivals", id: "t:marvel-rivals-rule-34" },
+              { name: "Fortnite Rule 34", id: "t:fortnite-rule-34" },
+              { name: "Final Fantasy", id: "t:final-fantasy" },
+              { name: "Cyberpunk 2077", id: "t:cyberpunk2077-porn" },
+              { name: "Tomb Raider", id: "t:tomb-raider-porn" },
+              { name: "Dead or Alive", id: "t:dead-or-alive-porn" },
+              { name: "League of legends", id: "t:league-of-legends-porn" },
+              { name: "Genshin impact", id: "t:genshin-impact-porn" },
+              { name: "The Witcher", id: "t:the-witcher-porn" },
+              { name: "Resident Evil", id: "t:resident-evil-porn" },
+              { name: "Nier Automata", id: "t:nier-automata-porn" },
+              { name: "Elden Ring", id: "t:elden-ring-porn" },
+            ],
+          },
+        ],
+      };
+    }
+
     if (s === "retry|tags") {
       this.tagCache = null;
       return { msg: "已清空标签缓存，返回再点一次" };
