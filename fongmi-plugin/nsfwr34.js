@@ -519,6 +519,42 @@ export default class Nsfwr34 extends Spider {
       };
     }
 
+    if (s.indexOf("rel|") === 0) {
+      // rel|<页面地址>|<页码>：按该视频的分类继续翻页，供详情页"推荐视频"无限加载
+      const parts = s.substring(4).split("|");
+      const pageUrl = parts[0];
+      const page = Math.max(1, Number(parts[1]) || 1);
+      let cat = "";
+      try {
+        const html = await this.fetchPage(pageUrl);
+        if (html) {
+          const h1 = html.indexOf("<h1");
+          const near = h1 >= 0 ? html.substring(Math.max(0, h1 - 1000), h1 + 9000) : html;
+          const cm = near.match(/href="https:\/\/nsfwr34\.com\/categories\/([a-z0-9\-]+)\//i);
+          if (cm) cat = cm[1];
+        }
+      } catch (e) {
+        this.log("rel category failed: " + e);
+      }
+      const path = cat ? "/categories/" + cat + "/" : "/video/";
+      const url = BASE + path + (page > 1 ? "page/" + page + "/" : "");
+      let cards = [];
+      try {
+        const html2 = await this.fetchPage(url);
+        if (html2) cards = parseCards(html2);
+      } catch (e) {
+        this.log("rel list failed: " + e);
+      }
+      return {
+        list: cards.map((c) => ({
+          id: c.url,
+          name: c.title,
+          pic: c.pic,
+          remarks: c.dur || "",
+        })),
+      };
+    }
+
     if (s === "retry|tags") {
       this.tagCache = null;
       return { msg: "已清空标签缓存，返回再点一次" };
