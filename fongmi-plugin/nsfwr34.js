@@ -399,7 +399,7 @@ export default class Nsfwr34 extends Spider {
       if (html) {
         const h1Pos = html.indexOf("<h1");
         // 作者：标题附近的第一个 /author/ 链接
-        const near = h1Pos >= 0 ? html.substring(Math.max(0, h1Pos - 3000), h1Pos + 4000) : "";
+        const near = h1Pos >= 0 ? html.substring(Math.max(0, h1Pos - 1000), h1Pos + 9000) : "";
         const am = near.match(/href="https:\/\/nsfwr34\.com\/author\/([a-z0-9_\-]+)\/"[^>]*>([^<]{1,40})</i);
         if (am) {
           authorSlug = am[1];
@@ -442,15 +442,15 @@ export default class Nsfwr34 extends Spider {
 
       const link = (name, id) => '[a=cr:{"id":"' + id + '"}]{' + name.replace(/[\[\]]/g, "") + '}[/a]';
       const contentLines = [];
-      if (cats.length) contentLines.push(cats.map((c) => '[a=cr:{"id":"' + c.id + '"}/]{' + c.name + '}[/a]').join(" · "));
-      if (tags.length) contentLines.push(tags.map((t) => '[a=cr:{"id":"' + t.id + '"}/]{' + t.name + '}[/a]').join(" · "));
+      if (cats.length) contentLines.push(cats.map((c) => '[a=cr:{"id":"' + c.id + '"}/]' + c.name + '[/a]').join(" · "));
+      if (tags.length) contentLines.push(tags.map((t) => '[a=cr:{"id":"' + t.id + '"}/]' + t.name + '[/a]').join(" · "));
 
       list.push({
         vod_id: pageUrl,
         vod_name: title || "NSFWR34",
         vod_pic: pic,
         vod_content: contentLines.join("\n") || (stream ? "m3u8 直链" : "未找到直链"),
-        vod_remarks: authorSlug ? '[a=cr:{"id":"a:' + authorSlug + '"}/]{' + authorName + '}[/a]' : "",
+        vod_remarks: authorSlug ? '[a=cr:{"id":"a:' + authorSlug + '"}/]' + authorName + '[/a]' : "",
         vod_play_from: "NSFWR34",
         vod_play_url: "正片$" + pageUrl,
         gallery: false,
