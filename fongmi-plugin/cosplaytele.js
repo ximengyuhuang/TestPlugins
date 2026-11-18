@@ -689,7 +689,8 @@ export default class CosplayTele extends Spider {
     const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261117a";
     const short = imgs.map((x) => (x.indexOf(BASE) === 0 ? x.substring(BASE.length) : x)).join("|");
     const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(BASE) + "&i=" + esc(short);
-    return { web: { url: purl + hash, mode: "view" } };
+    // 原生客户端可用 imgs 直接渲染；网页端仍用 web.url
+  return { web: { url: purl + hash, mode: "view" }, imgs: imgs, title: title };
   }
 
   // ---------------- 详情 ----------------
