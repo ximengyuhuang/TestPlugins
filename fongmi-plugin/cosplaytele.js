@@ -373,7 +373,7 @@ export default class CosplayTele extends Spider {
         const list = [];
         const re = /<loc>https:\/\/cosplaytele\.com\/tag\/([a-z0-9\-]+)\/<\/loc>/g;
         let m;
-        while ((m = re.exec(r.content)) !== null && list.length < 80) list.push(m[1]);
+        while ((m = re.exec(r.content)) !== null && list.length < 1000) list.push(m[1]);
         this.tags = list;
       }
     } catch (e) {
