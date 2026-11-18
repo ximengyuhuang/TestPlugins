@@ -423,6 +423,10 @@ export default class CosplayTele extends Spider {
   async navList(url, p) {
     let u = url;
     if (p > 1) u = url.replace(/\/+$/, "") + "/page/" + p + "/";
+    // 站点每页会混入固定旧帖，跨页会重复：按分类分别记录已下发过的 id
+    this.seenNav = this.seenNav || {};
+    if (p <= 1) this.seenNav[url] = {};
+    const seen = this.seenNav[url] || (this.seenNav[url] = {});
     let cards = [];
     try {
       const r = await this.net.req(u, { headers: headers(url) });
@@ -430,6 +434,11 @@ export default class CosplayTele extends Spider {
     } catch (e) {
       this.log("nav list failed: " + e);
     }
+    cards = cards.filter((c) => {
+      if (seen[c.vod_id]) return false;
+      seen[c.vod_id] = 1;
+      return true;
+    });
     if (!cards.length) return this.page([], 1, 1, 0);
     const res = this.page(cards, 1, Math.max(cards.length, 1), Math.max(cards.length, 1));
     res.page = p;
