@@ -430,8 +430,11 @@ export default class CosplayTele extends Spider {
     } catch (e) {
       this.log("nav list failed: " + e);
     }
-    if (!cards.length) return this.page([], p, 1, 0);
-    return this.page(cards, p, Math.max(cards.length, 1), Math.max(cards.length, 1));
+    if (!cards.length) return this.page([], 1, 1, 0);
+    const res = this.page(cards, 1, Math.max(cards.length, 1), Math.max(cards.length, 1));
+    res.page = p;
+    res.pagecount = p + 1; // 站点用 /page/N/ 翻页，先告诉客户端还有下一页
+    return res;
   }
 
   // 按首字母分组（cats / tags 各自分组）
