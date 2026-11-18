@@ -442,15 +442,15 @@ export default class Nsfwr34 extends Spider {
 
       const link = (name, id) => '[a=cr:{"id":"' + id + '"}]{' + name.replace(/[\[\]]/g, "") + '}[/a]';
       const contentLines = [];
-      if (cats.length) contentLines.push(cats.map((c) => '[a=cr:{"id":"' + c.id + '"}]{' + c.name + '}[/a]').join(" · "));
-      if (tags.length) contentLines.push(tags.map((t) => '[a=cr:{"id":"' + t.id + '"}]{' + t.name + '}[/a]').join(" · "));
+      if (cats.length) contentLines.push(cats.map((c) => '[a=cr:{"id":"' + c.id + '"}/]{' + c.name + '}[/a]').join(" · "));
+      if (tags.length) contentLines.push(tags.map((t) => '[a=cr:{"id":"' + t.id + '"}/]{' + t.name + '}[/a]').join(" · "));
 
       list.push({
         vod_id: pageUrl,
         vod_name: title || "NSFWR34",
         vod_pic: pic,
         vod_content: contentLines.join("\n") || (stream ? "m3u8 直链" : "未找到直链"),
-        vod_remarks: authorSlug ? '[a=cr:{"id":"a:' + authorSlug + '"}]{' + authorName + '}[/a]' : "",
+        vod_remarks: authorSlug ? '[a=cr:{"id":"a:' + authorSlug + '"}/]{' + authorName + '}[/a]' : "",
         vod_play_from: "NSFWR34",
         vod_play_url: "正片$" + pageUrl,
         gallery: false,
