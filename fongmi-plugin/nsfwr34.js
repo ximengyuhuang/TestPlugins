@@ -177,25 +177,25 @@ export default class Nsfwr34 extends Spider {
   async loadTags() {
     if (this.tagCache) return this.tagCache;
 
-    // 标签总数 2700+（REST 要翻 28 页），直接读 3 个 video_tag sitemap，一次拿全
-    const urls = [1, 2, 3].map((i) => BASE + "/video_tag-sitemap" + i + ".xml");
-    const res = await Promise.all(
-      urls.map((u) =>
-        this.net.req(u, { headers: headers() }).catch(() => null)
-      )
-    );
+    // 标签 2700+，REST 要翻 28 页；先试 3 个 video_tag sitemap（串行，失败不影响）
     const all = [];
     const seen = {};
-    try {
+    for (let i = 1; i <= 3; i++) {
+      let r = null;
+      try {
+        r = await this.net.req(BASE + "/video_tag-sitemap" + i + ".xml", {
+          headers: headers(),
+        });
+      } catch (e) {
+        r = null;
+      }
       this.log(
-        "tag sitemaps: " +
-          res.map((r) => (r ? r.code + "/" + (r.content ? r.content.length : -1) : "null")).join(",")
+        "sitemap" + i + ": " + (r ? r.code + "/" + (r.content ? r.content.length : -1) : "null")
       );
-    } catch (e) {}
-    for (const r of res) {
-      if (!r || r.code !== 200 || !r.content) continue;
+      if (!r || !r.content) continue;
       const re = /<loc>\s*([^<]+?)\s*<\/loc>/g;
       let m;
+      let hit = 0;
       while ((m = re.exec(r.content))) {
         const mm = m[1].match(/\/video_tag\/([^\/]+)\/?$/);
         if (!mm) continue;
@@ -203,15 +203,15 @@ export default class Nsfwr34 extends Spider {
         try {
           slug = decodeURIComponent(slug);
         } catch (e) {}
+        hit++;
         if (seen[slug]) continue;
         seen[slug] = 1;
         all.push({ name: slug.replace(/-/g, " "), slug: slug, count: 0 });
       }
+      this.log("sitemap" + i + " parsed " + hit);
     }
     all.sort((a, b) => a.name.localeCompare(b.name));
-    try {
-      this.log("tag sitemaps parsed: " + all.length);
-    } catch (e) {}
+    this.log("tags total: " + all.length);
     this.tagCache = all;
     return all;
   }
