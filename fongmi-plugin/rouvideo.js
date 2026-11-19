@@ -311,6 +311,29 @@ function parseCards(html, kind) {
   return out;
 }
 
+// 详情页右侧「相關視頻」：行式卡片（group grid ...）
+function parseRelated(html) {
+  const at = html.indexOf("相關視頻");
+  const seg = at >= 0 ? html.substring(at) : html;
+  const out = [];
+  const seen = {};
+  const re = /<a href="\/v\/(c[a-z0-9]{20,})"[^>]*class="group grid[^"]*"[^>]*>([\s\S]{0,1200}?)<\/a>/g;
+  let m;
+  while ((m = re.exec(seg)) !== null) {
+    const id = m[1];
+    if (seen[id]) continue;
+    const body = m[2];
+    const src = (body.match(/<img[^>]+src="([^"]+)"/) || [])[1] || "";
+    const alt = (body.match(/<img[^>]+alt="([^"]*)"/) || [])[1] || "";
+    const h3 = body.match(/<h3[^>]*>([\s\S]*?)<\/h3>/);
+    const title = h3 ? h3[1].replace(/<[^>]+>/g, "").trim() : alt;
+    if (!title) continue;
+    seen[id] = 1;
+    out.push({ vod_id: id, vod_name: decodeEntities(title), vod_pic: decodeEntities(src), vod_remarks: "" });
+  }
+  return out;
+}
+
 // 卡片上的时长：2分59秒 / 1小時1分14秒
 function parseCnDur(seg) {
   let m = seg.match(/(\d+)\s*小時\s*(\d+)\s*分\s*(\d+)\s*秒/);
@@ -619,6 +642,22 @@ export default class RouVideo extends Spider {
         .map((k) => ({ letter: k, items: groups[k] }));
       return { groups: list };
     }
+    if (s.indexOf("relv|") === 0) {
+      const parts = s.split("|");
+      const url = parts.length > 1 ? parts[1] : "";
+      const page = Number(parts.length > 2 ? parts[2] : "1") || 1;
+      if (!url || page > 1) return { list: [], page: page, hasMore: false };
+      let html = "";
+      try {
+        const r = await this.net.req(url, { headers: headers(url) });
+        if (r && r.code === 200) html = r.content;
+      } catch (e) {
+        this.log("relv failed: " + e);
+      }
+      const list = parseRelated(html);
+      return { list: list, page: 1, hasMore: false };
+    }
+
     if (s.indexOf("side|") === 0) {
       const tags = await this.loadTags();
       return {
