@@ -755,7 +755,7 @@ export default class RouVideo extends Spider {
       } catch (e) {
         this.log("sub tags failed: " + e);
       }
-      return JSON.stringify(parseSubTags(html));
+      return parseSubTags(html);
     }
 
     if (s.indexOf("side|") === 0) {
