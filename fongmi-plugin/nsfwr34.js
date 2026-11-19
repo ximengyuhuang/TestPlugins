@@ -572,6 +572,29 @@ export default class Nsfwr34 extends Spider {
   async action(op, value) {
     void value;
     const s = String(op === undefined || op === null ? "" : op);
+    if (s.indexOf("tags|") === 0) {
+      // tags|：全部标签按首字母分组（一次返回，客户端直接铺开）
+      let all = [];
+      try {
+        all = (await this.loadTags()) || [];
+      } catch (e) {
+        this.log("loadTags failed: " + e);
+      }
+      const groups = {};
+      for (const t of all) {
+        const name = strip(t.name || t.slug || "");
+        if (!name) continue;
+        const ch = name.charAt(0).toUpperCase();
+        const key = ch >= "A" && ch <= "Z" ? ch : "#";
+        groups[key] = groups[key] || [];
+        groups[key].push({ name: name, id: "t:" + t.slug, count: t.count || 0 });
+      }
+      const list = Object.keys(groups)
+        .sort()
+        .map((k) => ({ letter: k, items: groups[k] }));
+      return { groups: list };
+    }
+
     if (s.indexOf("side|") === 0) {
       // 站点左侧边栏（原站 #sidebar-secondary 里的内容类条目）
       // id 用插件已有的 type_id，客户端直接当分类打开
