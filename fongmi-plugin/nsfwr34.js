@@ -232,7 +232,7 @@ export default class Nsfwr34 extends Spider {
   }
 
   async homeContent(filter) {
-    const classes = [{ type_id: "latest", type_name: "最新", type_flag: "0" }];
+    const classes = [{ type_id: "latest", type_name: "推荐", type_flag: "0" }];
     for (const [tid, , name] of CATS) classes.push({ type_id: tid, type_name: name, type_flag: "0" });
     classes.push({ type_id: "tagf", type_name: "标签", type_flag: "1" });
     classes.push({ type_id: "search", type_name: "搜索", type_flag: "1" });
