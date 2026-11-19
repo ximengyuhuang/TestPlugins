@@ -234,7 +234,29 @@ export default class Nsfwr34 extends Spider {
   async homeContent(filter) {
     const classes = [{ type_id: "latest", type_name: "推荐", type_flag: "0" }];
     for (const [tid, , name] of CATS) classes.push({ type_id: tid, type_name: name, type_flag: "0" });
-    classes.push({ type_id: "tagf", type_name: "标签", type_flag: "1" });
+    // 标签：一级 tab 带二级字母菜单（#、A-Z）
+    let tagLetters = [];
+    try {
+      const allTags = (await this.loadTags()) || [];
+      const seen = {};
+      for (const t of allTags) {
+        const name = String(t.name || "").trim();
+        if (!name) continue;
+        const ch = name.charAt(0).toUpperCase();
+        const key = ch >= "A" && ch <= "Z" ? ch : "#";
+        seen[key] = 1;
+      }
+      tagLetters = Object.keys(seen).sort();
+    } catch (e) {
+      this.log("tag letters failed: " + e);
+      tagLetters = ["#"].concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
+    }
+    if (!tagLetters.length) tagLetters = ["#"].concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
+    classes.push({
+      type_id: "",
+      type_name: "标签",
+      sub: tagLetters.map((l) => ({ id: "tseg:" + l, name: l })),
+    });
     classes.push({ type_id: "search", type_name: "搜索", type_flag: "1" });
     classes.push({ type_id: "web", type_name: "网页", type_flag: "1" });
 
