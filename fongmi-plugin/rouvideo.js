@@ -311,6 +311,40 @@ function parseCards(html, kind) {
   return out;
 }
 
+// /cat：三个分组（主分類 / 題材 / 片商），条目形如 <a href="/t/名字">名字1,234</a>
+function parseCatPage(html) {
+  const groups = { main: [], theme: [], studio: [] };
+  const seen = { main: {}, theme: {}, studio: {} };
+
+  function collect(seg, bucket) {
+    const re = /<a[^>]+href="\/t\/([^"?#]+)"[^>]*>([\s\S]{0,1200}?)<\/a>/g;
+    let m;
+    while ((m = re.exec(seg)) !== null) {
+      let name = "";
+      try {
+        name = decodeURIComponent(m[1]);
+      } catch (e) {
+        name = m[1];
+      }
+      name = name.split("?")[0];
+      if (!name || seen[bucket][name]) continue;
+      const text = m[2].replace(/<[^>]+>/g, "").trim();
+      const cm = text.match(/([0-9][0-9,]*)\s*部影片/) || text.match(/([0-9][0-9,]*)\s*$/);
+      const count = cm ? Number(cm[1].replace(/,/g, "")) : 0;
+      const label = decodeEntities(name);
+      seen[bucket][name] = 1;
+      groups[bucket].push({ name: name, label: label, count: count });
+    }
+  }
+
+  const ti = html.indexOf("題材 / 屬性");
+  const si = html.indexOf("按主分類找片商");
+  collect(ti > 0 ? html.substring(0, ti) : html, "main");
+  if (ti >= 0) collect(html.substring(ti, si > ti ? si : html.length), "theme");
+  if (si >= 0) collect(html.substring(si), "studio");
+  return groups;
+}
+
 // 详情页右侧「相關視頻」：行式卡片（group grid ...）
 function parseRelated(html) {
   const at = html.indexOf("相關視頻");
@@ -431,16 +465,9 @@ export default class RouVideo extends Spider {
     void filter;
     const classes = [
       { type_id: "home", type_name: "推荐", type_flag: "0" },
-      { type_id: "latest", type_name: "最新", type_flag: "0" },
-      { type_id: "like", type_name: "最多赞", type_flag: "0" },
-      { type_id: "hot", type_name: "最多播放", type_flag: "0" },
+      { type_id: "latest", type_name: "视频", type_flag: "0" },
       { type_id: "series", type_name: "剧集", type_flag: "0" },
-      { type_id: "t:國產AV", type_name: "国产AV", type_flag: "0" },
-      { type_id: "t:探花", type_name: "探花", type_flag: "0" },
-      { type_id: "t:自拍流出", type_name: "自拍流出", type_flag: "0" },
-      { type_id: "t:OnlyFans", type_name: "OnlyFans", type_flag: "0" },
-      { type_id: "t:日本", type_name: "日本", type_flag: "0" },
-      { type_id: "tagf", type_name: "标签", type_flag: "1" },
+      { type_id: "catf", type_name: "分类", type_flag: "1" },
       { type_id: "web", type_name: "网页", type_flag: "1" },
     ];
 
@@ -449,13 +476,7 @@ export default class RouVideo extends Spider {
       { n: "最多赞", v: "likeCount" },
       { n: "最多播放", v: "viewCount" },
     ];
-    const filters = {};
-    for (const tid of ["latest", "like", "hot"]) {
-      filters[tid] = [{ key: "order", name: "排序", value: orders }];
-    }
-    for (const c of classes) {
-      if (c.type_id.indexOf("t:") === 0) filters[c.type_id] = [{ key: "order", name: "排序", value: orders }];
-    }
+    const filters = { latest: [{ key: "order", name: "排序", value: orders }] };
     return { class: classes, filters: filters };
   }
 
@@ -484,6 +505,19 @@ export default class RouVideo extends Spider {
     }
     this.tagCache = out;
     return out;
+  }
+
+  async loadCatPage() {
+    if (this.catCache) return this.catCache;
+    let html = "";
+    try {
+      const r = await this.net.req(BASE + "/cat", { headers: headers() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) {
+      this.log("cat failed: " + e);
+    }
+    this.catCache = parseCatPage(html);
+    return this.catCache;
   }
 
   letterKey(name) {
@@ -516,36 +550,34 @@ export default class RouVideo extends Spider {
       return this.page([], 1, 26, 0);
     }
 
-    if (tid === "tagf") {
-      const tags = await this.loadTags();
-      const list = tags.map((t) => ({
-        vod_id: "t:" + t,
-        vod_name: t,
+    // ---- 文件夹层：分类三步走 ----
+    if (tid === "catf") {
+      const cat = await this.loadCatPage();
+      const list = [
+        { key: "main", name: "主分類", items: cat.main },
+        { key: "theme", name: "題材 / 屬性", items: cat.theme },
+        { key: "studio", name: "片商", items: cat.studio },
+      ].map((g) => ({
+        vod_id: "cat:" + g.key,
+        vod_name: g.name,
         vod_pic: "",
-        vod_remarks: "标签",
+        vod_remarks: g.items.length + " 个",
         vod_tag: "folder",
       }));
       return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
-    if (tid.indexOf("seg:") === 0) {
+    if (tid.indexOf("cat:") === 0) {
       const key = tid.substring(4);
-      const groups = await this.tagLetters();
-      const g = groups.find((x) => x.key === key);
-      const list = (g ? g.items : []).map((t) => ({
-        vod_id: "t:" + t,
-        vod_name: t,
+      const cat = await this.loadCatPage();
+      const items = cat[key] || [];
+      const list = items.map((t) => ({
+        vod_id: "t:" + t.name,
+        vod_name: t.label || t.name,
         vod_pic: "",
-        vod_remarks: "标签",
+        vod_remarks: t.count ? t.count + " 部" : "标签",
         vod_tag: "folder",
       }));
-      if (!list.length) {
-        const tags = await this.loadTags();
-        return this.page(
-          [{ vod_id: "diag", vod_name: "「" + key + "」没有标签（索引共 " + tags.length + " 个）", vod_pic: "", vod_remarks: "", vod_tag: "folder" }],
-          1, 1, 1
-        );
-      }
       return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
     }
 
@@ -554,7 +586,7 @@ export default class RouVideo extends Spider {
     let kind = "video";
     if (tid === "home") {
       url = BASE + "/home";
-    } else if (tid === "latest" || tid === "like" || tid === "hot") {
+    } else if (tid === "latest") {
       url = BASE + "/v?order=" + order + "&page=" + p;
     } else if (tid === "series") {
       url = BASE + "/series?f=fresh&page=" + p;
