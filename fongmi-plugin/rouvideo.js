@@ -345,27 +345,30 @@ function parseCatPage(html) {
   return groups;
 }
 
-// 分类页里的「片商 / 子標籤」chips
+// 分类页里的「片商 / 子標籤」chips（线性解析，避免大页面上的正则回溯卡住）
 function parseSubTags(html) {
   const at = html.indexOf("片商 / 子標籤");
   if (at < 0) return [];
-  const seg = html.substring(at, at + 30000);
+  const seg = html.substring(at, at + 12000);
   const out = [];
   const seen = {};
-  const re = /<a[^>]+href="\/t\/([^"?#]+)"[^>]*>([\s\S]{0,300}?)<\/a>/g;
-  let m;
-  while ((m = re.exec(seg)) !== null) {
-    let name = "";
+  const parts = seg.split("<a ");
+  for (let i = 1; i < parts.length && out.length < 80; i++) {
+    const piece = parts[i];
+    const h = piece.match(/href="\/t\/([^"]+)"/);
+    if (!h) continue;
+    let name = h[1].split("?")[0];
     try {
-      name = decodeURIComponent(m[1]).split("?")[0];
-    } catch (e) {
-      name = m[1];
-    }
+      name = decodeURIComponent(name);
+    } catch (e) {}
     if (!name || seen[name]) continue;
-    const body = m[2];
-    const cm = body.match(/>([0-9][0-9,]*)</);
+    const c = piece.match(/>([0-9][0-9,]*)</);
     seen[name] = 1;
-    out.push({ name: name, value: name, count: cm ? Number(cm[1].replace(/,/g, "")) : 0 });
+    out.push({
+      name: name,
+      value: name,
+      count: c ? Number(c[1].replace(/,/g, "")) : 0,
+    });
   }
   return out;
 }
