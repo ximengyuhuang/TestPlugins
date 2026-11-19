@@ -176,65 +176,41 @@ export default class Nsfwr34 extends Spider {
   // 标签：REST 一次拿全（2654 个，27 页 × 100）
   async loadTags() {
     if (this.tagCache) return this.tagCache;
-    const all = [];
-    for (let p = 1; p <= 30; p++) {
+
+    // 并行拉前 6 页（每页 100），比串行快很多
+    const fetchPage = async (p) => {
       const url =
         BASE +
         "/wp-json/wp/v2/video_tag?per_page=100&page=" +
         p +
         "&orderby=name&order=asc&_fields=name,slug,count";
-      let r = null;
       try {
-        r = await this.net.req(url, { headers: headers() });
+        const r = await this.net.req(url, { headers: headers() });
+        if (!r || r.code !== 200 || !r.content) return [];
+        const arr = JSON.parse(r.content);
+        return Array.isArray(arr) ? arr : [];
       } catch (e) {
-        break;
+        return [];
       }
-      if (!r || r.code !== 200 || !r.content) break;
-      let arr = null;
-      try {
-        arr = JSON.parse(r.content);
-      } catch (e) {
-        break;
-      }
-      if (!Array.isArray(arr) || arr.length === 0) break;
+    };
+
+    const pages = await Promise.all([1, 2, 3, 4, 5, 6].map((p) => fetchPage(p)));
+    const all = [];
+    const seen = {};
+    for (const arr of pages) {
       for (const t of arr) {
         const name = strip(t.name);
-        if (!name) continue;
+        if (!name || seen[t.slug]) continue;
+        seen[t.slug] = 1;
         all.push({ name: name, slug: t.slug, count: t.count || 0 });
       }
-      if (arr.length < 100) break;
     }
     all.sort((a, b) => a.name.localeCompare(b.name));
     this.tagCache = all;
-    this.log("tags loaded: " + all.length);
     return all;
   }
 
-  groupLetters(tags) {
-    const map = {};
-    for (const t of tags) {
-      const ch = String(t.name)
-        .replace(/^[\s\u00a0]+/, "")
-        .charAt(0)
-        .toUpperCase();
-      const key = /[A-Z]/.test(ch) ? ch : /[0-9]/.test(ch) ? "#" : "其他";
-      if (!map[key]) map[key] = [];
-      map[key].push(t);
-    }
-    const order = Object.keys(map).sort((a, b) => {
-      if (a === "其他") return 1;
-      if (b === "其他") return -1;
-      if (a === "#") return 1;
-      if (b === "#") return -1;
-      return a.localeCompare(b);
-    });
-    return order.map((k) => ({ key: k, items: map[k] }));
-  }
-
-  async homeContent(filter) {
-    const classes = [{ type_id: "latest", type_name: "推荐", type_flag: "0" }];
-    for (const [tid, , name] of CATS) classes.push({ type_id: tid, type_name: name, type_flag: "0" });
-    // 标签：字母菜单先写死（#、A-Z），点了字母才去拉标签，避免进首页就拉全量
+  // 标签：字母菜单先写死（#、A-Z），点了字母才去拉标签，避免进首页就拉全量
     const letters = ["#"].concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
     classes.push({
       type_id: "",
