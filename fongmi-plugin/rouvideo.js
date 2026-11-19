@@ -467,16 +467,29 @@ export default class RouVideo extends Spider {
       { type_id: "home", type_name: "推荐", type_flag: "0" },
       { type_id: "latest", type_name: "视频", type_flag: "0" },
       { type_id: "series", type_name: "剧集", type_flag: "0" },
-      { type_id: "catf", type_name: "分类", type_flag: "1" },
       { type_id: "web", type_name: "网页", type_flag: "1" },
     ];
 
+    const media = [
+      { n: "全部", v: "all" },
+      { n: "自拍流出", v: "自拍流出" },
+      { n: "國產AV", v: "國產AV" },
+      { n: "探花", v: "探花" },
+      { n: "日本", v: "日本" },
+      { n: "麻豆傳媒", v: "麻豆傳媒" },
+      { n: "OnlyFans", v: "OnlyFans" },
+    ];
     const orders = [
       { n: "最新", v: "createdAt" },
       { n: "最多赞", v: "likeCount" },
       { n: "最多播放", v: "viewCount" },
     ];
-    const filters = { latest: [{ key: "order", name: "排序", value: orders }] };
+    const filters = {
+      latest: [
+        { key: "media", name: "分類", value: media },
+        { key: "order", name: "排序", value: orders },
+      ],
+    };
     return { class: classes, filters: filters };
   }
 
@@ -550,44 +563,18 @@ export default class RouVideo extends Spider {
       return this.page([], 1, 26, 0);
     }
 
-    // ---- 文件夹层：分类三步走 ----
-    if (tid === "catf") {
-      const cat = await this.loadCatPage();
-      const list = [
-        { key: "main", name: "主分類", items: cat.main },
-        { key: "theme", name: "題材 / 屬性", items: cat.theme },
-        { key: "studio", name: "片商", items: cat.studio },
-      ].map((g) => ({
-        vod_id: "cat:" + g.key,
-        vod_name: g.name,
-        vod_pic: "",
-        vod_remarks: g.items.length + " 个",
-        vod_tag: "folder",
-      }));
-      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
-    }
-
-    if (tid.indexOf("cat:") === 0) {
-      const key = tid.substring(4);
-      const cat = await this.loadCatPage();
-      const items = cat[key] || [];
-      const list = items.map((t) => ({
-        vod_id: "t:" + t.name,
-        vod_name: t.label || t.name,
-        vod_pic: "",
-        vod_remarks: t.count ? t.count + " 部" : "标签",
-        vod_tag: "folder",
-      }));
-      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
-    }
-
     const order = (extend && extend.order) || "createdAt";
+    const media = (extend && extend.media) || "all";
+
     let url = "";
     let kind = "video";
     if (tid === "home") {
       url = BASE + "/home";
     } else if (tid === "latest") {
-      url = BASE + "/v?order=" + order + "&page=" + p;
+      url =
+        media === "all"
+          ? BASE + "/v?order=" + order + "&page=" + p
+          : BASE + "/t/" + encodeURIComponent(media) + "?order=" + order + "&page=" + p;
     } else if (tid === "series") {
       url = BASE + "/series?f=fresh&page=" + p;
       kind = "series";
@@ -703,13 +690,16 @@ export default class RouVideo extends Spider {
     }
 
     if (s.indexOf("side|") === 0) {
-      const tags = await this.loadTags();
+      const cat = await this.loadCatPage();
       return {
         groups: [
-          { name: "热门标签", items: tags.slice(0, 20).map((t) => ({ name: t, id: "t:" + t })) },
+          { name: "熱門題材", items: cat.theme.map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name })) },
+          { name: "片商", items: cat.studio.slice(0, 20).map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name })) },
+          { name: "主分類", items: cat.main.map((t) => ({ name: t.label, id: "t:" + t.name })) },
         ],
       };
     }
+
     return {};
   }
 
