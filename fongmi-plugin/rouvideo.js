@@ -613,7 +613,18 @@ export default class RouVideo extends Spider {
         playUrl = "正片$" + id;
       }
 
-      list.push({
+      const related = parseRelated(html);
+      for (const r of related) {
+        if (r.vod_id === id) continue;
+        list.push({
+          vod_id: r.vod_id,
+          vod_name: r.vod_name,
+          vod_pic: r.vod_pic,
+          vod_remarks: r.vod_remarks,
+        });
+      }
+
+      list.unshift({
         vod_id: key,
         vod_name: info.name,
         vod_pic: info.pic,
@@ -644,7 +655,8 @@ export default class RouVideo extends Spider {
     }
     if (s.indexOf("relv|") === 0) {
       const parts = s.split("|");
-      const url = parts.length > 1 ? parts[1] : "";
+      let url = parts.length > 1 ? parts[1] : "";
+      if (url && url.indexOf("http") !== 0) url = BASE + "/v/" + url;
       const page = Number(parts.length > 2 ? parts[2] : "1") || 1;
       if (!url || page > 1) return { list: [], page: page, hasMore: false };
       let html = "";
