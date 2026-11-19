@@ -563,6 +563,36 @@ export default class RouVideo extends Spider {
       return this.page([], 1, 26, 0);
     }
 
+    if (tid === "catf") {
+      const cat = await this.loadCatPage();
+      const list = [
+        { key: "main", name: "主分類", items: cat.main },
+        { key: "theme", name: "題材 / 屬性", items: cat.theme },
+        { key: "studio", name: "片商", items: cat.studio },
+      ].map((g) => ({
+        vod_id: "cat:" + g.key,
+        vod_name: g.name,
+        vod_pic: "",
+        vod_remarks: g.items.length + " 个",
+        vod_tag: "folder",
+      }));
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
+    if (tid.indexOf("cat:") === 0) {
+      const key = tid.substring(4);
+      const cat = await this.loadCatPage();
+      const items = cat[key] || [];
+      const list = items.map((t) => ({
+        vod_id: "t:" + t.name,
+        vod_name: t.label || t.name,
+        vod_pic: "",
+        vod_remarks: t.count ? t.count + " 部" : "标签",
+        vod_tag: "folder",
+      }));
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
     const order = (extend && extend.order) || "createdAt";
     const media = (extend && extend.media) || "all";
 
@@ -691,10 +721,14 @@ export default class RouVideo extends Spider {
 
     if (s.indexOf("side|") === 0) {
       const cat = await this.loadCatPage();
+      const theme = cat.theme.slice(0, 12).map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name }));
+      if (cat.theme.length > 12) theme.push({ name: "更多題材 (" + cat.theme.length + ")", id: "cat:theme" });
+      const studio = cat.studio.slice(0, 8).map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name }));
+      if (cat.studio.length > 8) studio.push({ name: "更多片商 (" + cat.studio.length + ")", id: "cat:studio" });
       return {
         groups: [
-          { name: "熱門題材", items: cat.theme.map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name })) },
-          { name: "片商", items: cat.studio.slice(0, 20).map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name })) },
+          { name: "熱門題材", items: theme },
+          { name: "片商", items: studio },
           { name: "主分類", items: cat.main.map((t) => ({ name: t.label, id: "t:" + t.name })) },
         ],
       };
