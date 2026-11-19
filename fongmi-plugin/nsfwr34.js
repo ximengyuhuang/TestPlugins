@@ -210,7 +210,12 @@ export default class Nsfwr34 extends Spider {
     return all;
   }
 
-  // 标签：字母菜单先写死（#、A-Z），点了字母才去拉标签，避免进首页就拉全量
+  async homeContent(filter) {
+    void filter;
+    const classes = [{ type_id: "latest", type_name: "推荐", type_flag: "0" }];
+    for (const [tid, , name] of CATS) classes.push({ type_id: tid, type_name: name, type_flag: "0" });
+
+    // 标签：字母菜单先写死（#、A-Z），点了字母才去拉标签，避免进首页就拉全量
     const letters = ["#"].concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
     classes.push({
       type_id: "",
