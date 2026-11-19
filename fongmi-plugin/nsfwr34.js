@@ -210,6 +210,47 @@ export default class Nsfwr34 extends Spider {
     return all;
   }
 
+  letterKey(name) {
+    const ch = String(name || "").trim().charAt(0).toUpperCase();
+    return ch >= "A" && ch <= "Z" ? ch : "#";
+  }
+
+  async fetchTagsPage(page) {
+    const url =
+      BASE +
+      "/wp-json/wp/v2/video_tag?per_page=100&page=" +
+      page +
+      "&orderby=name&order=asc&_fields=name,slug,count";
+    try {
+      const r = await this.net.req(url, { headers: headers() });
+      if (!r || r.code !== 200 || !r.content) return [];
+      const arr = JSON.parse(r.content);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /** 只按字母需要拉对应页：A~D 通常第 1 页就够，后面的字母再往后翻 */
+  async tagsForLetter(key) {
+    this.tagPages = this.tagPages || {};
+    const per = 100;
+    const items = [];
+    for (let p = 1; p <= 10; p++) {
+      const arr = this.tagPages[p] || (this.tagPages[p] = await this.fetchTagsPage(p));
+      if (!arr.length) break;
+      for (const t of arr) {
+        const name = strip(t.name);
+        if (!name) continue;
+        items.push({ name: name, slug: t.slug, count: t.count || 0 });
+      }
+      const lastKey = this.letterKey(strip(arr[arr.length - 1].name || ""));
+      if (arr.length < per) break;
+      if (key !== "#" && lastKey > key) break;
+    }
+    return items.filter((t) => this.letterKey(t.name) === key);
+  }
+
   async homeContent(filter) {
     void filter;
     const classes = [{ type_id: "latest", type_name: "推荐", type_flag: "0" }];
@@ -310,9 +351,8 @@ export default class Nsfwr34 extends Spider {
     }
     if (tid.indexOf("seg:") === 0) {
       const key = tid.substring(4);
-      const tags = await this.loadTags();
-      const g = this.groupLetters(tags).find((x) => x.key === key);
-      const list = (g ? g.items : []).map((t) => ({
+      const tags = await this.tagsForLetter(key);
+      const list = tags.map((t) => ({
         vod_id: "t:" + t.slug,
         vod_name: t.name,
         vod_pic: "",
