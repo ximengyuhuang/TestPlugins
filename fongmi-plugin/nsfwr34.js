@@ -177,37 +177,40 @@ export default class Nsfwr34 extends Spider {
   async loadTags() {
     if (this.tagCache) return this.tagCache;
 
-    // 并行拉前 6 页（每页 100），比串行快很多
-    const fetchPage = async (p) => {
-      const url =
-        BASE +
-        "/wp-json/wp/v2/video_tag?per_page=100&page=" +
-        p +
-        "&orderby=name&order=asc&_fields=name,slug,count";
-      try {
-        const r = await this.net.req(url, { headers: headers() });
-        if (!r || r.code !== 200 || !r.content) return [];
-        const arr = JSON.parse(r.content);
-        return Array.isArray(arr) ? arr : [];
-      } catch (e) {
-        return [];
-      }
-    };
-
-    const pages = await Promise.all([1, 2, 3, 4, 5, 6].map((p) => fetchPage(p)));
+    // 标签总数 2700+（REST 要翻 28 页），直接读 3 个 video_tag sitemap，一次拿全
+    const urls = [1, 2, 3].map((i) => BASE + "/video_tag-sitemap" + i + ".xml");
+    const res = await Promise.all(
+      urls.map((u) =>
+        this.net.req(u, { headers: headers() }).catch(() => null)
+      )
+    );
     const all = [];
     const seen = {};
-    for (const arr of pages) {
-      for (const t of arr) {
-        const name = strip(t.name);
-        if (!name || seen[t.slug]) continue;
-        seen[t.slug] = 1;
-        all.push({ name: name, slug: t.slug, count: t.count || 0 });
+    for (const r of res) {
+      if (!r || r.code !== 200 || !r.content) continue;
+      const re = /<loc>\s*([^<]+?)\s*<\/loc>/g;
+      let m;
+      while ((m = re.exec(r.content))) {
+        const mm = m[1].match(/\/video_tag\/([^\/]+)\/?$/);
+        if (!mm) continue;
+        let slug = mm[1];
+        try {
+          slug = decodeURIComponent(slug);
+        } catch (e) {}
+        if (seen[slug]) continue;
+        seen[slug] = 1;
+        all.push({ name: slug.replace(/-/g, " "), slug: slug, count: 0 });
       }
     }
     all.sort((a, b) => a.name.localeCompare(b.name));
     this.tagCache = all;
     return all;
+  }
+
+  /** 标签按字母：索引已在 tagCache 里，直接过滤，不再发请求 */
+  async tagsForLetter(key) {
+    const tags = await this.loadTags();
+    return tags.filter((t) => this.letterKey(t.name) === key);
   }
 
   letterKey(name) {
