@@ -345,6 +345,31 @@ function parseCatPage(html) {
   return groups;
 }
 
+// 分类页里的「片商 / 子標籤」chips
+function parseSubTags(html) {
+  const at = html.indexOf("片商 / 子標籤");
+  if (at < 0) return [];
+  const seg = html.substring(at, at + 30000);
+  const out = [];
+  const seen = {};
+  const re = /<a[^>]+href="\/t\/([^"?#]+)"[^>]*>([\s\S]{0,300}?)<\/a>/g;
+  let m;
+  while ((m = re.exec(seg)) !== null) {
+    let name = "";
+    try {
+      name = decodeURIComponent(m[1]).split("?")[0];
+    } catch (e) {
+      name = m[1];
+    }
+    if (!name || seen[name]) continue;
+    const body = m[2];
+    const cm = body.match(/>([0-9][0-9,]*)</);
+    seen[name] = 1;
+    out.push({ name: name, value: name, count: cm ? Number(cm[1].replace(/,/g, "")) : 0 });
+  }
+  return out;
+}
+
 // 详情页右侧「相關視頻」：行式卡片（group grid ...）
 function parseRelated(html) {
   const at = html.indexOf("相關視頻");
@@ -601,10 +626,12 @@ export default class RouVideo extends Spider {
     if (tid === "home") {
       url = BASE + "/home";
     } else if (tid === "latest") {
+      const sub = (extend && extend.sub) || "";
+      const tag = sub || (media === "all" ? "" : media);
       url =
-        media === "all"
+        tag === ""
           ? BASE + "/v?order=" + order + "&page=" + p
-          : BASE + "/t/" + encodeURIComponent(media) + "?order=" + order + "&page=" + p;
+          : BASE + "/t/" + encodeURIComponent(tag) + "?order=" + order + "&page=" + p;
     } else if (tid === "series") {
       url = BASE + "/series?f=fresh&page=" + p;
       kind = "series";
@@ -717,6 +744,18 @@ export default class RouVideo extends Spider {
       }
       const list = parseRelated(html);
       return { list: list, page: 1, hasMore: false };
+    }
+
+    if (s.indexOf("sub|") === 0) {
+      const media = s.substring(4);
+      let html = "";
+      try {
+        const r = await this.net.req(BASE + "/t/" + encodeURIComponent(media), { headers: headers() });
+        if (r && r.code === 200) html = r.content;
+      } catch (e) {
+        this.log("sub tags failed: " + e);
+      }
+      return JSON.stringify(parseSubTags(html));
     }
 
     if (s.indexOf("side|") === 0) {
