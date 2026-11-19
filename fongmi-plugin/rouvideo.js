@@ -596,6 +596,7 @@ export default class RouVideo extends Spider {
         vod_pic: info.pic,
         vod_content: content,
         vod_remarks: episodes.length ? "共 " + episodes.length + " 集" : fmtDur(info.duration),
+        gallery: false,
         vod_play_from: "rou.video",
         vod_play_url: playUrl,
       });
