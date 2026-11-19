@@ -1,19 +1,25 @@
-// rou.video —— FongMi / TVBox QuickJS 源
+// rou.video (肉視頻) —— FongMi / TVBox QuickJS 源（重写版）
 //
-// 取流机制（参照 CloudStream 插件 Kraptor123/Cs-GizliKeyif 的 RouVideo.kt）：
-//   1. 详情页 HTML 里抓  ev:{d:"<base64>",k:41}
-//   2. 解密：base64 → 每字节 -k → JSON {"videoUrl":"/api/hls/<id>"}
-//   3. GET /api/hls/<id>  带 Cookie: ob=1 且【不跟随跳转】→ 302 → 签名地址 …/index.png?…&auth=…
-//   4. GET 签名地址 → PNG，里面的自定义块 roUd 就是播放列表
-//        flag&1 → zlib 压缩（需 inflate）；否则原始字节
-//   5. 分片同样是 PNG 包裹，flag=0 → 裸 MPEG-TS，用 Range 精确切片后流式代理给播放器
+// 站点结构（2026-11 现状）：
+//   /home                     首页，多区块
+//   /v?order=createdAt&page=N 全部视频，order: createdAt / likeCount / viewCount
+//   /t/<标签>?order=&page=N   标签页
+//   /search?q=<关键词>&page=N 搜索（SSR，可直接抓）
+//   /series?f=fresh           剧集列表
+//   /v/<id>                   视频详情（SSR，$_TSR.router 中带完整对象）
+//   /s/<id>                   剧集合集页（episodes 列表）
+//   /cat                      全部标签
+//
+// 取流：详情页 ev:{d:"<base64>",k:NN} → base64 后每字节 -k → {"videoUrl":"/api/hls/<id>"}
+//       GET /api/hls/<id>（Cookie: ob=1，不跟随 302）→ 签名 PNG 地址
+//       PNG 自定义块 roUd 里是 m3u8；分片 PNG 的 roUd 里是裸 MPEG-TS
+//       插件改写分片地址走本地代理，代理按 Range 剥出 TS 给播放器
 
 import { Spider, openWeb } from "catvod";
 
 const BASE = "https://rou.video";
-const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
-
-// ---------------------------------------------------------------- 工具
+const UA =
+  "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -247,7 +253,8 @@ function decodePngText(bytes) {
   return bytesToUtf8(raw);
 }
 
-// ---------------------------------------------------------------- 站点解析
+
+// ---------------------------------------------------------------- 通用
 
 function headers(ref) {
   return {
@@ -258,123 +265,161 @@ function headers(ref) {
   };
 }
 
-// 列表页 SSR 数据：以 name 为锚点，向前找最近的 id（避开 sources 里的嵌套 id）
-function parseList(html) {
+// 解析列表页的卡片（HTML 锚点，兼容 SSR 对象键顺序不一致的页面）
+function parseCards(html, kind) {
   const out = [];
   const seen = {};
-  const re = /name:"([^"]*)"[\s\S]{0,2000}?coverImageUrl:"([^"]+)"/g;
+  const isSeriesPage = kind === "series";
+  const re = isSeriesPage
+    ? /<a href="\/s\/(c[a-z0-9]{20,})"[^>]*class="group block min-w-0"[^>]*>([\s\S]{0,1800}?)<\/a>/g
+    : /<a href="\/v\/(c[a-z0-9]{20,})"[^>]*class="group block min-w-0"[^>]*>([\s\S]{0,1800}?)<\/a>/g;
   let m;
   while ((m = re.exec(html)) !== null) {
-    const before = html.substring(Math.max(0, m.index - 2500), m.index);
-    const ids = before.match(/id:"(c[a-z0-9]{20,})"/g);
-    if (!ids || !ids.length) continue;
-    const id = ids[ids.length - 1].replace(/^id:"|"$/g, "");
+    const id = m[1];
     if (seen[id]) continue;
+    const seg = m[2];
+
+    let pic = "";
+    let title = "";
+    const imgs = seg.match(/<img[^>]*>/g) || [];
+    for (const tag of imgs) {
+      const src = (tag.match(/src="([^"]+)"/) || [])[1] || "";
+      const alt = (tag.match(/alt="([^"]*)"/) || [])[1] || "";
+      if (!src) continue;
+      if (!pic) pic = src;
+      if (alt && !title) {
+        pic = src;
+        title = alt;
+      }
+    }
+    if (!title) {
+      const h3 = seg.match(/<h3[^>]*>([\s\S]*?)<\/h3>/);
+      if (h3) title = h3[1].replace(/<[^>]+>/g, "").trim();
+    }
+    if (!pic || !title) continue;
+
     seen[id] = 1;
+    const dur = parseCnDur(seg);
+    const eps = seg.match(/共\s*(\d+)\s*集/);
     out.push({
-      vod_id: id,
-      vod_name: decodeEntities(m[1]),
-      vod_pic: decodeEntities(m[2]),
-      vod_remarks: "",
+      vod_id: isSeriesPage ? "s:" + id : id,
+      vod_name: decodeEntities(title),
+      vod_pic: decodeEntities(pic),
+      vod_remarks: eps ? "共 " + eps[1] + " 集" : dur,
     });
   }
   return out;
 }
 
-function parseDetail(html, id) {
-  const key = '{id:"' + id + '"';
-  const at = html.indexOf(key);
-  const block = at >= 0 ? html.substring(at, at + 4000) : html;
+// 卡片上的时长：2分59秒 / 1小時1分14秒
+function parseCnDur(seg) {
+  let m = seg.match(/(\d+)\s*小時\s*(\d+)\s*分\s*(\d+)\s*秒/);
+  if (m) return m[1] + ":" + pad2(m[2]) + ":" + pad2(m[3]);
+  m = seg.match(/(\d+)\s*分\s*(\d+)\s*秒/);
+  if (m) return m[1] + ":" + pad2(m[2]);
+  m = seg.match(/(\d+)\s*秒/);
+  if (m) return "0:" + pad2(m[1]);
+  return "";
+}
 
-  let title = "";
-  let pic = "";
-  let desc = "";
-  let duration = 0;
+function pad2(n) {
+  const v = String(n);
+  return v.length < 2 ? "0" + v : v;
+}
+
+function fmtDur(sec) {
+  if (!sec || sec < 1) return "";
+  const s = Math.round(sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const pad = (n) => (n < 10 ? "0" + n : "" + n);
+  if (h > 0) return h + ":" + pad(m) + ":" + pad(ss);
+  return m + ":" + pad(ss);
+}
+
+function totalPages(html) {
+  let max = 0;
+  const re = /(?:[?&]|&amp;)page=(\d+)/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const v = Number(m[1]);
+    if (v > max) max = v;
+  }
+  return max;
+}
+
+function videoObject(html, id) {
+  let at = html.indexOf('{id:"' + id + '"');
+  if (at < 0) at = html.indexOf('id:"' + id + '"');
+  if (at < 0) return null;
+  const seg = html.substring(Math.max(0, at - 600), at + 4000);
+  const nm = seg.match(/name:"([^"]*)"/);
+  const cv = seg.match(/coverImageUrl:"([^"]+)"/);
+  const ds = seg.match(/description:"([^"]*)"/);
+  const du = seg.match(/duration:([0-9.]+)/);
+  const ec = seg.match(/episodeCount:(\d+)/);
   const tags = [];
-
-  const nm = block.match(/name:"([^"]*)"/);
-  if (nm) title = decodeEntities(nm[1]);
-  const cv = block.match(/coverImageUrl:"([^"]+)"/);
-  if (cv) pic = decodeEntities(cv[1]);
-  const ds = block.match(/description:"([^"]*)"/);
-  if (ds) desc = decodeEntities(ds[1]);
-  const du = block.match(/duration:([0-9.]+)/);
-  if (du) duration = Math.round(Number(du[1]) / 60);
-
-  const tg = block.match(/tags:\$R\[\d+\]=\[([^\]]*)\]/);
+  const tg = seg.match(/tags:\$R\[\d+\]=\[([^\]]*)\]/);
   if (tg) {
     for (const it of tg[1].split(",")) {
       const s = it.replace(/^"|"$/g, "").trim();
       if (s && tags.indexOf(s) < 0) tags.push(decodeEntities(s));
     }
   }
-
-  return { title: title || id, pic, desc, duration, tags };
+  return {
+    name: nm ? decodeEntities(nm[1]) : id,
+    pic: cv ? decodeEntities(cv[1]) : "",
+    desc: ds ? decodeEntities(ds[1]) : "",
+    duration: du ? Number(du[1]) : 0,
+    episodeCount: ec ? Number(ec[1]) : 0,
+    tags: tags,
+  };
 }
 
-// ---------------------------------------------------------------- 主体
-
-// 系列剧的选集：episodes:$R[n]=[{id,name,episode},…]
-function parseEpisodes(html) {
+function episodesOf(html) {
   const at = html.indexOf("episodes:$R[");
   if (at < 0) return [];
   const end = html.indexOf(",moreSeries", at);
-  const seg = html.substring(at, end > 0 ? end : at + 12000);
-
+  const seg = html.substring(at, end > at ? end : at + 16000);
   const out = [];
   const seen = {};
   const re = /\{id:"(c[a-z0-9]{20,})",name:"([^"]*)",episode:(\d+)/g;
   let m;
   while ((m = re.exec(seg)) !== null) {
-    const id = m[1];
-    if (seen[id]) continue;
-    seen[id] = 1;
-    out.push({ id: id, name: decodeEntities(m[2]), ep: Number(m[3]) });
+    if (seen[m[1]]) continue;
+    seen[m[1]] = 1;
+    out.push({ id: m[1], name: decodeEntities(m[2]), ep: Number(m[3]) });
   }
   out.sort((a, b) => a.ep - b.ep);
   return out;
 }
 
+// ---------------------------------------------------------------- 主体
+
 export default class RouVideo extends Spider {
   init(extend) {
+    void extend;
     this.sess = {};
     this.log("rou.video ready");
   }
 
   async homeContent(filter) {
+    void filter;
     const classes = [
-      { type_id: "latest", type_name: "最新" },
-      { type_id: "web", type_name: "网页" },
+      { type_id: "home", type_name: "推荐", type_flag: "0" },
+      { type_id: "latest", type_name: "最新", type_flag: "0" },
+      { type_id: "like", type_name: "最多赞", type_flag: "0" },
+      { type_id: "hot", type_name: "最多播放", type_flag: "0" },
+      { type_id: "series", type_name: "剧集", type_flag: "0" },
+      { type_id: "t:國產AV", type_name: "国产AV", type_flag: "0" },
+      { type_id: "t:探花", type_name: "探花", type_flag: "0" },
+      { type_id: "t:自拍流出", type_name: "自拍流出", type_flag: "0" },
+      { type_id: "t:OnlyFans", type_name: "OnlyFans", type_flag: "0" },
+      { type_id: "t:日本", type_name: "日本", type_flag: "0" },
+      { type_id: "tagf", type_name: "标签", type_flag: "1" },
+      { type_id: "web", type_name: "网页", type_flag: "1" },
     ];
-
-    // 从 /cat 抓全站标签（约 128 个）
-    if (!this.tags) {
-      try {
-        const r = await this.net.req(BASE + "/cat", { headers: headers() });
-        if (r && r.code === 200) {
-          const tags = [];
-          const re = /\/t\/([^"?#\/]+)/g;
-          let m;
-          while ((m = re.exec(r.content)) !== null) {
-            let t = m[1];
-            try {
-              t = decodeURIComponent(t);
-            } catch (e) {}
-            if (t && tags.indexOf(t) < 0) tags.push(t);
-          }
-          this.tags = tags;
-        }
-      } catch (e) {
-        this.log("tags failed: " + e);
-      }
-    }
-
-    // 标签收进「标签」文件夹（字母层 → 标签层 → 视频）
-    classes.push({
-      type_id: "tagf",
-      type_name: "标签 (" + (this.tags ? this.tags.length : 0) + ")",
-      type_flag: "1",
-    });
 
     const orders = [
       { n: "最新", v: "createdAt" },
@@ -382,58 +427,62 @@ export default class RouVideo extends Spider {
       { n: "最多播放", v: "viewCount" },
     ];
     const filters = {};
-    for (const c of classes) filters[c.type_id] = [{ key: "order", name: "排序", value: orders }];
-    for (const t of this.tags || []) filters["tag:" + t] = [{ key: "order", name: "排序", value: orders }];
-
+    for (const tid of ["latest", "like", "hot"]) {
+      filters[tid] = [{ key: "order", name: "排序", value: orders }];
+    }
+    for (const c of classes) {
+      if (c.type_id.indexOf("t:") === 0) filters[c.type_id] = [{ key: "order", name: "排序", value: orders }];
+    }
     return { class: classes, filters: filters };
   }
 
-  // 按首字母分组
-  groupLetters() {
-    const groups = {};
-    for (const t of this.tags || []) {
-      const ch = String(t).charAt(0).toUpperCase();
-      const key = ch >= "A" && ch <= "Z" ? ch : "#";
-      groups[key] = groups[key] || [];
-      groups[key].push(t);
+  // 全站标签（/cat 页面里 /t/<name> 链接）
+  async loadTags() {
+    if (this.tagCache) return this.tagCache;
+    const out = [];
+    const seen = {};
+    try {
+      const r = await this.net.req(BASE + "/cat", { headers: headers() });
+      if (r && r.code === 200) {
+        const re = /\/t\/([^"?#\/]+)/g;
+        let m;
+        while ((m = re.exec(r.content)) !== null) {
+          let t = m[1];
+          try {
+            t = decodeURIComponent(t);
+          } catch (e) {}
+          if (!t || seen[t]) continue;
+          seen[t] = 1;
+          out.push(t);
+        }
+      }
+    } catch (e) {
+      this.log("loadTags failed: " + e);
     }
-    return Object.keys(groups)
+    this.tagCache = out;
+    return out;
+  }
+
+  letterKey(name) {
+    const ch = String(name || "").trim().charAt(0).toUpperCase();
+    return ch >= "A" && ch <= "Z" ? ch : "#";
+  }
+
+  async tagLetters() {
+    const tags = await this.loadTags();
+    const map = {};
+    for (const t of tags) {
+      const k = this.letterKey(t);
+      (map[k] = map[k] || []).push(t);
+    }
+    return Object.keys(map)
       .sort()
-      .map((k) => ({ key: k, items: groups[k] }));
-  }
-
-  letterFolders() {
-    return this.groupLetters().map((g) => ({
-      vod_id: "seg:" + g.key,
-      vod_name: g.key,
-      vod_pic: "",
-      vod_remarks: g.items.length + " 个标签",
-      vod_tag: "folder",
-    }));
-  }
-
-  tagFolders(seg) {
-    const g = this.groupLetters().find((x) => x.key === seg);
-    if (!g) return [];
-    return g.items.map((t) => ({
-      vod_id: "tag:" + t,
-      vod_name: t,
-      vod_pic: "",
-      vod_remarks: "标签",
-      vod_tag: "folder",
-    }));
+      .map((k) => ({ key: k, items: map[k] }));
   }
 
   async categoryContent(tid, pg, filter, extend) {
-    // ---- 文件夹导航层 ----
-    if (tid === "tagf") {
-      const list = this.letterFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid.indexOf("seg:") === 0) {
-      const list = this.tagFolders(tid.substring(4));
-      return this.page(list, 1, list.length, list.length);
-    }
+    void filter;
+    const p = Number(pg) || 1;
 
     if (tid === "web") {
       try {
@@ -441,64 +490,112 @@ export default class RouVideo extends Spider {
       } catch (e) {
         this.log("openWeb failed: " + e);
       }
-      return this.page([], 1, 30, 0);
+      return this.page([], 1, 26, 0);
     }
 
-    const p = Number(pg) || 1;
+    if (tid === "tagf") {
+      const tags = await this.loadTags();
+      const list = tags.map((t) => ({
+        vod_id: "t:" + t,
+        vod_name: t,
+        vod_pic: "",
+        vod_remarks: "标签",
+        vod_tag: "folder",
+      }));
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
+    if (tid.indexOf("seg:") === 0) {
+      const key = tid.substring(4);
+      const groups = await this.tagLetters();
+      const g = groups.find((x) => x.key === key);
+      const list = (g ? g.items : []).map((t) => ({
+        vod_id: "t:" + t,
+        vod_name: t,
+        vod_pic: "",
+        vod_remarks: "标签",
+        vod_tag: "folder",
+      }));
+      if (!list.length) {
+        const tags = await this.loadTags();
+        return this.page(
+          [{ vod_id: "diag", vod_name: "「" + key + "」没有标签（索引共 " + tags.length + " 个）", vod_pic: "", vod_remarks: "", vod_tag: "folder" }],
+          1, 1, 1
+        );
+      }
+      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
+    }
+
     const order = (extend && extend.order) || "createdAt";
-
-    let url;
-    if (tid.indexOf("tag:") === 0) {
-      url = BASE + "/t/" + encodeURIComponent(tid.substring(4)) + "?order=" + order + "&page=" + p;
-    } else {
+    let url = "";
+    let kind = "video";
+    if (tid === "home") {
+      url = BASE + "/home";
+    } else if (tid === "latest" || tid === "like" || tid === "hot") {
       url = BASE + "/v?order=" + order + "&page=" + p;
+    } else if (tid === "series") {
+      url = BASE + "/series?f=fresh&page=" + p;
+      kind = "series";
+    } else if (tid.indexOf("t:") === 0) {
+      url = BASE + "/t/" + encodeURIComponent(tid.substring(2)) + "?order=" + order + "&page=" + p;
+    } else {
+      return this.page([], p, 26, 0);
     }
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 30, 0);
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: headers() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) {
+      this.log("category failed: " + e);
+    }
 
-    const cards = parseList(r.content);
-    if (cards.length === 0) return this.page([], p, 30, (p - 1) * 30);
-    return this.page(cards, p, 30, (p + 1) * 30);
+    const cards = parseCards(html, kind);
+    const pages = tid === "home" ? 1 : Math.max(totalPages(html), p);
+    return this.page(cards, p, 26, pages);
   }
 
   async detailContent(ids) {
     const list = [];
-    for (const id of ids) {
-      const vid = String(id).replace(/^.*\/v\//, "").replace(/[?#].*$/, "");
-      const pageUrl = BASE + "/v/" + vid;
-      let info = { title: vid, pic: "", desc: "", duration: 0, tags: [] };
-      let episodes = [];
+    for (const raw of ids) {
+      const key = String(raw).trim();
+      const isSeries = key.indexOf("s:") === 0;
+      const id = isSeries ? key.substring(2) : key.replace(/^.*\/v\//, "").replace(/[?#].*$/, "");
+      const url = BASE + (isSeries ? "/s/" : "/v/") + id;
+
+      let html = "";
       try {
-        const r = await this.net.req(pageUrl, { headers: headers() });
-        if (r && r.code === 200) {
-          info = parseDetail(r.content, vid);
-          episodes = parseEpisodes(r.content);
-        }
+        const r = await this.net.req(url, { headers: headers() });
+        if (r && r.code === 200) html = r.content;
       } catch (e) {
         this.log("detail failed: " + e);
       }
 
-      const parts = [];
-      if (info.duration) parts.push("时长: " + info.duration + " 分钟");
-      if (info.tags.length) parts.push("标签: " + info.tags.join(" / "));
-      if (episodes.length > 1) parts.push("共 " + episodes.length + " 集");
-      const content = [parts.join(" | "), info.desc].filter(Boolean).join("\n");
+      const info = videoObject(html, id) || { name: id, pic: "", desc: "", duration: 0, episodeCount: 0, tags: [] };
+      const episodes = episodesOf(html);
 
-      // 系列剧：episodes 里有多集就做成选集
+      const parts = [];
+      if (info.duration) parts.push("时长 " + fmtDur(info.duration));
+      if (episodes.length) parts.push("共 " + episodes.length + " 集");
+      const content = [parts.join(" · "), info.tags.length ? "标签：" + info.tags.join(" / ") : "", info.desc]
+        .filter(Boolean)
+        .join("\n");
+
       let playUrl;
-      if (episodes.length > 1) {
-        playUrl = episodes.map((e) => "第" + e.ep + "集$" + e.id).join("#");
+      if (episodes.length > 0) {
+        playUrl = episodes
+          .map((e) => "第" + e.ep + "集$" + e.id)
+          .join("#");
       } else {
-        playUrl = "正片$" + vid;
+        playUrl = "正片$" + id;
       }
 
       list.push({
-        vod_id: vid,
-        vod_name: info.title,
+        vod_id: key,
+        vod_name: info.name,
         vod_pic: info.pic,
         vod_content: content,
-        vod_remarks: info.duration ? info.duration + " 分钟" : "",
+        vod_remarks: episodes.length ? "共 " + episodes.length + " 集" : fmtDur(info.duration),
         vod_play_from: "rou.video",
         vod_play_url: playUrl,
       });
@@ -506,7 +603,49 @@ export default class RouVideo extends Spider {
     return { list: list };
   }
 
-  // 读流全部字节
+  async action(op, value) {
+    void value;
+    const s = String(op === undefined || op === null ? "" : op);
+    if (s.indexOf("tags|") === 0) {
+      const tags = await this.loadTags();
+      const groups = {};
+      for (const t of tags) {
+        const k = this.letterKey(t);
+        (groups[k] = groups[k] || []).push({ name: t, id: "t:" + t, count: 0 });
+      }
+      const list = Object.keys(groups)
+        .sort()
+        .map((k) => ({ letter: k, items: groups[k] }));
+      return { groups: list };
+    }
+    if (s.indexOf("side|") === 0) {
+      const tags = await this.loadTags();
+      return {
+        groups: [
+          { name: "热门标签", items: tags.slice(0, 20).map((t) => ({ name: t, id: "t:" + t })) },
+        ],
+      };
+    }
+    return {};
+  }
+
+  async searchContent(key, quick, pg) {
+    void quick;
+    const p = Number(pg) || 1;
+    const url = BASE + "/search?q=" + encodeURIComponent(String(key || "")) + "&page=" + p;
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: headers() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) {
+      this.log("search failed: " + e);
+    }
+    const cards = parseCards(html, "video");
+    return this.page(cards, p, 26, Math.max(totalPages(html), p));
+  }
+
+  // ---------------------------------------------------------------- 取流
+
   async readAll(stream) {
     const out = [];
     for (;;) {
@@ -521,7 +660,6 @@ export default class RouVideo extends Spider {
     return out;
   }
 
-  // 只读到能解析出 roUd 块头为止（避免把整个分片读进 JS）
   async readUntilRoUd(stream, limit) {
     const out = [];
     while (out.length < limit) {
@@ -549,25 +687,25 @@ export default class RouVideo extends Spider {
   }
 
   async playerContent(flag, id, vipFlags) {
+    void flag;
+    void vipFlags;
     const vid = String(id).replace(/^.*\/v\//, "").replace(/[?#].*$/, "");
     const pageUrl = BASE + "/v/" + vid;
 
-    // 1. 详情页 → ev
     const r = await this.net.req(pageUrl, { headers: headers() });
     if (!r || r.code !== 200) throw new Error("无法打开详情页");
+
     const m = r.content.match(/ev:(?:\$\w+\[\d+\]=)?\{d:"([^"]+)",k:(-?\d+)\}/);
     if (!m) throw new Error("找不到播放数据");
 
-    // 2. 解密
     const raw = b64ToBytes(m[1]);
     const key = Number(m[2]);
     let plain = "";
     for (let i = 0; i < raw.length; i++) plain += String.fromCharCode((raw[i] - key) & 0xff);
     const vu = plain.match(/"videoUrl":"([^"]+)"/);
-    if (!vu) throw new Error("解密失败");
+    if (!vu) throw new Error("播放数据解密失败");
     const videoPath = vu[1];
 
-    // 3. 拿 302 签名地址（不跟随跳转，必须带 Cookie: ob=1）
     const r2 = await this.net.req(BASE + videoPath, {
       headers: {
         "User-Agent": UA,
@@ -579,11 +717,9 @@ export default class RouVideo extends Spider {
     });
     const hd = (r2 && r2.headers) || {};
     let loc = hd.location || hd.Location || "";
-    if (!loc && r2 && r2.code && r2.code >= 300 && r2.code < 400) loc = "";
     if (!loc) throw new Error("没有拿到签名地址（状态 " + (r2 ? r2.code : "?") + "）");
     if (loc.indexOf("http") !== 0) loc = BASE + loc;
 
-    // 4. 取 PNG 并解出播放列表
     const st = await this.net.openStream(loc, {
       headers: {
         "User-Agent": UA,
@@ -596,7 +732,6 @@ export default class RouVideo extends Spider {
     const playlist = decodePngText(pngBytes);
     if (!playlist || playlist.indexOf("#EXTM3U") < 0) throw new Error("播放列表解析失败");
 
-    // 5. 重写分片地址，走本地代理
     const token = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const segs = [];
     const lines = playlist.split(/\r?\n/);
@@ -611,7 +746,6 @@ export default class RouVideo extends Spider {
       segs.push(l);
       out.push(this.proxyUrl({ s: token, i: String(segs.length - 1) }));
     }
-
     this.sess[token] = { segs: segs, playlist: out.join("\n") };
 
     return {
@@ -621,7 +755,6 @@ export default class RouVideo extends Spider {
     };
   }
 
-  // 本地代理：m=1 返回播放列表；否则返回分片（剥掉 PNG 壳）
   async proxy(params) {
     const sess = this.sess[params.s];
     if (!sess) return [404, "text/plain", "no session"];
@@ -641,30 +774,23 @@ export default class RouVideo extends Spider {
       "Accept-Encoding": "identity",
     };
 
-    // 先取头部，算出 roUd 数据偏移（只读到块头就停，最多 32KB）
     const headStream = await this.net.openStream(remote, {
-      headers: Object.assign({}, baseHeaders, { "Range": "bytes=0-32767" }),
+      headers: Object.assign({}, baseHeaders, { "Range": "bytes=0-65535" }),
     });
-    const h = await this.readUntilRoUd(headStream, 32768);
+    const h = await this.readUntilRoUd(headStream, 65536);
     if (!h) return [404, "text/plain", "no roUd"];
     const start = h.offset + 9;
     const end = h.offset + 8 + h.length - 1;
 
-    // 再按精确范围流式取 TS
     const s2 = await this.net.stream(remote, {
       headers: Object.assign({}, baseHeaders, { "Range": "bytes=" + start + "-" + end }),
     });
     if (!s2 || !s2.stream) {
       try {
-        s2.close && s2.close();
+        s2 && s2.close && s2.close();
       } catch (e) {}
       return [404, "text/plain", "stream failed"];
     }
     return [200, "video/mp2t", s2.stream];
-  }
-
-  async searchContent(key, quick, pg = "1") {
-    // 站点搜索是纯客户端渲染，SSR 拿不到结果
-    return this.page([], Number(pg) || 1, 30, 0);
   }
 }
