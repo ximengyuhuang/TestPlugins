@@ -299,20 +299,9 @@ export default class Nsfwr34 extends Spider {
         ],
       },
     ];
-    const mediaF = [
-      {
-        key: "media",
-        name: "分类",
-        value: [
-          { n: "全部", v: "all" },
-          { n: "2D", v: "2d" },
-          { n: "3D", v: "3d" },
-          { n: "4K", v: "4k" },
-          { n: "竖屏", v: "vert" },
-        ],
-      },
-    ];
-    const filters = { latest: mediaF.concat(sortF) };
+    // 媒体筛选已并入顶部 tab（2D/3D/4K/竖屏），这里不再重复
+
+    const filters = { latest: sortF };
     for (const [tid] of CATS) filters[tid] = sortF;
 
     return { class: classes, filters: filters };
