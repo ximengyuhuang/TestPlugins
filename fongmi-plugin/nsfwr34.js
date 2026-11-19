@@ -255,7 +255,7 @@ export default class Nsfwr34 extends Spider {
     classes.push({
       type_id: "",
       type_name: "标签",
-      sub: tagLetters.map((l) => ({ id: "tseg:" + l, name: l })),
+      sub: tagLetters.map((l) => ({ id: "seg:" + l, name: l })),
     });
     classes.push({ type_id: "search", type_name: "搜索", type_flag: "1" });
     classes.push({ type_id: "web", type_name: "网页", type_flag: "1" });
