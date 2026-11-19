@@ -512,10 +512,29 @@ export default class RouVideo extends Spider {
       { n: "最多赞", v: "likeCount" },
       { n: "最多播放", v: "viewCount" },
     ];
+    const seriesTags = [
+      { n: "全部", v: "" },
+      { n: "AI短劇", v: "AI短劇" },
+      { n: "現代", v: "現代" },
+      { n: "都市", v: "都市" },
+      { n: "熟女", v: "熟女" },
+      { n: "大男主", v: "大男主" },
+      { n: "後宮", v: "後宮" },
+      { n: "亂倫", v: "亂倫" },
+      { n: "綠帽", v: "綠帽" },
+    ];
+    const seriesSort = [
+      { n: "最新更新", v: "fresh" },
+      { n: "最新发布", v: "" },
+    ];
     const filters = {
       latest: [
         { key: "media", name: "分類", value: media },
         { key: "order", name: "排序", value: orders },
+      ],
+      series: [
+        { key: "tag", name: "題材", value: seriesTags },
+        { key: "sort", name: "排序", value: seriesSort },
       ],
     };
     return { class: classes, filters: filters };
@@ -636,7 +655,13 @@ export default class RouVideo extends Spider {
           ? BASE + "/v?order=" + order + "&page=" + p
           : BASE + "/t/" + encodeURIComponent(tag) + "?order=" + order + "&page=" + p;
     } else if (tid === "series") {
-      url = BASE + "/series?f=fresh&page=" + p;
+      const tag = (extend && extend.tag) || "";
+      const sort = extend && extend.sort !== undefined ? extend.sort : "fresh";
+      const qs = [];
+      if (tag) qs.push("tag=" + encodeURIComponent(tag));
+      if (sort) qs.push("f=" + sort);
+      qs.push("page=" + p);
+      url = BASE + "/series?" + qs.join("&");
       kind = "series";
     } else if (tid.indexOf("t:") === 0) {
       url = BASE + "/t/" + encodeURIComponent(tid.substring(2)) + "?order=" + order + "&page=" + p;
