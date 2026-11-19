@@ -484,6 +484,91 @@ export default class Nsfwr34 extends Spider {
     };
   }
 
+  // 原站 Related Videos 的 AJAX 分页：POST admin-ajax.php
+  async relPage(url, page) {
+    this.relCache = this.relCache || {};
+    let st = this.relCache[url];
+    if (!st) {
+      const html = await this.fetchPage(url);
+      if (!html) return { list: [], page: 1, hasMore: false };
+      const wp = html.match(/"_wpnonce":"([a-z0-9]+)"/);
+      const nz = html.match(/"nonce":"([a-z0-9]+)"/);
+      const m = html.match(/class="[^"]*widget-load-more-posts[^"]*"[^>]*data-params="([^"]+)"/);
+      if (!m) return { list: [], page: 1, hasMore: false };
+      st = {
+        params: unesc(m[1]),
+        nonce: wp ? wp[1] : nz ? nz[1] : "",
+        paged: 1,
+        maxPages: 1,
+      };
+      this.relCache[url] = st;
+    }
+    let cards = [];
+    let guard = 0;
+    while (st.paged < page && st.params && guard++ < 30) {
+      const step = await this.relPost(st);
+      if (!step) break;
+      cards = step.cards;
+    }
+    return {
+      list: cards.map((c) => ({ id: c.url, name: c.title, pic: c.pic, remarks: c.dur || "" })),
+      page: st.paged,
+      maxPages: st.maxPages,
+      hasMore: !!st.params && st.paged < st.maxPages,
+    };
+  }
+
+  async relPost(st) {
+    let res;
+    try {
+      res = await this.net.req(BASE + "/wp-admin/admin-ajax.php", {
+        method: "POST",
+        postType: "form",
+        data: {
+          action: "widget_load_more_posts",
+          _wpnonce: st.nonce,
+          data: st.params,
+        },
+        headers: {
+          "User-Agent": UA,
+          "Referer": BASE + "/",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      });
+    } catch (e) {
+      this.log("rel post failed: " + e);
+      return null;
+    }
+    if (!res || res.code !== 200) return null;
+    let body;
+    try {
+      body = JSON.parse(res.content);
+    } catch (e) {
+      return null;
+    }
+    if (!body || !body.success || !body.data) return null;
+    const html = body.data.output || "";
+    const params = body.data.data || "";
+    if (!params) {
+      st.params = "";
+      return { cards: [] };
+    }
+    let paged = st.paged + 1;
+    let maxPages = st.maxPages;
+    try {
+      const p = JSON.parse(params);
+      if (p && p.paged) paged = Number(p.paged) || paged;
+      if (p && p.max_pages) maxPages = Number(p.max_pages) || maxPages;
+    } catch (e) {
+    }
+    const mm = html.match(/data-max-pages="(\d+)"/);
+    if (mm) maxPages = Number(mm[1]) || maxPages;
+    st.params = params;
+    st.paged = paged;
+    st.maxPages = maxPages;
+    return { cards: parseCards(html) };
+  }
+
   async action(op, value) {
     void value;
     const s = String(op === undefined || op === null ? "" : op);
@@ -517,6 +602,51 @@ export default class Nsfwr34 extends Spider {
           },
         ],
       };
+    }
+
+    if (s.indexOf("au|") === 0) {
+      // au|<slug>：作者页的名字 + 头像（作者页没有 h1，头像多为 gravatar）
+      const slug = s.substring(3);
+      let name = slug;
+      let avatar = "";
+      try {
+        const html = await this.fetchPage(BASE + "/author/" + slug + "/");
+        if (html) {
+          const t = html.match(/<title>([^<]*)<\/title>/);
+          if (t) {
+            let n = strip(t[1]).replace(/\s*[-–—|]\s*NSFW Rule 34.*$/i, "").replace(/\s*Archives?\s*$/i, "").trim();
+            if (n.length > 0 && n.length < 40) name = n;
+          }
+          const g = html.match(/https:\/\/secure\.gravatar\.com\/avatar\/[a-z0-9]+\?s=\d+/i);
+          if (g) {
+            avatar = g[0].replace(/&#0?38;/g, "&");
+          } else {
+            const av = html.match(/<img[^>]+(?:class="[^"]*avatar[^"]*"[^>]+src="([^"]+)"|src="([^"]+)"[^>]+class="[^"]*avatar[^"]*")/i);
+            if (av) avatar = unesc(av[1] || av[2] || "");
+          }
+        }
+      } catch (e) {
+        this.log("author info failed: " + e);
+      }
+      return { name: name, avatar: avatar };
+    }
+
+    if (s.indexOf("relv|") === 0) {
+      // relv|<页面地址>|<页码>：原站 Related Videos 的 AJAX 分页（每页 6 条）
+      const rest = s.substring(5);
+      const cut = rest.lastIndexOf("|");
+      const url = cut > 0 ? rest.substring(0, cut) : rest;
+      const page = Math.max(2, Number(cut > 0 ? rest.substring(cut + 1) : 2) || 2);
+      const res = await this.relPage(url, page);
+      return res;
+    }
+
+    if (s.indexOf("rel|") === 0) {
+      const parts = s.substring(4).split("|");
+      const pageUrl = parts[0];
+      const page = Math.max(2, Number(parts[1]) || 2);
+      const res = await this.relPage(pageUrl, page);
+      return res;
     }
 
     if (s.indexOf("au|") === 0) {
