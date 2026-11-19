@@ -186,6 +186,12 @@ export default class Nsfwr34 extends Spider {
     );
     const all = [];
     const seen = {};
+    try {
+      this.log(
+        "tag sitemaps: " +
+          res.map((r) => (r ? r.code + "/" + (r.content ? r.content.length : -1) : "null")).join(",")
+      );
+    } catch (e) {}
     for (const r of res) {
       if (!r || r.code !== 200 || !r.content) continue;
       const re = /<loc>\s*([^<]+?)\s*<\/loc>/g;
@@ -203,6 +209,9 @@ export default class Nsfwr34 extends Spider {
       }
     }
     all.sort((a, b) => a.name.localeCompare(b.name));
+    try {
+      this.log("tag sitemaps parsed: " + all.length);
+    } catch (e) {}
     this.tagCache = all;
     return all;
   }
