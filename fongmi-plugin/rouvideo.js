@@ -654,7 +654,7 @@ export default class RouVideo extends Spider {
 
     const cards = parseCards(html, kind);
     const pages = tid === "home" ? 1 : Math.max(totalPages(html), p);
-    return this.page(cards, p, 26, pages);
+    return this.page(cards, p, 26, pages * 26); // 第4参是总条数，pagecount=ceil(total/limit)
   }
 
   async detailContent(ids) {
