@@ -788,8 +788,7 @@ export default class RouVideo extends Spider {
 
     if (s.indexOf("side|") === 0) {
       const cat = await this.loadCatPage();
-      const theme = cat.theme.slice(0, 12).map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name }));
-      if (cat.theme.length > 12) theme.push({ name: "更多題材 (" + cat.theme.length + ")", id: "cat:theme" });
+      const theme = cat.theme.map((t) => ({ name: t.label + " (" + t.count + ")", id: "t:" + t.name }));
       return { groups: [{ name: "熱門題材", items: theme }] };
     }
 
