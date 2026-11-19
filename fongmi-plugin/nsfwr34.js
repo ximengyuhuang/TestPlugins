@@ -219,7 +219,16 @@ export default class Nsfwr34 extends Spider {
   /** 标签按字母：索引已在 tagCache 里，直接过滤，不再发请求 */
   async tagsForLetter(key) {
     const tags = await this.loadTags();
-    return tags.filter((t) => this.letterKey(t.name) === key);
+    const out = [];
+    const k = String(key || "").trim().toUpperCase();
+    for (const t of tags) {
+      const n = String(t.name == null ? "" : t.name).trim();
+      if (!n) continue;
+      const ch = n.charAt(0).toUpperCase();
+      const g = ch >= "A" && ch <= "Z" ? ch : "#";
+      if (g === k) out.push(t);
+    }
+    return out;
   }
 
   letterKey(name) {
