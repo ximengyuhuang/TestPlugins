@@ -364,6 +364,23 @@ export default class Nsfwr34 extends Spider {
     if (tid.indexOf("seg:") === 0) {
       const key = tid.substring(4);
       const tags = await this.tagsForLetter(key);
+      if (!tags.length) {
+        const allTags = await this.loadTags();
+        return this.page(
+          [
+            {
+              vod_id: "diag",
+              vod_name: "「" + key + "」没有标签（索引共 " + allTags.length + " 个）",
+              vod_pic: "",
+              vod_remarks: "",
+              vod_tag: "folder",
+            },
+          ],
+          1,
+          1,
+          1
+        );
+      }
       const list = tags.map((t) => ({
         vod_id: "t:" + t.slug,
         vod_name: t.name,
