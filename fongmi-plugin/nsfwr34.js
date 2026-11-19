@@ -379,7 +379,7 @@ export default class Nsfwr34 extends Spider {
           [
             {
               vod_id: "diag",
-              vod_name: "「" + key + "」没有标签（索引共 " + allTags.length + " 个）",
+              vod_name: "「" + key + "」没有标签（key=" + key + "#" + (key ? key.charCodeAt(0) : -1) + "，共 " + allTags.length + "，M=" + allTags.filter(function(x){return String(x.name).charAt(0).toUpperCase()==="M";}).length + "）",
               vod_pic: "",
               vod_remarks: "",
               vod_tag: "folder",
