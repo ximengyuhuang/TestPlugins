@@ -749,7 +749,7 @@ export default class RouVideo extends Spider {
     this.sess[token] = { segs: segs, playlist: out.join("\n") };
 
     return {
-      parse: 0,
+      parse: 1, // 1 = HLS：由 App 用 HlsMediaSource 加载
       url: this.proxyUrl({ s: token, m: "1" }),
       header: { "User-Agent": UA, "Referer": BASE + "/" },
     };
