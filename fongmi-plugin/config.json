@@ -232,17 +232,6 @@
       "ext": {}
     },
     {
-      "key": "photos18",
-      "name": "色圖網",
-      "type": 3,
-      "api": "./photos18.js",
-      "style": {
-        "type": "rect",
-        "ratio": 0.67
-      },
-      "ext": {}
-    },
-    {
       "key": "rule34videos",
       "name": "Rule34Videos",
       "type": 3,
