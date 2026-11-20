@@ -59,11 +59,11 @@ function absolute(u) {
   return BASE + (u.charAt(0) === "/" ? u : "/" + u);
 }
 
-// 列表卡片：<div class="well well-sm videos-text-align">
+// 列表卡片：<article class="vitem well-sm well"> … 封面 / duration / <bdi>标题</bdi>
 function parseCards(html) {
   const out = [];
   const seen = {};
-  const parts = String(html).split(/<div class="well well-sm videos-text-align">/);
+  const parts = String(html).split(/<article class="vitem/);
   for (let i = 1; i < parts.length; i++) {
     const block = parts[i].substring(0, 2600);
     const vk = block.match(/view_video\.php\?viewkey=([a-f0-9]+)/);
@@ -74,13 +74,18 @@ function parseCards(html) {
 
     const img = block.match(/<img[^>]*class="img-responsive"[^>]*src="([^"]+)"/);
     const dur = block.match(/<span class="duration">\s*([^<]*?)\s*<\/span>/);
-    const title = block.match(/<span class="video-title[^"]*"[^>]*>([\s\S]*?)<\/span>/);
+    const t1 = block.match(/<bdi>([\s\S]*?)<\/bdi>/);
+    const t2 = block.match(/<span class="video-title[^"]*"[^>]*>([\s\S]*?)<\/span>/);
+    const views = block.match(/Views:\s*<\/span>\s*([0-9,]+)/i);
+
+    const title = clean(t1 ? t1[1] : (t2 ? t2[1] : ""));
+    const remarks = clean(dur ? dur[1] : "") || (views ? clean(views[1]) + " 次播放" : "");
 
     out.push({
       vod_id: BASE + "/view_video.php?viewkey=" + id,
-      vod_name: clean(title ? title[1] : "") || id,
+      vod_name: title || id,
       vod_pic: img ? absolute(img[1]) : "",
-      vod_remarks: clean(dur ? dur[1] : ""),
+      vod_remarks: remarks,
     });
   }
   return out;
@@ -156,7 +161,8 @@ export default class P91 extends Spider {
         const og = html.match(/property="og:image"[^>]*content="([^"]+)"/);
         if (og) pic = absolute(og[1]);
 
-        duration = meta(html, "Duration");
+        const durSpan = html.match(/(\d{2}:\d{2}:\d{2})/);
+        duration = durSpan ? durSpan[1] : meta(html, "Duration");
         const added = meta(html, "Added");
         const views = meta(html, "Views");
         const comments = meta(html, "Comments");
