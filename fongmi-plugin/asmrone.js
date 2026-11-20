@@ -36,9 +36,17 @@ function fmtDuration(sec) {
   return h ? h + " 小时 " + m + " 分" : m + " 分钟";
 }
 
+function fmtBadge(sec) {
+  const s = Number(sec) || 0;
+  if (!s) return "";
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return h ? h + "h" + m : m + "分";
+}
+
 function toCard(w) {
   const circle = (w.circle && w.circle.name) || "";
-  const remarks = fmtDuration(w.duration) || circle || String(w.release || "").substring(0, 10);
+  const remarks = fmtBadge(w.duration) || circle || String(w.release || "").substring(0, 10);
   return {
     vod_id: String(w.id),
     vod_name: (circle ? "[" + circle + "] " : "") + (w.title || w.name || String(w.id)),
