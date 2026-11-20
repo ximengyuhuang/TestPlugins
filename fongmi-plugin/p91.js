@@ -227,7 +227,7 @@ export default class P91 extends Spider {
     };
     if (cookie) h["Cookie"] = cookie;
 
-    return { parse: 0, url: src, header: JSON.stringify(h) };
+    return { parse: 0, url: src, header: h };
   }
 
   async searchContent(key, quick, pg) {
