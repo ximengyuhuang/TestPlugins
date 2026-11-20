@@ -10,6 +10,16 @@ import { Spider, openWeb } from "catvod";
 // ⚠ 整站在 Cloudflare 管理挑战后面：要先点「网页」过验证，插件再带 cookie 请求
 
 const BASE = "https://8se.me";
+
+// 详情 id 可能是 "v|<url>|0" / "mix|<url>" 这类扩展格式，gal| 收到后统一复原成普通页面 URL
+function normalizeGalUrl(raw) {
+  let u = String(raw || "").trim();
+  u = u.replace(/^(v|mix|gal)\|/, "");
+  const bar = u.lastIndexOf("|");
+  if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
+  if (u && u.indexOf("http") !== 0) u = BASE + (u.charAt(0) === "/" ? u : "/" + u);
+  return u;
+}
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
@@ -446,6 +456,21 @@ export default class Se8 extends Spider {
 
   async action(op, value) {
     const s = String(op === undefined || op === null ? "" : op);
+
+    // App 原生图集：action("gal|<页面URL>") → {list:[{url}]}
+    if (s.indexOf("gal|") === 0) {
+      const u = normalizeGalUrl(s.substring(4));
+      try {
+        const r = await this.net.req(u, { headers: hdrs() });
+        if (r && r.code === 200) {
+          const imgs = parseAlbumImgs(r.content, "") || [];
+          if (imgs.length) return { list: imgs.map((x) => ({ url: x })) };
+        }
+      } catch (e) {
+      }
+      return { list: [] };
+    }
+
 
     // 视频：直接在相册页里用内置浏览器播放（第三方播放器嵌入）
     if (s.indexOf("web|") === 0 || s.indexOf("web:") === 0) {

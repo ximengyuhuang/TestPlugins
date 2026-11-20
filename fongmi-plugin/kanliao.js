@@ -1,3 +1,13 @@
+
+// 详情 id 可能是 "v|<url>|0" / "mix|<url>" 这类扩展格式，gal| 收到后统一复原成普通页面 URL
+function normalizeGalUrl(raw) {
+  let u = String(raw || "").trim();
+  u = u.replace(/^(v|mix|gal)\|/, "");
+  const bar = u.lastIndexOf("|");
+  if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
+  if (u && u.indexOf("http") !== 0) u = BASE + (u.charAt(0) === "/" ? u : "/" + u);
+  return u;
+}
 import { Spider, openWeb } from "catvod";
 
 // 今日看料（kanliao19.one）—— Typecho + Mirages 主题，和「每日大赛」同源模板
@@ -406,6 +416,21 @@ export default class Kanliao extends Spider {
   // 图集：图片是明文，直接塞给画廊页
   async action(op, value) {
     const s = String(op === undefined || op === null ? "" : op);
+
+    // App 原生图集：action("gal|<页面URL>") → {list:[{url}]}
+    if (s.indexOf("gal|") === 0) {
+      const u = normalizeGalUrl(s.substring(4));
+      try {
+        const r = await this.net.req(u, { headers: hdrs() });
+        if (r && r.code === 200) {
+          const imgs = parseImages(r.content) || [];
+          if (imgs.length) return { list: imgs.map((x) => ({ url: x })) };
+        }
+      } catch (e) {
+      }
+      return { list: [] };
+    }
+
     if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 

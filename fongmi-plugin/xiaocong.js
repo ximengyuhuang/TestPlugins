@@ -1,6 +1,16 @@
 import { Spider, openWeb } from "catvod";
 
 const BASE = "https://www.xiaocongzy.com";
+
+// 详情 id 可能是 "v|<url>|0" / "mix|<url>" 这类扩展格式，gal| 收到后统一复原成普通页面 URL
+function normalizeGalUrl(raw) {
+  let u = String(raw || "").trim();
+  u = u.replace(/^(v|mix|gal)\|/, "");
+  const bar = u.lastIndexOf("|");
+  if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
+  if (u && u.indexOf("http") !== 0) u = BASE + (u.charAt(0) === "/" ? u : "/" + u);
+  return u;
+}
 const CDN = "https://img.ziyuanquancdn.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -377,6 +387,21 @@ export default class Xiaocong extends Spider {
   // 图集卡片点击 → 把图片列表塞进 URL，画廊页秒开
   async action(op, value) {
     const s = String(op === undefined || op === null ? "" : op);
+
+    // App 原生图集：action("gal|<页面URL>") → {list:[{url}]}
+    if (s.indexOf("gal|") === 0) {
+      const u = normalizeGalUrl(s.substring(4));
+      try {
+        const r = await this.net.req(u, { headers: hdrs() });
+        if (r && r.code === 200) {
+          const imgs = parseImages(r.content) || [];
+          if (imgs.length) return { list: imgs.map((x) => ({ url: x })) };
+        }
+      } catch (e) {
+      }
+      return { list: [] };
+    }
+
     if (s.indexOf("gal:") !== 0) return { msg: "未知操作" };
     const u = s.substring(4);
 
