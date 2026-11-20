@@ -165,11 +165,8 @@ export default class Rule34Videos extends Spider {
     };
     return {
       class: [
-        { type_id: "feed", type_name: "视频", type_flag: "0" },
-        { type_id: "tagf", type_name: "标签", type_flag: "1" },
-        { type_id: "artf", type_name: "画师", type_flag: "1" },
-        { type_id: "search", type_name: "搜索", type_flag: "1" },
-        { type_id: "web", type_name: "网页", type_flag: "1" },
+        { type_id: "feed", type_name: "视频" },
+        { type_id: "web", type_name: "网页" },
       ],
       filters: filters,
     };
@@ -289,13 +286,14 @@ export default class Rule34Videos extends Spider {
   async playerContent(flag, id, vipFlags) {
     const s = String(id);
     if (/\.m3u8(\?|$)/i.test(s)) {
-      return { parse: 0, url: abs(s), header: { "User-Agent": UA, "Referer": BASE + LANG + "/" } };
+      // HLS：必须 parse:1，App 才会用 HlsMediaSource
+      return { parse: 1, url: abs(s), header: { "User-Agent": UA, "Referer": BASE + LANG + "/" } };
     }
     const pageUrl = s.indexOf("http") === 0 ? s : BASE + s;
     const html = await this.fetchPage(pageUrl);
     const mm = html && html.match(/href=(\/media\/videos\/\d+\/master\.m3u8)/);
     if (!mm) throw new Error("没找到播放地址");
-    return { parse: 0, url: abs(mm[1]), header: { "User-Agent": UA, "Referer": BASE + LANG + "/" } };
+    return { parse: 1, url: abs(mm[1]), header: { "User-Agent": UA, "Referer": BASE + LANG + "/" } };
   }
 
   async searchContent(key, quick, pg = "1") {

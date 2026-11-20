@@ -186,7 +186,8 @@ export default class P91 extends Spider {
         vod_remarks: duration,
         gallery: false,
         vod_play_from: "91porn",
-        vod_play_url: "正片$" + pageUrl,
+        // 正片走直链（需要能连上的 CDN）；连不上时点「网页播放」用内置浏览器
+        vod_play_url: "正片$" + pageUrl + "#网页播放$web://" + pageUrl,
       }],
     };
   }
