@@ -227,7 +227,9 @@ export default class P91 extends Spider {
     };
     if (cookie) h["Cookie"] = cookie;
 
-    return { parse: 0, url: src, header: h };
+    // 部分 CDN 对非浏览器 TLS 直接断连，先用 http 试一次
+    const plain = src.replace(/^https:/i, "http:");
+    return { parse: 0, url: plain, header: h };
   }
 
   async searchContent(key, quick, pg) {
