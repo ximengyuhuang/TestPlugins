@@ -164,7 +164,7 @@ export default class AsmrOne extends Spider {
       vod_remarks: w ? (fmtDuration(w.duration) || circle) : "",
       gallery: false,
       vod_play_from: "asmr.one",
-      vod_play_url: "网页播放$" + id,
+      vod_play_url: "网页播放$web://" + SITE + "/work/" + id,
     };
 
     // 同社团其它作品作推荐
@@ -214,7 +214,9 @@ export default class AsmrOne extends Spider {
 
   async playerContent(flag, id) {
     // 音轨需要登录，交给 App 用内置浏览器打开（web:// 协议）
-    const wid = String(id).replace(/^.*\//, "");
+    const raw = String(id || "");
+    if (raw.indexOf("web://") === 0) return { parse: 0, url: raw, header: "{}" };
+    const wid = raw.replace(/^.*\//, "");
     return { parse: 0, url: "web://" + SITE + "/work/" + wid, header: "{}" };
   }
 
