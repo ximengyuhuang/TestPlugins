@@ -211,11 +211,23 @@ export default class P91 extends Spider {
     }
     if (!src) throw new Error("没有找到视频地址（可能是 VIP 内容）");
 
-    return {
-      parse: 0,
-      url: src,
-      header: JSON.stringify({ "User-Agent": UA, "Referer": pageUrl }),
+    // 带上站点 Cookie / Origin：91porn 的直链签名会校验会话
+    let cookie = "";
+    try {
+      cookie = await this.net.getCookie(pageUrl);
+    } catch (e) {
+      cookie = "";
+    }
+    const h = {
+      "User-Agent": UA,
+      "Referer": pageUrl,
+      "Origin": BASE,
+      "Accept": "*/*",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     };
+    if (cookie) h["Cookie"] = cookie;
+
+    return { parse: 0, url: src, header: JSON.stringify(h) };
   }
 
   async searchContent(key, quick, pg) {
