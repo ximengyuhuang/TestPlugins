@@ -704,7 +704,11 @@ export default class RouVideo extends Spider {
       const parts = [];
       if (info.duration) parts.push("时长 " + fmtDur(info.duration));
       if (episodes.length) parts.push("共 " + episodes.length + " 集");
-      const content = [parts.join(" · "), info.tags.length ? "标签：" + info.tags.join(" / ") : "", info.desc]
+      // 标签做成可点链接：[a=cr:{"id":"t:名字"}/]名字[/a]
+      const tagLinks = info.tags
+        .map((t) => '[a=cr:{"id":"t:' + t + '"}/]' + t + "[/a]")
+        .join(" · ");
+      const content = [parts.join(" · "), tagLinks ? "标签：" + tagLinks : "", info.desc]
         .filter(Boolean)
         .join("\n");
 
