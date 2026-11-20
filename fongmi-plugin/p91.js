@@ -101,11 +101,16 @@ export default class P91 extends Spider {
   init() {}
 
   async homeContent() {
-    const classes = [];
-    for (const [code, name] of CATS) classes.push({ type_id: "c:" + code, type_name: name });
-    classes.push({ type_id: "web", type_name: "网页" });
+    // 一级 tab 只放「内容类型」，其余参数全部进排序按钮，避免和排序重复
+    const classes = [
+      { type_id: "c:rf", type_name: "最新" },
+      { type_id: "c:hot", type_name: "当前最热" },
+      { type_id: "c:top", type_name: "本月最热" },
+      { type_id: "c:ori", type_name: "91原创" },
+      { type_id: "web", type_name: "网页" },
+    ];
 
-    // order 组 → App 的「排序」按钮
+    // order 组 → App 的「排序」按钮（10 个参数全放这里）
     const sorts = CATS.map(([code, name]) => ({ n: name, v: code }));
     const filters = {};
     for (const c of classes) {
