@@ -205,12 +205,9 @@ export default class AsmrOne extends Spider {
   }
 
   async playerContent(flag, id) {
+    // 音轨需要登录，交给 App 用内置浏览器打开（web:// 协议）
     const wid = String(id).replace(/^.*\//, "");
-    try {
-      openWeb({ url: SITE + "/work/" + wid });
-    } catch (e) {
-    }
-    throw new Error("ASMR.one 音轨需登录，已打开网页播放");
+    return { parse: 0, url: "web://" + SITE + "/work/" + wid, header: "{}" };
   }
 
   async action(op) {
