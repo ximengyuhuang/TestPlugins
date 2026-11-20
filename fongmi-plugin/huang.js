@@ -319,9 +319,11 @@ export default class HuangVideo extends Spider {
     const m = r.content.match(/data-xg-player-source-value="([^"]+)"/);
     if (!m) throw new Error("找不到播放地址");
 
+    const src = decode(m[1]);
     return {
-      parse: 0,
-      url: decode(m[1]),
+      // m3u8 必须 parse:1，App 才会用 HlsMediaSource
+      parse: /\.m3u8(\?|$)/i.test(src) ? 1 : 0,
+      url: src,
       header: {
         "User-Agent": UA,
         "Referer": BASE + "/",

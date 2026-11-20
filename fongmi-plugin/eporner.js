@@ -421,13 +421,13 @@ export default class EPorner extends Spider {
       values.push({ n: "HLS", v: hlsUrl, q: 0 });
     }
 
-    const urlField = values.length > 1
-      ? { values: values.map((x) => ({ n: x.n, v: x.v })), position: 0 }
-      : values[0].v;
+    // 多画质：App 目前只接受字符串 URL，先取最高画质的直链（多画质切换等 App 支持后再放开）
+    const chosen = values[0];
+    const isHls = /\.m3u8(\?|$)/i.test(chosen.v);
 
     return {
-      parse: 0,
-      url: urlField,
+      parse: isHls ? 1 : 0,
+      url: chosen.v,
       header: { "User-Agent": UA, "Referer": BASE + "/" },
     };
   }
