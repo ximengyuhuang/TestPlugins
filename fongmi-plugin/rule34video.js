@@ -166,9 +166,11 @@ function toList(v) {
   return out;
 }
 
-/** 分面 id：只留数字，站点上限 20 */
+/** 分面 id：接受 "123" 或 "tag:123" / "cat:123" / "art:123"，只留数字，站点上限 20 */
 function numericIds(v, limit) {
-  const out = toList(v).filter((s) => /^[0-9]+$/.test(s) && s !== "0");
+  const out = toList(v)
+    .map((s) => String(s).replace(/^(tag|cat|art|model|artist)s?:/i, ""))
+    .filter((s) => /^[0-9]+$/.test(s) && s !== "0");
   const max = limit || 20;
   return out.slice(0, max);
 }
@@ -351,8 +353,35 @@ function mapOpts(table) {
   return table.map((x) => ({ n: x[1], v: x[0] }));
 }
 
+/**
+ * 分面组：tags / cats / arts
+ * 站点约定：
+ *   cats  → category_ids 用数字 id（categories_json.php 的 items[].id 就是数字）
+ *   arts  → model_ids 用数字 id（models_json.php 同理）
+ *   tags  → tag_ids 用数字 id，但 tags_json.php 返回的 items[].id 是**标签名**！
+ *           真正的数字 id 只在页面元素 data-tag-id 上，所以 tags 组用
+ *           `dir`（slug）当选项值，发送时再换成数字（见 tagIdCache）。
+ */
 function facetGroup(key, name) {
-  return { key: key, name: name, multi: true, type: "facet", value: [] };
+  return { key: key, name: name, multi: true, type: "facet", value: facetOptions(key) };
+}
+
+/** 内置一组常用分面选项（离线可用；App 点开就能选） */
+function facetOptions(key) {
+  if (key === "tags") return [
+    { n: "Genshin Impact", v: "tag:1942" },
+    { n: "Honkai Star Rail", v: "tag:2890" },
+    { n: "Futanari", v: "tag:22" },
+    { n: "3D", v: "tag:4688" },
+    { n: "Blender", v: "tag:4687" },
+  ];
+  if (key === "cats") return [
+    { n: "Genshin Impact", v: "cat:269" },
+  ];
+  if (key === "arts") return [
+    { n: "Jackerman", v: "art:639" },
+  ];
+  return [];
 }
 
 /** 列表页通用筛选组（不含日期：站点的分类/作者/搜索页不支持日期） */
