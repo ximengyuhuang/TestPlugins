@@ -412,15 +412,6 @@ export default class Rule34Video extends Spider {
       ],
     });
 
-    groups.push({
-      name: "按时间",
-      items: [
-        { name: "今天", id: "p:/" + rangeParams("today").replace(/^&/, "?").replace(/&/g, "&") },
-        { name: "本周", id: "p:/" + rangeParams("week").replace(/^&/, "?") },
-        { name: "本月", id: "p:/" + rangeParams("month").replace(/^&/, "?") },
-        { name: "今年", id: "p:/" + rangeParams("year").replace(/^&/, "?") },
-      ],
-    });
 
     return { groups: groups };
   }
