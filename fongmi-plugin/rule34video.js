@@ -22,6 +22,34 @@ const SORTS = [
   ["pseudo_rand", "随机"],
 ];
 
+// 时间范围：站点支持 ?from=&to=（YYYY-MM-DD）
+const TIME_RANGES = [
+  ["all", "全部"],
+  ["today", "今天"],
+  ["week", "本周"],
+  ["month", "本月"],
+  ["year", "今年"],
+];
+
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = ("0" + (d.getMonth() + 1)).slice(-2);
+  const day = ("0" + d.getDate()).slice(-2);
+  return y + "-" + m + "-" + day;
+}
+
+function rangeParams(key) {
+  if (!key || key === "all") return "";
+  const now = new Date();
+  let from = null;
+  if (key === "today") from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  else if (key === "week") from = new Date(now.getTime() - 6 * 86400000);
+  else if (key === "month") from = new Date(now.getFullYear(), now.getMonth(), 1);
+  else if (key === "year") from = new Date(now.getFullYear(), 0, 1);
+  if (!from) return "";
+  return "&from=" + isoDate(from) + "&to=" + isoDate(now);
+}
+
 function hdrs(ref) {
   return {
     "User-Agent": UA,
@@ -68,6 +96,34 @@ function slugName(slug) {
 }
 
 /** 页面里是否还有下一页（站点每页 24 条里常混广告，不能只按条数判断） */
+/**
+ * 站点分页是「路径式」：
+ *   首页      /?page=N&sort_by=&from=&to=
+ *   分类/模型 /categories/<slug>/<N>/  、 /models/<slug>/<N>/
+ *   标签      /tags/<slug>/<N>/
+ *   搜索      /search/<词>/<N>/
+ * 排序 sort_by 与时间 from/to 走 query。
+ */
+function buildListUrl(path, p, sort, time) {
+  const qs = [];
+  if (sort) qs.push("sort_by=" + encodeURIComponent(sort));
+  const rp = rangeParams(time);
+  if (rp) qs.push(rp.substring(1));
+
+  let base = path || "/";
+
+  if (base === "/") {
+    qs.unshift("page=" + p);
+    return BASE + "/?" + qs.join("&");
+  }
+
+  // 去掉旧的页码尾巴（/3/ 这类），再拼新页码
+  base = base.replace(/\/(\d+)\/$/, "/");
+  if (base.charAt(base.length - 1) !== "/") base += "/";
+  const withPage = p > 1 ? base + p + "/" : base;
+  return BASE + withPage + (qs.length ? "?" + qs.join("&") : "");
+}
+
 function hasNextPage(html, p) {
   const next = p + 1;
   return String(html).indexOf("page=" + next + "\"") >= 0 ||
@@ -118,7 +174,10 @@ export default class Rule34Video extends Spider {
     return {
       class: classes,
       filters: {
-        "p:/": [{ key: "order", name: "排序", value: SORTS.map(([v, n]) => ({ n: n, v: v })) }],
+        "p:/": [
+          { key: "order", name: "排序", value: SORTS.map(([v, n]) => ({ n: n, v: v })) },
+          { key: "time", name: "时间", value: TIME_RANGES.map(([v, n]) => ({ n: n, v: v })) },
+        ],
       },
     };
   }
@@ -196,8 +255,8 @@ export default class Rule34Video extends Spider {
     }
 
     const sort = (extend && extend.order) || "post_date";
-    let url = BASE + path + (path.indexOf("?") >= 0 ? "&" : "?") + "page=" + p;
-    if (path === "/") url += "&sort_by=" + encodeURIComponent(sort);
+    const time = (extend && extend.time) || "all";
+    let url = buildListUrl(path, p, sort, time);
 
     let html = "";
     try {
@@ -301,7 +360,7 @@ export default class Rule34Video extends Spider {
 
   async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
-    const url = BASE + "/?q=" + encodeURIComponent(key) + "&page=" + p;
+    const url = buildListUrl("/search/" + encodeURIComponent(key) + "/", p, "post_date", "all");
 
     let html = "";
     try {
