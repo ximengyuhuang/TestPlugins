@@ -165,6 +165,7 @@ export default class Hanime1 extends Spider {
           key: "tag_" + gname,
           name: gname,
           multi: true,
+          type: "facet",
           value: tags.map((t) => ({ n: t, v: t })),
         })),
       ],
