@@ -113,8 +113,9 @@ function buildListUrl(path, p, sort, time) {
   let base = path || "/";
 
   if (base === "/") {
-    qs.unshift("page=" + p);
-    return BASE + "/?" + qs.join("&");
+    // 首页也是路径式分页：/2/、/3/ …（用 ?page=N 会返回第 1 页）
+    const home = p > 1 ? "/" + p + "/" : "/";
+    return BASE + home + (qs.length ? "?" + qs.join("&") : "");
   }
 
   // 去掉旧的页码尾巴（/3/ 这类），再拼新页码
