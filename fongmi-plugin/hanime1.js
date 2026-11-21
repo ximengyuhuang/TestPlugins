@@ -154,16 +154,10 @@ function parseCards(html) {
 export default class Hanime1 extends Spider {
   init() {}
 
-  /** 首次请求前，向 App 要一次 WebView 存下的 cookie */
-  async ensureCookie() {
-    if (this.cookieTried) return;
-    this.cookieTried = true;
-    try {
-      const r = await this.action("cookie|hanime1.me");
-      if (r && r.cookie) CF_COOKIE = r.cookie;
-    } catch (e) {
-      CF_COOKIE = "";
-    }
+  /** App 会把 WebView 存的 cookie 放进 extend["cookie"]，这里取一次 */
+  ensureCookie(extend) {
+    const ck = extend && extend.cookie ? String(extend.cookie) : "";
+    if (ck) CF_COOKIE = ck;
   }
 
   async homeContent() {
@@ -232,7 +226,7 @@ export default class Hanime1 extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    await this.ensureCookie();
+    this.ensureCookie(extend);
     const url = BASE + "/search?" + this.buildQuery(extend) + "&page=" + p;
 
     let html = "";
@@ -255,7 +249,7 @@ export default class Hanime1 extends Spider {
   }
 
   async detailContent(ids) {
-    await this.ensureCookie();
+    this.ensureCookie();
     const url = pageUrlOf(ids[0]);
     let html = "";
     try {
@@ -359,7 +353,7 @@ export default class Hanime1 extends Spider {
   }
 
   async playerContent(flag, id) {
-    await this.ensureCookie();
+    this.ensureCookie();
     const url = pageUrlOf(id);
     let html = "";
     try {
@@ -390,7 +384,7 @@ export default class Hanime1 extends Spider {
 
   async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
-    await this.ensureCookie();
+    this.ensureCookie(extend);
     const url = BASE + "/search?query=" + encodeURIComponent(key) + "&page=" + p;
 
     let html = "";
