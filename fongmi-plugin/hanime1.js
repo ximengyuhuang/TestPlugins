@@ -63,12 +63,15 @@ const TAG_GROUPS = [
 const TAG_BY_GROUP = {};
 for (const [gname, tags] of TAG_GROUPS) TAG_BY_GROUP[gname] = tags;
 
+// WebView 过完 Cloudflare 验证后存在 App 里的 cookie（App 侧 action("cookie|<host>") 提供）
+let CF_COOKIE = "";
+
 function hdrs(ref) {
-  return {
+  const h = {
     "User-Agent": UA,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium":"131", "Not_A Brand";v="24"',
+    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
     "Sec-Ch-Ua-Mobile": "?1",
     "Sec-Ch-Ua-Platform": '"Android"',
     "Sec-Fetch-Dest": "document",
@@ -78,6 +81,11 @@ function hdrs(ref) {
     "Upgrade-Insecure-Requests": "1",
     "Referer": ref || BASE + "/",
   };
+  if (CF_COOKIE) {
+    h["Cookie"] = CF_COOKIE;
+    h["Sec-Fetch-Site"] = "same-origin";
+  }
+  return h;
 }
 
 function decode(s) {
@@ -146,6 +154,18 @@ function parseCards(html) {
 export default class Hanime1 extends Spider {
   init() {}
 
+  /** 首次请求前，向 App 要一次 WebView 存下的 cookie */
+  async ensureCookie() {
+    if (this.cookieTried) return;
+    this.cookieTried = true;
+    try {
+      const r = await this.action("cookie|hanime1.me");
+      if (r && r.cookie) CF_COOKIE = r.cookie;
+    } catch (e) {
+      CF_COOKIE = "";
+    }
+  }
+
   async homeContent() {
     // 主页只留一个入口（分类/筛选都在筛选面板里）
     const classes = [
@@ -212,6 +232,7 @@ export default class Hanime1 extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
+    await this.ensureCookie();
     const url = BASE + "/search?" + this.buildQuery(extend) + "&page=" + p;
 
     let html = "";
@@ -221,7 +242,12 @@ export default class Hanime1 extends Spider {
     } catch (e) {
       html = "";
     }
-    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+    if (!html) {
+      return this.page([{ vod_id: "__cf", vod_name: CF_COOKIE
+        ? "Cloudflare 仍拦截（cookie 可能过期）\n点右上「网页」重新过验证，再点「存 Cookie」"
+        : "Hanime1 被 Cloudflare 拦截\n点右上「网页」打开站点，过验证后点「存 Cookie」",
+        vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
+    }
 
     const cards = parseCards(html);
     const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
@@ -229,6 +255,7 @@ export default class Hanime1 extends Spider {
   }
 
   async detailContent(ids) {
+    await this.ensureCookie();
     const url = pageUrlOf(ids[0]);
     let html = "";
     try {
@@ -332,6 +359,7 @@ export default class Hanime1 extends Spider {
   }
 
   async playerContent(flag, id) {
+    await this.ensureCookie();
     const url = pageUrlOf(id);
     let html = "";
     try {
@@ -362,6 +390,7 @@ export default class Hanime1 extends Spider {
 
   async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
+    await this.ensureCookie();
     const url = BASE + "/search?query=" + encodeURIComponent(key) + "&page=" + p;
 
     let html = "";
