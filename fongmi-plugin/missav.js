@@ -18,15 +18,62 @@ const CDN = "https://c.surrit.com";
 const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 const PAGE_SIZE = 12;
 
-const CATS = [
-  ["latest", "最新", "/en/new"],
-  ["weekly", "每周热门", "/en/weekly-hot"],
-  ["monthly", "每月热门", "/en/monthly-hot"],
-  ["csub", "中文字幕", "/en/chinese-subtitle"],
-  ["uncen", "无码流出", "/en/uncensored-leak"],
+// 站点真实导航：direct = 直接列表页；sub = ▾ 二级菜单（App 会弹纯文字菜单）
+// 子项 id 用 "p:<路径>"，categoryContent 里还原成路径
+const NAV = [
+  { id: "latest", name: "最新", path: "/en/new" },
+  {
+    id: "hot", name: "热门", sub: [
+      ["本周最热", "/en/weekly-hot"],
+      ["本月最热", "/en/monthly-hot"],
+      ["今日最热", "/en/today-hot"],
+    ],
+  },
+  { id: "csub", name: "中文字幕", path: "/en/chinese-subtitle" },
+  {
+    id: "jp", name: "日本AV", sub: [
+      ["PRESTIGE", "/en/maan"],
+      ["S-CUTE", "/en/scute"],
+      ["SIRO", "/en/siro"],
+      ["LUXU", "/en/luxu"],
+      ["GANA", "/en/gana"],
+      ["ARA", "/en/ara"],
+      ["XXX-AV", "/en/xxxav"],
+      ["Naughty 4610", "/en/naughty4610"],
+      ["Naughty 0930", "/en/naughty0930"],
+      ["Married Slash", "/en/marriedslash"],
+    ],
+  },
+  {
+    id: "amateur", name: "素人", sub: [
+      ["FC2", "/en/fc2"],
+      ["HEYZO", "/en/heyzo"],
+      ["Tokyo Hot", "/en/tokyohot"],
+      ["1pondo", "/en/1pondo"],
+      ["Caribbeancom", "/en/caribbeancom"],
+      ["Caribbeancompr", "/en/caribbeancompr"],
+      ["10musume", "/en/10musume"],
+      ["pacopacomama", "/en/pacopacomama"],
+      ["Gachinco", "/en/gachinco"],
+    ],
+  },
+  {
+    id: "uncen", name: "无码", sub: [
+      ["无码流出", "/en/uncensored-leak"],
+      ["新发行", "/en/release"],
+    ],
+  },
+  {
+    id: "asia", name: "亚洲AV", sub: [
+      ["麻豆传媒", "/en/madou"],
+      ["TWAV", "/en/twav"],
+      ["Furuke", "/en/furuke"],
+      ["韩国直播", "/en/klive"],
+      ["中国直播", "/en/clive"],
+    ],
+  },
 ];
 
-// 排序：站点 ?sort= 的 7 个取值
 const SORTS = [
   ["published_at", "最近更新"],
   ["released_at", "发行日期"],
@@ -36,7 +83,6 @@ const SORTS = [
   ["views", "总观看"],
   ["saved", "收藏最多"],
 ];
-
 function hdrs(ref) {
   return {
     "User-Agent": UA,
@@ -125,13 +171,27 @@ export default class MissAv extends Spider {
   init() {}
 
   async homeContent() {
-    const classes = CATS.map(([id, name]) => ({ type_id: id, type_name: name }))
-      .concat([{ type_id: "web", type_name: "网页" }]);
+    const classes = [];
+    for (const item of NAV) {
+      if (item.sub && item.sub.length) {
+        classes.push({
+          type_id: item.id,          // 父级不直接加载列表，点开是二级菜单
+          type_name: item.name,
+          sub: item.sub.map(([n, p]) => ({ id: "p:" + p, name: n })),
+        });
+      } else {
+        classes.push({ type_id: "p:" + item.path, type_name: item.name });
+      }
+    }
+    classes.push({ type_id: "web", type_name: "网页" });
 
-    // 排序只给「最新」tab（其它 tab 站点用固定排序，给了也不生效，避免误导）
-    const filters = {
-      latest: [{ key: "order", name: "排序", value: SORTS.map(([v, n]) => ({ n: n, v: v })) }],
-    };
+    // 排序：给所有直接列表 tab（下拉父级不给，避免误导）
+    const filters = {};
+    for (const c of classes) {
+      if (c.sub) continue;
+      if (c.type_id === "web") continue;
+      filters[c.type_id] = [{ key: "order", name: "排序", value: SORTS.map(([v, n]) => ({ n: n, v: v })) }];
+    }
     return { class: classes, filters: filters };
   }
 
@@ -146,16 +206,21 @@ export default class MissAv extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    // 标签 / 女优 页：t:<url> / a:<url>
-    let path;
-    if (String(tid).indexOf("t:") === 0 || String(tid).indexOf("a:") === 0) {
-      path = pageUrlOf(tid);
-      path = path.replace(/^https?:\/\/[^/]+/, "");
+    // 路径解析：p:<路径> 直接列表；t:/a: 标签/女优页；兼容旧的 latest 等 id
+    let path = "";
+    const sid = String(tid);
+    if (sid.indexOf("p:") === 0) {
+      path = sid.substring(2);
+    } else if (sid.indexOf("t:") === 0 || sid.indexOf("a:") === 0) {
+      path = pageUrlOf(sid).replace(/^https?:\/\/[^/]+/, "");
     } else {
-      const hit = CATS.find((c) => c[0] === tid);
-      path = hit ? hit[2] : CATS[0][2];
-      const sort = (extend && extend.order) || "";
-      if (sort && tid === "latest") path += "?sort=" + encodeURIComponent(sort);
+      const legacy = { latest: "/en/new", weekly: "/en/weekly-hot", monthly: "/en/monthly-hot", csub: "/en/chinese-subtitle", uncen: "/en/uncensored-leak" };
+      path = legacy[sid] || "/en/new";
+    }
+
+    const sort = (extend && extend.order) || "";
+    if (sort && path.indexOf("/new") >= 0) {
+      path += "?sort=" + encodeURIComponent(sort);
     }
 
     const sep = path.indexOf("?") >= 0 ? "&" : "?";
