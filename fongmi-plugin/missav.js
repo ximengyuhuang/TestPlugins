@@ -235,18 +235,20 @@ export default class MissAv extends Spider {
       html = "";
     }
     if (!html) {
-      const hint = "请求失败\n状态: " + (r && r.code) + "\n地址: " + url;
-      return this.page([{ vod_id: "__diag", vod_name: hint, vod_pic: "", vod_remarks: "诊断" }], 1, PAGE_SIZE, 1);
+      const hint = (r && r.code === 403)
+        ? "MissAV 被 Cloudflare 拦截（403）\n换一个代理节点后下拉刷新。"
+        : "请求失败\n状态: " + (r && r.code) + "\n地址: " + url;
+      return this.page([{ vod_id: "__diag", vod_name: hint, vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
     }
 
     const cards = parseCards(html);
     if (!cards.length && p === 1) {
       // 诊断卡：把状态码/长度/是否 CF 挑战 直接显示出来
-      const cf = html.indexOf("Just a moment") >= 0 || html.indexOf("_cf_chl_opt") >= 0;
-      const hint = "抓取返回 0 条\n状态: " + (r && r.code) + "\n长度: " + html.length +
-        "\nCloudflare挑战: " + (cf ? "是" : "否") +
-        "\n地址: " + url;
-      return this.page([{ vod_id: "__diag", vod_name: hint, vod_pic: "", vod_remarks: "诊断" }], 1, PAGE_SIZE, 1);
+      const code = r && r.code;
+      const hint = code === 403
+        ? "MissAV 被 Cloudflare 拦截（403）\n这个站点会按出口 IP 判信誉。\n换一个代理节点后下拉刷新；\n或点站点名右边的「网页」用浏览器打开。"
+        : "抓取返回 0 条\n状态: " + code + " 长度: " + html.length + "\n地址: " + url;
+      return this.page([{ vod_id: "__diag", vod_name: hint, vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
     }
     // 不依赖页面里的末页链接（手机端 HTML 可能没有）：满页就认为后面还有
     const total = cards.length < PAGE_SIZE
