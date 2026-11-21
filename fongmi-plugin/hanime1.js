@@ -158,6 +158,7 @@ export default class Hanime1 extends Spider {
   ensureCookie(extend) {
     const ck = extend && extend.cookie ? String(extend.cookie) : "";
     if (ck) CF_COOKIE = ck;
+    console.log("[hanime1] cookie len=" + CF_COOKIE.length + " hasCF=" + CF_COOKIE.includes("cf_clearance"));
   }
 
   async homeContent() {
@@ -230,13 +231,17 @@ export default class Hanime1 extends Spider {
     const url = BASE + "/search?" + this.buildQuery(extend) + "&page=" + p;
 
     let html = "";
+    let code = 0;
     try {
       const r = await this.net.req(url, { headers: hdrs() });
+      code = r ? r.code : 0;
       if (r && r.code === 200) html = r.content;
     } catch (e) {
       html = "";
     }
+    console.log("[hanime1] req code=" + code + " len=" + (html ? html.length : 0) + " cookieLen=" + CF_COOKIE.length);
     if (!html) {
+      console.log("[hanime1] empty html, cookie len=" + CF_COOKIE.length);
       return this.page([{ vod_id: "__cf", vod_name: CF_COOKIE
         ? "Cloudflare 仍拦截（cookie 可能过期）\n点右上「网页」重新过验证，再点「存 Cookie」"
         : "Hanime1 被 Cloudflare 拦截\n点右上「网页」打开站点，过验证后点「存 Cookie」",
