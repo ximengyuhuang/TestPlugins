@@ -893,7 +893,7 @@ export default class CosplayTele extends Spider {
     const r = await this.resolve(pageUrl);
 
     const out = {
-      parse: 0,
+      parse: /\.m3u8(\?|$)/i.test(r.url) ? 1 : 0,
       url: r.url,
       header: { "User-Agent": UA, "Referer": "https://cossora.stream/" },
     };

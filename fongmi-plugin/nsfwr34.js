@@ -533,7 +533,7 @@ export default class Nsfwr34 extends Spider {
     if (!stream && pageUrl.indexOf(".m3u8") > 0) stream = pageUrl;
     if (!stream) return { parse: 0, url: "", msg: "没找到视频地址" };
     return {
-      parse: 0,
+      parse: /\.m3u8(\?|$)/i.test(stream) ? 1 : 0,
       url: stream,
       header: { "User-Agent": UA, "Referer": BASE + "/" },
     };
