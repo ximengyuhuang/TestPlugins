@@ -1,4 +1,4 @@
-// Rule34Video（rule34video.com）—— BiliTV / catvod QuickJS 插件
+﻿// Rule34Video（rule34video.com）—— BiliTV / catvod QuickJS 插件
 //
 // 站类型：纯视频（单画质 360p mp4 直链，带 acctoken）
 //   列表  /                                    路径式分页 /N/   24 条/页
@@ -497,34 +497,6 @@ export default class Rule34Video extends Spider {
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
 
-    // 抽屉「全部标签」→ 标签文字列表（App 渲染成文件夹行）
-    if (tid === "alltags") {
-      let html = "";
-      try {
-        const r = await this.net.req(BASE + "/tags/", { headers: hdrs(BASE + "/tags/") });
-        if (r && r.code === 200) html = r.content;
-      } catch (e) {
-        html = "";
-      }
-      const rows = [];
-      const seen = {};
-      const re = /class="button"[^>]*href="https:\/\/rule34video\.com\/tags\/([^"\/]+)\/"[^>]*>([\s\S]{0,60}?)<\/a>/g;
-      let m;
-      while ((m = re.exec(html || "")) !== null) {
-        const slug = m[1];
-        if (seen[slug]) continue;
-        seen[slug] = 1;
-        rows.push({
-          vod_id: "p:/tags/" + slug + "/",
-          vod_name: clean(m[2]) || slugName(slug),
-          vod_pic: "",
-          vod_remarks: "",
-          vod_tag: "folder",
-        });
-      }
-      return this.page(rows, p, rows.length || 1, rows.length);
-    }
-
     if (tid === "web") {
       try {
         openWeb({ url: BASE + "/" });
@@ -712,9 +684,6 @@ export default class Rule34Video extends Spider {
 
     const groups = [];
 
-    // ① 全部标签：抽屉里只放一个入口，点进打开标签列表页（和站点跳转一致）
-    groups.push({ name: "全部标签", items: [{ name: "查看全部标签", id: "alltags" }] });
-
     // ② 热门角色：站点 /top-characters/ 是前端渲染，暂留占位
     groups.push({
       name: "热门角色",
@@ -744,31 +713,6 @@ export default class Rule34Video extends Spider {
     if (artists.length) groups.push({ name: "热门画师", items: artists });
 
     return { groups: groups };
-  }
-
-  /** 全部标签：从 /tags/ 页取标签云（约 70 个），点进走 /tags/<slug>/ */
-  async sideTags() {
-    let html = "";
-    try {
-      const r = await this.net.req(BASE + "/tags/", { headers: hdrs(BASE + "/tags/") });
-      if (r && r.code === 200) html = r.content;
-    } catch (e) {
-      return [];
-    }
-    if (!html) return [];
-
-    const out = [];
-    const seen = {};
-    const re = /class="button"[^>]*href="https:\/\/rule34video\.com\/tags\/([^"/]+)\/"[^>]*>([\s\S]{0,60}?)<\/a>/g;
-    let m;
-    while ((m = re.exec(html)) !== null) {
-      const slug = m[1];
-      if (seen[slug]) continue;
-      seen[slug] = 1;
-      const name = clean(m[2]) || slugName(slug);
-      out.push({ name: name, id: "p:/tags/" + slug + "/" });
-    }
-    return out;
   }
 
   /** 热门搜索：首页侧边栏 Trending searches 区块（也是标签云） */
