@@ -171,7 +171,10 @@ export default class MissAv extends Spider {
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
     const cards = parseCards(html);
-    const total = lastPage(html) * PAGE_SIZE;
+    // 不依赖页面里的末页链接（手机端 HTML 可能没有）：满页就认为后面还有
+    const total = cards.length < PAGE_SIZE
+      ? (p - 1) * PAGE_SIZE + cards.length
+      : p * PAGE_SIZE + PAGE_SIZE;
     return this.page(cards, p, PAGE_SIZE, total);
   }
 
@@ -194,32 +197,48 @@ export default class MissAv extends Spider {
       title = ogt ? decode(ogt[1]) : "";
       const ogi = html.match(/property="og:image"[^>]*content="([^"]+)"/);
       pic = ogi ? decode(ogi[1]) : "";
-      const d = html.match(/(\d{1,2}:\d{2}:\d{2})/);
-      if (d) duration = d[1];
+      // 时长由前端 JS 从 item.duration 渲染，服务端 HTML 里只有占位/日期，这里不取
     }
 
-    // 类型 → 标签 chip（t:<类型页URL>）；女优 → 作者行（a:<女优页URL>）
+    // 类型 → 标签 chip（t:<类型页URL>）
+    // 注意：真实类型链接带 dm 前缀，如 /dm157/en/genres/Big%20Breasts；导航项是 /en/genres、/en/genres/VR
     const lines = [];
-    if (duration) lines.push("时长：" + duration);
-
     const genres = [];
     const seenG = {};
-    const reG = /href="(https:\/\/missav\.live\/en\/genres\/[^"]+)"/g;
+    const reG = /href="(https:\/\/missav\.live\/(?:dm\d+\/)?en\/genres\/([^"]+))"/g;
     let m;
     while ((m = reG.exec(html)) !== null) {
       const u = m[1];
+      const raw = m[2];
+      if (!raw || raw === "VR" || raw === "ranking") continue;
       if (seenG[u]) continue;
       seenG[u] = 1;
-      let name = "";
+      let name = raw;
       try {
-        name = decodeURIComponent(u.replace(/^.*\/genres\//, "").replace(/\/$/, ""));
+        name = decodeURIComponent(raw.replace(/\/$/, ""));
       } catch (e) {
-        name = u;
+        name = raw;
       }
-      if (name && name !== "VR") genres.push('[a=cr:{"id":"t:' + u + '"}/]' + name + "[/a]");
+      if (name) genres.push('[a=cr:{"id":"t:' + u + '"}/]' + name + "[/a]");
       if (genres.length >= 12) break;
     }
     if (genres.length) lines.push(genres.join(" · "));
+
+    // 女优 → 作者行（a:<女优页URL>），同样只认真实女优页（带 dm 前缀）
+    let authorLink = "";
+    const reA = /href="(https:\/\/missav\.live\/dm\d+\/en\/actresses\/([^"]+))"/;
+    const ma = html.match(reA);
+    if (ma) {
+      let aname = ma[2];
+      try {
+        aname = decodeURIComponent(ma[2].replace(/\/$/, ""));
+      } catch (e) {
+        aname = ma[2];
+      }
+      if (aname && aname !== "ranking") {
+        authorLink = '[a=cr:{"id":"a:' + ma[1] + '"}/]' + aname + "[/a]";
+      }
+    }
 
     return {
       list: [{
@@ -227,7 +246,7 @@ export default class MissAv extends Spider {
         vod_name: title || url,
         vod_pic: pic || "",
         vod_content: lines.join("\n"),
-        vod_remarks: duration,
+        vod_remarks: authorLink || duration,
         gallery: false,
         vod_play_from: "missav",
         vod_play_url: "正片$" + url,
@@ -290,7 +309,10 @@ export default class MissAv extends Spider {
     if (!html) return this.page([], p, PAGE_SIZE, 0);
 
     const cards = parseCards(html);
-    const total = lastPage(html) * PAGE_SIZE;
+    // 不依赖页面里的末页链接（手机端 HTML 可能没有）：满页就认为后面还有
+    const total = cards.length < PAGE_SIZE
+      ? (p - 1) * PAGE_SIZE + cards.length
+      : p * PAGE_SIZE + PAGE_SIZE;
     return this.page(cards, p, PAGE_SIZE, total);
   }
 }
