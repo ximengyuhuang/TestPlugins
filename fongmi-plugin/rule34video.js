@@ -172,6 +172,8 @@ export default class Rule34Video extends Spider {
     return {
       class: classes,
       filters: {
+        // 通配：分类/模型/标签/搜索页也支持排序（站点这些页面不支持日期筛选）
+        "*": [{ key: "order", name: "排序", value: SORTS.map(([v, n]) => ({ n: n, v: v })) }],
         "p:/": [
           { key: "order", name: "排序", value: SORTS.map(([v, n]) => ({ n: n, v: v })) },
           { key: "time", name: "时间", value: TIME_RANGES.map(([v, n]) => ({ n: n, v: v })) },
