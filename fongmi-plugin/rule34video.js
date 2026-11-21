@@ -108,10 +108,11 @@ export default class Rule34Video extends Spider {
   }
 
   async homeContent() {
+    // 分类 46 个 / 模型 68 个，站点一页给全 → 用「文件夹列表」承载（App 会渲染成文字行，点一下下钻）
     const classes = [
       { type_id: "p:/", type_name: "视频" },
-      { type_id: "cats", type_name: "分类", sub: await this.buildSubs("cats") },
-      { type_id: "tags", type_name: "标签", sub: await this.buildSubs("tags") },
+      { type_id: "cats", type_name: "分类" },
+      { type_id: "models", type_name: "模型" },
       { type_id: "web", type_name: "网页" },
     ];
     return {
@@ -122,37 +123,41 @@ export default class Rule34Video extends Spider {
     };
   }
 
-  /** 从 /categories/ 或 /tags/ 抓前 30 项做二级菜单 */
-  async buildSubs(kind) {
-    this.subCache = this.subCache || {};
-    if (this.subCache[kind]) return this.subCache[kind];
-
-    const url = BASE + (kind === "cats" ? "/categories/" : "/tags/");
-    let html = "";
-    try {
-      const r = await this.net.req(url, { headers: hdrs(url) });
-      if (r && r.code === 200) html = r.content;
-    } catch (e) {
-      html = "";
+  /** 网页侧解析：文件夹条目（分类 / 模型）
+   *  站点条目 class 写法不统一，改为「按 href 位置切块」：每块的结束位置 = 下一个同类 href。
+   */
+  parseFolders(html, kind) {
+    const text = String(html || "");
+    const re = new RegExp('href="https:\\/\\/rule34video\\.com\\/' + kind + '\\/([^"/]+)\\/"', "g");
+    const marks = [];
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      marks.push({ slug: m[1], start: m.index, end: m.index + m[0].length });
     }
 
     const out = [];
     const seen = {};
-    const re = kind === "cats"
-      ? /href="https:\/\/rule34video\.com\/categories\/([^"\/]+)\/"/g
-      : /href="https:\/\/rule34video\.com\/tags\/([^"\/]+)\/">\s*([^<]{1,40}?)\s*<\/a>/g;
+    for (let i = 0; i < marks.length; i++) {
+      const cur = marks[i];
+      if (seen[cur.slug]) continue;
+      seen[cur.slug] = 1;
 
-    let m;
-    while ((m = re.exec(html)) !== null) {
-      const slug = m[1];
-      if (seen[slug]) continue;
-      seen[slug] = 1;
-      const name = kind === "cats" ? slugName(slug) : clean(m[2] || slugName(slug));
-      const path = (kind === "cats" ? "/categories/" : "/tags/") + slug + "/";
-      out.push({ id: "p:" + path, name: name || slug });
-      if (out.length >= 30) break;
+      const stop = i + 1 < marks.length ? marks[i + 1].start : Math.min(text.length, cur.end + 3000);
+      const block = text.substring(cur.end, Math.min(stop, cur.end + 3000));
+
+      const nameM = block.match(/<div class="name">\s*([\s\S]{0,120}?)\s*<div class="count">/);
+      const name = clean(nameM ? nameM[1] : "") || slugName(cur.slug);
+      const cntM = block.match(/<div class="count">([\s\S]{0,200}?)<\/div>/);
+      const cnt = cntM ? (clean(cntM[1]).match(/\d+/) || [""])[0] : "";
+
+      out.push({
+        vod_id: "p:/" + kind + "/" + cur.slug + "/",
+        vod_name: name,
+        vod_pic: "",
+        vod_remarks: cnt ? cnt + " 视频" : "",
+        vod_tag: "folder",
+      });
     }
-    this.subCache[kind] = out;
     return out;
   }
 
@@ -167,8 +172,20 @@ export default class Rule34Video extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    // 父级（分类/标签）不直接出列表
-    if (tid === "cats" || tid === "tags") return this.page([], p, PAGE_SIZE, 0);
+    // 分类 / 模型：返回文件夹列表（App 渲染成文字行，点一下下钻）
+    if (tid === "cats" || tid === "models") {
+      const path = tid === "cats" ? "/categories/" : "/models/";
+      const url = BASE + path + (p > 1 ? "?page=" + p : "");
+      let html = "";
+      try {
+        const r = await this.net.req(url, { headers: hdrs(url) });
+        if (r && r.code === 200) html = r.content;
+      } catch (e) {
+        html = "";
+      }
+      const folders = html ? this.parseFolders(html, tid === "cats" ? "categories" : "models") : [];
+      return this.page(folders, p, folders.length || 1, folders.length);
+    }
 
     // p:<路径> → 路径；t:/a: → 对应页
     let path = "/";
