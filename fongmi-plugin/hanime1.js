@@ -4,12 +4,14 @@
 //   ⚠️ 站点对桌面 UA / curl 指纹做 Cloudflare 挑战（Cf-Mitigated: challenge），
 //      但**安卓 Chrome UA 直接放行**（实测 200），所以 UA 必须是手机 Chrome。
 //
-//   列表  /search?query=&page=N                61 张卡片/页
-//   分类  /search?genre=<分类>&page=N          10 个分类（見 GENRES）
-//   搜索  /search?query=<关键字>&page=N
-//   详情  /watch?v=<id>                        og:title / og:image / og:video:duration
-//   播放  https://vdownload.hembed.com/<id>-720p.mp4?secure=...   （1080p/720p/480p）
-//   标签  详情页里的 ?query= 链接
+//   列表  /search?query=&type=&genre=<类型>&sort=<排序>&date=<时间>&duration=<时长>&tags[]=<标签>&page=N
+//   详情  /watch?v=<id>          og:title / og:image / og:video:duration
+//   作者  <a id="video-artist-name" href="?query=xxx">
+//   分类  <a href="?genre=xxx">（作者旁）
+//   标签  <div class="video-tags-wrapper"> 里的 ?tags[]=xxx
+//   播放  https://vdownload.hembed.com/<id>-1080p.mp4?secure=...（1080p/720p/480p）
+//
+// 筛选：类型(10) / 标签(7 组 240 个) / 排序(9) / 时间(7) / 时长(8)
 
 import { Spider, openWeb } from "catvod";
 
@@ -18,24 +20,55 @@ const BASE = "https://hanime1.me";
 const UA = "Mozilla/5.0 (Linux; Android 14; ELI-AN00) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
 const PAGE_SIZE = 60;
 
-const GENRES = [
-  ["裏番", "裏番"],
-  ["泡麵番", "泡麵番"],
-  ["Motion Anime", "Motion Anime"],
-  ["3DCG", "3DCG"],
-  ["2.5D", "2.5D"],
-  ["2D動畫", "2D動畫"],
-  ["AI生成", "AI生成"],
-  ["MMD", "MMD"],
-  ["Cosplay", "Cosplay"],
+// ---------------- 站点筛选值（与站点表单一致） ----------------
+const GENRES = ["全部", "裏番", "泡麵番", "Motion Anime", "3DCG", "2.5D", "2D動畫", "AI生成", "MMD", "Cosplay", "新番預告"];
+
+const SORTS = ["最新上市", "最新上傳", "本日排行", "本週排行", "本月排行", "觀看次數", "讚好比例", "時長最長", "他們在看"];
+
+const DATES = ["全部", "過去 24 小時", "過去 2 天", "過去 1 週", "過去 1 個月", "過去 3 個月", "過去 1 年"];
+
+const DURS = ["全部", "1 分鐘 +", "5 分鐘 +", "10 分鐘 +", "20 分鐘 +", "30 分鐘 +", "60 分鐘 +", "0 - 10 分鐘"];
+
+// 标签分 7 组，与站点「影片屬性/人物關係/角色設定/外貌身材/情境場所/故事劇情/性交體位」一致
+const TAG_GROUPS = [
+  ["影片屬性", ["無碼", "AI解碼", "中文字幕", "中文配音", "同人作品", "斷面圖", "ASMR", "1080p", "60FPS"]],
+  ["人物關係", ["近親", "姐", "妹", "母", "女兒", "師生", "情侶", "青梅竹馬", "同事"]],
+  ["角色設定", ["JK", "處女", "御姐", "熟女", "人妻", "女教師", "男教師", "女醫生", "女病人", "護士",
+    "OL", "女警", "大小姐", "偶像", "女僕", "巫女", "魔女", "修女", "風俗娘", "公主",
+    "女忍者", "女戰士", "女騎士", "魔法少女", "異種族", "天使", "妖精", "魔物娘", "魅魔", "吸血鬼",
+    "女鬼", "獸娘", "福瑞", "乳牛", "機械娘", "碧池", "痴女", "雌小鬼", "不良少女", "傲嬌",
+    "病嬌", "無口", "無表情", "眼神死", "正太", "偽娘", "扶他"]],
+  ["外貌身材", ["短髮", "馬尾", "雙馬尾", "丸子頭", "巨乳", "乳環", "舌環", "貧乳", "黑皮膚", "曬痕",
+    "眼鏡娘", "獸耳", "尖耳朵", "異色瞳", "美人痣", "肌肉女", "白虎", "陰毛", "腋毛", "大屌",
+    "黑屌", "著衣", "水手服", "體操服", "泳裝", "比基尼", "死庫水", "和服", "兔女郎", "圍裙",
+    "啦啦隊", "絲襪", "吊襪帶", "熱褲", "迷你裙", "性感內衣", "緊身衣", "丁字褲", "高跟鞋", "睡衣",
+    "婚紗", "旗袍", "古裝", "哥德", "口罩", "刺青", "淫紋", "身體寫字"]],
+  ["情境場所", ["校園", "教室", "圖書館", "保健室", "體育倉庫", "游泳池", "愛情賓館", "醫院", "辦公室", "浴室",
+    "窗邊", "公共廁所", "公眾場合", "戶外野戰", "電車", "車震", "遊艇", "露營帳篷", "電影院", "健身房",
+    "沙灘", "溫泉", "夜店", "監獄", "教堂"]],
+  ["故事劇情", ["純愛", "戀愛喜劇", "後宮", "十指緊扣", "開大車", "NTR", "精神控制", "藥物", "痴漢", "阿嘿顏",
+    "哭泣", "精神崩潰", "獵奇", "BDSM", "綑綁", "眼罩", "項圈", "調教", "異物插入", "尋歡洞",
+    "肉便器", "性奴隸", "胃凸", "強制", "輪姦", "凌辱", "性暴力", "逆強制", "女王樣", "榨精",
+    "母女丼", "姐妹丼", "出軌", "醉酒", "攝影", "睡眠姦", "機械姦", "蟲姦", "性轉換", "百合",
+    "耽美", "時間停止", "異世界", "怪獸", "哥布林", "世界末日"]],
+  ["性交體位", ["手交", "指交", "玩乳頭", "乳交", "乳頭交", "肛交", "雙洞齊下", "腳交", "素股", "拳交",
+    "3P", "群交", "口交", "跪舔", "深喉嚨", "口爆", "吞精", "舔蛋蛋", "舔穴", "69",
+    "自慰", "腋交", "舔腋下", "髮交", "舔耳朵", "舔腳", "內射", "外射", "顏射", "潮吹",
+    "懷孕", "噴奶", "放尿", "排便", "騎乘位", "背後位", "側面位", "顏面騎乘", "火車便當", "一字馬",
+    "性玩具", "飛機杯", "跳蛋", "毒龍鑽", "觸手", "獸交", "頸手枷", "扯頭髮", "掐脖子", "打屁股",
+    "肉棒打臉", "陰道外翻", "男乳首責", "接吻", "舌吻", "POV"]],
 ];
+
+// 标签 key → 组名（用于把选中的标签按组分到不同 extend 项）
+const TAG_BY_GROUP = {};
+for (const [gname, tags] of TAG_GROUPS) TAG_BY_GROUP[gname] = tags;
 
 function hdrs(ref) {
   return {
     "User-Agent": UA,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium":"131", "Not_A Brand";v="24"',
     "Sec-Ch-Ua-Mobile": "?1",
     "Sec-Ch-Ua-Platform": '"Android"',
     "Sec-Fetch-Dest": "document",
@@ -63,19 +96,16 @@ function clean(s) {
 function pageUrlOf(raw) {
   let u = String(raw || "").trim();
   u = u.replace(/^(v|mix)\|/, "");
-  if (/^(t|a|c):/.test(u)) u = u.substring(2);
+  if (/^(t|a|c|q|g):/.test(u)) u = u.substring(2);
   const bar = u.lastIndexOf("|");
   if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
   if (u.indexOf("http") === 0) return u;
   return BASE + (u.charAt(0) === "/" ? u : "/" + u);
 }
 
-// 卡片：<div class="video-item-container" title="..."> ... <a href="/watch?v=ID" class="video-link"> ... <img class="main-thumb" src="..."> <div class="duration"> 01:07 </div> ... <div class="title"> 标题 </div>
+// 站点两套卡片结构：首页 video-item-container / 分类页 home-rows-videos-div
+// 统一按 watch?v= 链接切块
 function parseCards(html) {
-  // 站点有两套卡片结构：
-  //   首页      class="video-item-container"（含 duration / title）
-  //   分类/搜索 class="home-rows-videos-div search-videos"（含 home-rows-videos-title）
-  // 统一做法：按 watch?v= 链接切块，两种结构都能吃。
   const text = String(html || "");
   const marks = [];
   const re = /href="https:\/\/hanime1\.me\/watch\?v=\d+"/g;
@@ -95,12 +125,10 @@ function parseCards(html) {
     if (seen[url]) continue;
     seen[url] = 1;
 
-    // 封面：优先 cover 图，其次 thumbnail
     const img = b.match(/<img[^>]*src="([^"]*\/image\/cover\/[^"]*)"/) ||
       b.match(/<img[^>]*src="([^"]*hembed[^"]*(?:thumbnail|cover)[^"]*)"/) ||
       b.match(/<img[^>]*class="[^"]*main-thumb[^"]*"[^>]*src="([^"]+)"/);
 
-    // 标题：两种结构都试
     const titleM = b.match(/<div class="home-rows-videos-title">\s*([\s\S]{0,400}?)<\/div>/) ||
       b.match(/<div class="title">\s*([\s\S]{0,400}?)<\/div>/);
     const dur = b.match(/<div class="duration">\s*([\d:]{2,10})\s*<\/div>/);
@@ -119,17 +147,57 @@ export default class Hanime1 extends Spider {
   init() {}
 
   async homeContent() {
-    const classes = [];
-    for (const [g, name] of GENRES) {
-      classes.push({ type_id: "g:" + g, type_name: name });
-    }
-    classes.push({ type_id: "latest", type_name: "最新" });
-    classes.push({ type_id: "web", type_name: "网页" });
+    // 主页只留一个入口（分类/筛选都在筛选面板里）
+    const classes = [
+      { type_id: "all", type_name: "视频" },
+      { type_id: "web", type_name: "网页" },
+    ];
 
-    return {
-      class: classes,
-      filters: {},
+    // 筛选：类型 / 标签(7组) / 排序 / 时间 / 时长
+    const filters = {
+      all: [
+        { key: "order", name: "排序", value: SORTS.map((s) => ({ n: s, v: s })) },
+        { key: "genre", name: "类型", value: GENRES.map((s) => ({ n: s, v: s })) },
+        { key: "date", name: "时间", value: DATES.map((s) => ({ n: s, v: s })) },
+        { key: "dur", name: "时长", value: DURS.map((s) => ({ n: s, v: s })) },
+        // 7 组标签：多选 + 可搜索（分面）
+        ...TAG_GROUPS.map(([gname, tags]) => ({
+          key: "tag_" + gname,
+          name: gname,
+          multi: true,
+          value: tags.map((t) => ({ n: t, v: t })),
+        })),
+      ],
     };
+
+    return { class: classes, filters: filters };
+  }
+
+  /** 按 extend 拼查询串 */
+  buildQuery(extend) {
+    const ex = extend || {};
+    const parts = [];
+    parts.push("query=");
+    parts.push("type=");
+    parts.push("genre=" + encodeURIComponent(ex.genre || "全部"));
+    parts.push("sort=" + encodeURIComponent(ex.order || ex.sort || ""));
+    parts.push("date=" + encodeURIComponent(ex.date || ""));
+    parts.push("dur=" + encodeURIComponent(ex.dur || ""));
+
+    // 站点参数名是 duration，不是 dur
+    const idx = parts.length - 1;
+    parts[idx] = "duration=" + encodeURIComponent(ex.dur || "");
+
+    // 标签：7 组任选（可多选）
+    for (const [gname] of TAG_GROUPS) {
+      const v = ex["tag_" + gname];
+      if (!v) continue;
+      String(v).split(",").forEach((t) => {
+        const name = t.trim();
+        if (name) parts.push("tags%5B%5D=" + encodeURIComponent(name));
+      });
+    }
+    return parts.join("&");
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -143,14 +211,7 @@ export default class Hanime1 extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    let url;
-    if (String(tid).indexOf("g:") === 0) {
-      url = BASE + "/search?genre=" + encodeURIComponent(String(tid).substring(2)) + "&page=" + p;
-    } else if (String(tid).indexOf("q:") === 0) {
-      url = BASE + "/search?query=" + encodeURIComponent(String(tid).substring(2)) + "&page=" + p;
-    } else {
-      url = BASE + "/search?query=&page=" + p;
-    }
+    const url = BASE + "/search?" + this.buildQuery(extend) + "&page=" + p;
 
     let html = "";
     try {
@@ -162,7 +223,6 @@ export default class Hanime1 extends Spider {
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
     const cards = parseCards(html);
-    // 满页 → 还有下一页
     const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
@@ -193,16 +253,10 @@ export default class Hanime1 extends Spider {
       const d = html.match(/property="og:video:duration"[^>]*content="(\d+)"/);
       if (d) {
         const sec = Number(d[1]);
-        const m = Math.floor(sec / 60);
-        const s = sec % 60;
-        duration = m + ":" + ("0" + s).slice(-2);
+        duration = Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2);
       }
     }
 
-    // 站点结构：
-    //   作者   <a id="video-artist-name" href="?query=xxx">
-    //   分类   <a href="?genre=xxx">（在作者旁边）
-    //   标签   <div class="video-tags-wrapper"> 里的 ?tags[]=xxx
     const lines = [];
     if (duration) lines.push("时长：" + duration);
 
@@ -222,7 +276,7 @@ export default class Hanime1 extends Spider {
       }
     }
 
-    // 分类：作者旁边的 genre 链接
+    // 分类（作者旁的 genre 链接）
     const genres = [];
     const gm = html.match(/id="video-artist-name"[\s\S]{0,600}?search\?genre=([^"]+)"[^>]*>\s*([^<]{1,30})/);
     if (gm) {
@@ -231,7 +285,7 @@ export default class Hanime1 extends Spider {
       genres.push('[a=cr={"id":"g:' + g.trim() + '"}/]' + clean(gm[2]) + "[/a]");
     }
 
-    // 标签：video-tags-wrapper 区块
+    // 标签（video-tags-wrapper 区块）
     const tags = [];
     const seenT = {};
     const tw = html.match(/class="video-details-wrapper video-tags-wrapper"[\s\S]{0,8000}/);
@@ -241,9 +295,8 @@ export default class Hanime1 extends Spider {
       while ((m = re.exec(tw[0])) !== null) {
         let kw = decode(m[1]).replace(/\+/g, " ");
         try { kw = decodeURIComponent(kw); } catch (e) { }
-        // 链接里可能带 &amp;genre=xxx，截掉
-        const ampIdx = kw.indexOf("&");
-        if (ampIdx > 0) kw = kw.substring(0, ampIdx);
+        const ai = kw.indexOf("&");
+        if (ai > 0) kw = kw.substring(0, ai);
         kw = kw.trim();
         if (!kw || seenT[kw]) continue;
         seenT[kw] = 1;
@@ -256,7 +309,6 @@ export default class Hanime1 extends Spider {
     if (genres.length) lines.push(genres.join(" · "));
     if (tags.length) lines.push(tags.join(" · "));
 
-    // 作者放进 remarks（App 里显示成作者行、可点）
     let authorRemarks = "";
     if (artistName) {
       authorRemarks = artistId
@@ -289,7 +341,6 @@ export default class Hanime1 extends Spider {
     }
     if (!html) throw new Error("详情页打不开");
 
-    // 优先 1080p → 720p → 480p
     const all = [];
     const re = /(https:\/\/vdownload\.hembed\.com\/\d+-(1080p|720p|480p)\.mp4[^"'\s]*)/g;
     let m;
@@ -304,10 +355,7 @@ export default class Hanime1 extends Spider {
     return {
       parse: 0,
       url: target,
-      header: {
-        "User-Agent": UA,
-        "Referer": BASE + "/",
-      },
+      header: { "User-Agent": UA, "Referer": BASE + "/" },
     };
   }
 
