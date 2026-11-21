@@ -227,15 +227,27 @@ export default class MissAv extends Spider {
     const url = BASE + path + (p > 1 ? sep + "page=" + p : "");
 
     let html = "";
+    let r = null;
     try {
-      const r = await this.net.req(url, { headers: hdrs(url) });
+      r = await this.net.req(url, { headers: hdrs(url) });
       if (r && r.code === 200) html = r.content;
     } catch (e) {
       html = "";
     }
-    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+    if (!html) {
+      const hint = "请求失败\n状态: " + (r && r.code) + "\n地址: " + url;
+      return this.page([{ vod_id: "__diag", vod_name: hint, vod_pic: "", vod_remarks: "诊断" }], 1, PAGE_SIZE, 1);
+    }
 
     const cards = parseCards(html);
+    if (!cards.length && p === 1) {
+      // 诊断卡：把状态码/长度/是否 CF 挑战 直接显示出来
+      const cf = html.indexOf("Just a moment") >= 0 || html.indexOf("_cf_chl_opt") >= 0;
+      const hint = "抓取返回 0 条\n状态: " + (r && r.code) + "\n长度: " + html.length +
+        "\nCloudflare挑战: " + (cf ? "是" : "否") +
+        "\n地址: " + url;
+      return this.page([{ vod_id: "__diag", vod_name: hint, vod_pic: "", vod_remarks: "诊断" }], 1, PAGE_SIZE, 1);
+    }
     // 不依赖页面里的末页链接（手机端 HTML 可能没有）：满页就认为后面还有
     const total = cards.length < PAGE_SIZE
       ? (p - 1) * PAGE_SIZE + cards.length
