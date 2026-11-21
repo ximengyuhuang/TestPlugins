@@ -1,17 +1,29 @@
 // 绅士俱乐部（ssimg.xyz）—— BiliTV / catvod QuickJS 插件
 //
-// Typecho 1.2 + photograph 主题，纯图集站：
-//   列表  /                        /?page=N
-//         /category/<slug>/        /category/<slug>/?page=N   （slug: cos / r15 / r18）
-//   详情  /<分类>/<id>.html        图集原图在 <div class="post-item" data-src="原图">
+// 站类型：纯图集（Typecho + photograph 主题，无视频）
+//   列表  /                        /?page=N                    18 条/页
+//         /category/<slug>/        /category/<slug>/?page=N    （slug: cos / r15 / r18）
+//   详情  /<分类>/<id>.html        原图在 <div class="post-item" data-src="…">
+//   标签  /tag/<名字>/             详情页里有链接
 //   搜索  /search/<关键字>/
-// 图集走 App 的 action("gal|<url>")，返回 {list:[{url}]}
+//
+// App 约定：
+//   卡片角标 9P      → 纯图集，点卡片直接进图集
+//   action("gal|")   → 返回 { list: [{url}] } 给原生瀑布流
+//   vod_play_url     → web:// 兜底（详情页「查看图集」不会真的播放）
 
 import { Spider, openWeb } from "catvod";
 
 const BASE = "https://ssimg.xyz";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE_SIZE = 18;
+
+const CATS = [
+  ["latest", "最新", "/"],
+  ["cos", "cos", "/category/cos/"],
+  ["r15", "r15", "/category/r15/"],
+  ["r18", "r18", "/category/r18/"],
+];
 
 function hdrs(ref) {
   return {
@@ -38,41 +50,59 @@ function clean(s) {
   return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-// 列表卡片：<div class="item ..."> …data-original 封面 + item-link + item-link-text 标题 + [NP]
+function absolute(u) {
+  if (!u) return "";
+  if (u.indexOf("http") === 0) return u;
+  if (u.indexOf("//") === 0) return "https:" + u;
+  return BASE + (u.charAt(0) === "/" ? u : "/" + u);
+}
+
+/** 详情 id 可能是 v|<url>|0 / mix|<url> / t:<url>，统一还原成页面地址 */
+function pageUrlOf(raw) {
+  let u = String(raw || "").trim();
+  u = u.replace(/^(v|mix)\|/, "");
+  if (u.indexOf("t:") === 0) u = u.substring(2);
+  const bar = u.lastIndexOf("|");
+  if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
+  if (u && u.indexOf("http") !== 0) u = absolute(u);
+  return u;
+}
+
+// 列表卡片：<div class="item col-…"> …data-original 封面 + item-link + item-link-text + [9P]
 function parseCards(html) {
   const out = [];
   const seen = {};
-  const parts = String(html).split(/<div class="item\s/).slice(1);
-  for (const p of parts) {
-    const block = p.substring(0, 2000);
-    const link = block.match(/class="item-link"\s+href="(https:\/\/ssimg\.xyz\/[a-z0-9\-]+\/\d+\.html)"/);
+  const parts = String(html).split('<div class="item ');
+  for (let i = 1; i < parts.length; i++) {
+    const b = parts[i].substring(0, 2000);
+    const link = b.match(/class="item-link"\s+href="(https:\/\/ssimg\.xyz\/[a-z0-9\-]+\/\d+\.html)"/);
     if (!link) continue;
     const url = link[1];
     if (seen[url]) continue;
     seen[url] = 1;
 
-    const title = block.match(/item-link-text">([\s\S]{0,200}?)<\/div>/);
-    const cover = block.match(/data-original="([^"]+)"/);
-    const num = block.match(/\[(\d+)P\]/);
+    const title = b.match(/item-link-text">([\s\S]{0,200}?)<\/div>/);
+    const cover = b.match(/data-original="([^"]+)"/);
+    const num = b.match(/\[(\d+)P\]/);
 
     out.push({
-      url: url,
-      title: clean(title ? title[1] : "") || "未命名",
-      pic: cover ? cover[1] : "",
-      count: num ? Number(num[1]) : 0,
+      vod_id: url,
+      vod_name: clean(title ? title[1] : "") || "未命名",
+      vod_pic: cover ? decode(cover[1]) : "",
+      vod_remarks: num ? num[1] + "P" : "图集",
     });
   }
   return out;
 }
 
-// 详情页原图：data-src 优先，data-original 兜底
+// 详情原图：data-src 优先，data-original 兜底
 function parseImages(html) {
   const out = [];
   const seen = {};
   const re = /class="post-item[^"]*"[^>]*data-(?:src|original)="([^"]+)"/g;
   let m;
   while ((m = re.exec(String(html))) !== null) {
-    const u = m[1];
+    const u = decode(m[1]);
     if (!u || seen[u]) continue;
     seen[u] = 1;
     out.push(u);
@@ -85,27 +115,14 @@ function pageTitle(html) {
   return m ? clean(m[1]).replace(/\s*-\s*绅士俱乐部\s*$/, "") : "";
 }
 
-function toCard(c) {
-  return {
-    vod_id: c.url,
-    vod_name: c.title,
-    vod_pic: c.pic,
-    vod_remarks: c.count ? c.count + "P" : "图集",
-  };
-}
-
 export default class Ssimg extends Spider {
   init() {}
 
   async homeContent() {
     return {
-      class: [
-        { type_id: "latest", type_name: "最新" },
-        { type_id: "cos", type_name: "cos" },
-        { type_id: "r15", type_name: "r15" },
-        { type_id: "r18", type_name: "r18" },
-        { type_id: "web", type_name: "网页" },
-      ],
+      // 纯图集站没有排序参数，所以不放 filters（App 的 ⇅ 会置灰）
+      class: CATS.map(([id, name]) => ({ type_id: id, type_name: name }))
+        .concat([{ type_id: "web", type_name: "网页" }]),
     };
   }
 
@@ -120,90 +137,127 @@ export default class Ssimg extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    let url;
-    if (!tid || tid === "latest") {
-      url = BASE + "/" + (p > 1 ? "?page=" + p : "");
+    // 标签跳转：详情里的 t:<url>
+    let path;
+    if (String(tid).indexOf("t:") === 0) {
+      path = String(tid).substring(2);
+      if (path.indexOf("http") !== 0) path = absolute(path);
     } else {
-      url = BASE + "/category/" + tid + "/" + (p > 1 ? "?page=" + p : "");
+      const hit = CATS.find((c) => c[0] === tid);
+      path = hit ? BASE + hit[2] : BASE + "/";
     }
+
+    const url = path + (p > 1 ? (path.indexOf("?") >= 0 ? "&" : "?") + "page=" + p : "");
 
     let html = "";
     try {
-      const r = await this.net.req(url, { headers: hdrs() });
+      const r = await this.net.req(url, { headers: hdrs(path) });
       if (r && r.code === 200) html = r.content;
     } catch (e) {
       html = "";
     }
-    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+    if (!html) {
+      this.log("category failed: " + url);
+      return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+    }
 
     const cards = parseCards(html);
-    const list = cards.map(toCard);
-    // 站点没有总页数：满页就认为后面还有
-    const total = cards.length < PAGE_SIZE ? (p - 1) * PAGE_SIZE + cards.length : p * PAGE_SIZE + PAGE_SIZE;
-    return this.page(list, p, PAGE_SIZE, total);
+    // 站点不暴露总页数：满页就认为后面还有
+    const total = cards.length < PAGE_SIZE
+      ? (p - 1) * PAGE_SIZE + cards.length
+      : p * PAGE_SIZE + PAGE_SIZE;
+    return this.page(cards, p, PAGE_SIZE, total);
   }
 
   async detailContent(ids) {
-    const url = String(ids[0] || "");
+    const url = pageUrlOf(ids[0]);
     let title = "图集";
-    let pic = "";
-    let content = "";
-    let count = 0;
+    let imgs = [];
+    let date = "";
+    let html = "";
 
     try {
-      const r = await this.net.req(url, { headers: hdrs() });
-      if (r && r.code === 200) {
-        const html = r.content;
-        title = pageTitle(html) || title;
-        const imgs = parseImages(html);
-        count = imgs.length;
-        pic = imgs.length ? imgs[0] : "";
-        const date = html.match(/日期：<\/span>\s*<span[^>]*>([^<]*)</);
-        const lines = [];
-        if (date) lines.push("日期：" + clean(date[1]));
-        lines.push("图片：" + count + " 张");
-        content = lines.join("\n");
-      }
+      const r = await this.net.req(url, { headers: hdrs(url) });
+      if (r && r.code === 200) html = r.content;
     } catch (e) {
+      html = "";
     }
+
+    if (html) {
+      title = pageTitle(html) || title;
+      imgs = parseImages(html);
+      const d = html.match(/日期[：:]\s*<\/span>\s*<span[^>]*>([^<]*)</);
+      if (d) date = clean(d[1]);
+    }
+
+    // 标签：从详情页的 /tag/<名字>/ 链接转成可点 chip（id 用 t:<完整URL>）
+    const tagLinks = [];
+    if (html) {
+      const re = /href="(https:\/\/ssimg\.xyz\/tag\/[^"]+)"/g;
+      let m;
+      const seen = {};
+      while ((m = re.exec(html)) !== null) {
+        const t = m[1];
+        if (seen[t]) continue;
+        seen[t] = 1;
+        let name = "";
+        try {
+          name = clean(decodeURIComponent(t.replace(/^.*\/tag\//, "").replace(/\/$/, "")));
+        } catch (e) {
+          name = clean(t.replace(/^.*\/tag\//, ""));
+        }
+        if (name) tagLinks.push('[a=cr:{"id":"t:' + t + '"}/]' + name + "[/a]");
+      }
+    }
+
+    const lines = [];
+    if (date) lines.push("日期：" + date);
+    lines.push("图片：" + imgs.length + " 张");
+    if (tagLinks.length) lines.push(tagLinks.join(" · "));
 
     return {
       list: [{
         vod_id: url,
         vod_name: title,
-        vod_pic: pic,
-        vod_content: content,
-        vod_remarks: count ? count + "P" : "图集",
+        vod_pic: imgs.length ? imgs[0] : "",
+        vod_content: lines.join("\n"),
+        vod_remarks: imgs.length ? imgs.length + "P" : "图集",
         gallery: true,
+        // 不真的播放：App 只据此显示「查看图集」
         vod_play_from: "绅士俱乐部",
         vod_play_url: "网页查看$web://" + url,
       }],
     };
   }
 
-  // 图集：App 用 action("gal|<url>") 拉全部原图
+  /** 原生图集：App 调 action("gal|<页面URL>") */
   async action(op) {
     const s = String(op || "");
-    if (s.indexOf("gal|") !== 0) return [];
-    const url = s.substring(4);
 
-    try {
-      const r = await this.net.req(url, { headers: hdrs() });
-      if (r && r.code === 200) {
-        const imgs = parseImages(r.content);
-        if (imgs.length) return { list: imgs.map((u) => ({ url: u })) };
+    if (s.indexOf("gal|") === 0) {
+      const url = pageUrlOf(s.substring(4));
+      if (!url) return { list: [] };
+      try {
+        const r = await this.net.req(url, { headers: hdrs(url) });
+        if (r && r.code === 200) {
+          const imgs = parseImages(r.content);
+          if (imgs.length) return { list: imgs.map((u) => ({ url: u })) };
+        }
+      } catch (e) {
       }
-    } catch (e) {
+      return { list: [] };
     }
-    return { list: [] };
+
+    return [];
   }
 
   async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
     const url = BASE + "/search/" + encodeURIComponent(key) + "/" + (p > 1 ? "?page=" + p : "");
+
     let html = "";
     try {
-      const r = await this.net.req(url, { headers: hdrs() });
+      const r = await this.net.req(url, { headers: hdrs(BASE + "/search/") });
       if (r && r.code === 200) html = r.content;
     } catch (e) {
       html = "";
@@ -211,12 +265,13 @@ export default class Ssimg extends Spider {
     if (!html) return this.page([], p, PAGE_SIZE, 0);
 
     const cards = parseCards(html);
-    return this.page(cards.map(toCard), p, PAGE_SIZE, cards.length);
+    return this.page(cards, p, PAGE_SIZE, cards.length);
   }
 
   async playerContent(flag, id) {
+    // 图集站：统一转内置浏览器（真正看图走 gal|）
     const raw = String(id || "");
-    if (raw.indexOf("web://") === 0) return { parse: 0, url: raw, header: "{}" };
-    return { parse: 0, url: "web://" + raw, header: "{}" };
+    if (raw.indexOf("web://") === 0) return { parse: 0, url: raw, header: {} };
+    return { parse: 0, url: "web://" + pageUrlOf(raw), header: {} };
   }
 }
