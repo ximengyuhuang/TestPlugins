@@ -375,7 +375,7 @@ export default class Rule34Video extends Spider {
   // App 调 action("side|") 期望 { groups:[{name, items:[{name, id}]}] }
   async action(op) {
     const s = String(op || "");
-    if (s.indexOf("side|") !== 0) return "{}";
+    if (s.indexOf("side|") !== 0) return {};
 
     let html = "";
     try {
@@ -384,7 +384,7 @@ export default class Rule34Video extends Spider {
     } catch (e) {
       html = "";
     }
-    if (!html) return JSON.stringify({ groups: [] });
+    if (!html) return { groups: [] };
 
     const groups = [];
 
@@ -422,7 +422,7 @@ export default class Rule34Video extends Spider {
       ],
     });
 
-    return JSON.stringify({ groups: groups });
+    return { groups: groups };
   }
 
   /** 从首页「侧边栏区域」解析某类条目（categories / models） */
