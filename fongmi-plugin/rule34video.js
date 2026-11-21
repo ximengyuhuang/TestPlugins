@@ -682,6 +682,21 @@ export default class Rule34Video extends Spider {
 
     if (s.indexOf("side|") !== 0) return {};
 
+    const groups = [];
+
+    // ① 全部标签：/tags/ 页里的标签云
+    const allTags = await this.sideTags();
+    if (allTags.length) groups.push({ name: "全部标签", items: allTags });
+
+    // ② 热门角色：站点 /top-characters/ 是前端渲染，暂留占位
+    groups.push({
+      name: "热门角色",
+      disabled: true,
+      hint: "站点这一页由前端渲染，暂未支持",
+      items: [],
+    });
+
+    // ③ 热门搜索：首页侧边栏 Trending searches（标签云）
     let html = "";
     try {
       const r = await this.net.req(BASE + "/", { headers: hdrs(BASE + "/") });
@@ -689,49 +704,66 @@ export default class Rule34Video extends Spider {
     } catch (e) {
       html = "";
     }
-    if (!html) return { groups: [] };
 
-    const groups = [];
+    const trending = html ? this.sideTrending(html) : [];
+    if (trending.length) groups.push({ name: "热门搜索", items: trending });
 
-    const cats = this.parseAside(html, "categories", 12);
-    if (cats.length) {
-      cats.push({ name: "▸ 全部分类（46）", id: "cats" });
-      groups.push({ name: "热门分类", items: cats });
-    }
+    // ④ 热门分类（带视频数）
+    const cats = html ? this.parseAside(html, "categories", 10) : [];
+    if (cats.length) groups.push({ name: "热门分类", items: cats });
 
-    const artists = this.parseAside(html, "models", 12);
-    if (artists.length) {
-      artists.push({ name: "▸ 全部模型（48）", id: "models" });
-      groups.push({ name: "热门画师", items: artists });
-    }
-
-    groups.push({
-      name: "排行榜",
-      items: [
-        { name: "最多观看", id: "p:/?sort_by=video_viewed" },
-        { name: "最高评分", id: "p:/?sort_by=rating" },
-        { name: "时长最长", id: "p:/?sort_by=duration" },
-        { name: "随机", id: "p:/?sort_by=pseudo_rand" },
-      ],
-    });
-
-    groups.push({
-      name: "精选筛选",
-      items: [
-        { name: "4K 原画", id: "p:/?is_hd=3" },
-        { name: "1080p+", id: "p:/?is_hd=2" },
-        { name: "20 分钟以上", id: "p:/?duration_from=1200" },
-        { name: "5-20 分钟", id: "p:/?duration_from=300&duration_to=1200" },
-        { name: "近一周 · 最高评分", id: "p:/?sort_by=rating&post_date_from=3" },
-        { name: "Straight", id: "p:/?flag1=2109" },
-        { name: "Futa", id: "p:/?flag1=15" },
-        { name: "Gay", id: "p:/?flag1=192" },
-        { name: "Music", id: "p:/?flag1=4747" },
-        { name: "Iwara", id: "p:/?flag1=1821" },
-      ],
-    });
+    // ⑤ 热门画师（带视频数）
+    const artists = html ? this.parseAside(html, "models", 10) : [];
+    if (artists.length) groups.push({ name: "热门画师", items: artists });
 
     return { groups: groups };
+  }
+
+  /** 全部标签：从 /tags/ 页取标签云（约 70 个），点进走 /tags/<slug>/ */
+  async sideTags() {
+    let html = "";
+    try {
+      const r = await this.net.req(BASE + "/tags/", { headers: hdrs(BASE + "/tags/") });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) {
+      return [];
+    }
+    if (!html) return [];
+
+    const out = [];
+    const seen = {};
+    const re = /class="button"[^>]*href="https:\/\/rule34video\.com\/tags\/([^"/]+)\/"[^>]*>([\s\S]{0,60}?)<\/a>/g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const slug = m[1];
+      if (seen[slug]) continue;
+      seen[slug] = 1;
+      const name = clean(m[2]) || slugName(slug);
+      out.push({ name: name, id: "p:/tags/" + slug + "/" });
+    }
+    return out;
+  }
+
+  /** 热门搜索：首页侧边栏 Trending searches 区块（也是标签云） */
+  sideTrending(html) {
+    const text = String(html || "");
+    const at = text.indexOf("Trending searches");
+    if (at < 0) return [];
+    const next = text.indexOf('<div class="box', at + 10);
+    const seg = text.substring(at, next > at ? next : at + 6000);
+
+    const out = [];
+    const seen = {};
+    const re = /href="https:\/\/rule34video\.com\/tags\/([^"/]+)\/"[^>]*>([^<]{0,60})<\/a>/g;
+    let m;
+    while ((m = re.exec(seg)) !== null) {
+      const slug = m[1];
+      if (seen[slug]) continue;
+      seen[slug] = 1;
+      out.push({ name: clean(m[2]) || slugName(slug), id: "p:/tags/" + slug + "/" });
+      if (out.length >= 30) break;
+    }
+    return out;
   }
 
   /** 分面搜索：代理站点自己的三个 *_json.php 自动补全接口 */
