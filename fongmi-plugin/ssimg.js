@@ -277,22 +277,40 @@ export default class Ssimg extends Spider {
     };
   }
 
-  /** 原生图集：App 调 action("gal|<页面URL>") */
+  /** 原生图集：App 调 action("gal|<页面URL>") → { list: [...], tags: [...] } */
   async action(op) {
     const s = String(op || "");
 
     if (s.indexOf("gal|") === 0) {
       const url = pageUrlOf(s.substring(4));
-      if (!url) return { list: [] };
+      if (!url) return { list: [], tags: [] };
       try {
         const r = await this.net.req(url, { headers: hdrs(url) });
         if (r && r.code === 200) {
-          const imgs = parseImages(r.content);
-          if (imgs.length) return { list: imgs.map((u) => ({ url: u })) };
+          const html = r.content;
+          const imgs = parseImages(html);
+          // 标签：详情页里的 /tag/<名字>/ 链接 → {name, id:"t:<url>"}
+          const tags = [];
+          const seen = {};
+          const re = /href="(https:\/\/ssimg\.xyz\/tag\/[^"]+)"/g;
+          let m;
+          while ((m = re.exec(html)) !== null) {
+            const t = m[1];
+            if (seen[t]) continue;
+            seen[t] = 1;
+            let name = "";
+            try {
+              name = clean(decodeURIComponent(t.replace(/^.*\/tag\//, "").replace(/\/$/, "")));
+            } catch (e) {
+              name = clean(t.replace(/^.*\/tag\//, ""));
+            }
+            if (name) tags.push({ name: name, id: "t:" + t });
+          }
+          if (imgs.length) return { list: imgs.map((u) => ({ url: u })), tags: tags };
         }
       } catch (e) {
       }
-      return { list: [] };
+      return { list: [], tags: [] };
     }
 
     return [];
