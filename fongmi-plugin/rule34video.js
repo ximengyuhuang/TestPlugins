@@ -235,7 +235,19 @@ function filterQuery(extend, allowDate) {
   if (/^[12]$/.test(up)) push("flag2", up);
 
   // 分面三组（含 / 排除）
-  const inc = { tags: numericIds(ex.tags), cats: numericIds(ex.cats), arts: numericIds(ex.arts) };
+  // tags 组的值可能是 "dir:<slug>"（站点 tags_json 不给数字 id），这类走标签页路径
+  const tagDirs = toList(ex.tags)
+    .map((v) => String(v))
+    .filter((v) => v.indexOf("dir:") === 0)
+    .map((v) => v.substring(4))
+    .filter((v) => v)
+    .slice(0, 1);            // 站点一次只走一个标签路径
+
+  const inc = {
+    tags: numericIds(toList(ex.tags).filter((v) => String(v).indexOf("dir:") !== 0)),
+    cats: numericIds(ex.cats),
+    arts: numericIds(ex.arts),
+  };
   for (const k in FACETS) push(FACETS[k].param, idsParam({
     tagMatch: ex.tagMatch || "all",
     catMatch: ex.catMatch || "all",
@@ -252,7 +264,7 @@ function filterQuery(extend, allowDate) {
   });
   if (excl.length) push("temp_skip_items", excl.join(","));
 
-  return { q, hasFacet: !!(inc.tags.length || inc.cats.length || inc.arts.length) };
+  return { q, hasFacet: !!(inc.tags.length || inc.cats.length || inc.arts.length), tagDirs: tagDirs };
 }
 
 /** 排除项里同 id 的 inc 要剔掉（站点 parseState 就是这个语义） */
@@ -537,6 +549,12 @@ export default class Rule34Video extends Spider {
     }
 
     const built = filterQueryForPage(extend || {}, allowDate);
+
+    // tags 组若是 dir:<slug>（站点不给数字 tag id），直接换成 /tags/<slug>/ 路径
+    if (built.tagDirs && built.tagDirs.length && !isSearchPath) {
+      pathPart = "/tags/" + encodeURIComponent(built.tagDirs[0]) + "/";
+      built.tagDirs = [];
+    }
     const hasFilter = built.q.length > 0;
     // 站点的规则：带分面（tag_ids/category_ids/model_ids）时统一走 /search/
     let basePath = pathPart;
@@ -745,12 +763,29 @@ export default class Rule34Video extends Spider {
     for (let i = 0; i < raw.length; i++) {
       const it = raw[i] || {};
       const id = String(it.id == null ? "" : it.id);
+      const dir = String(it.dir || "");
+      const name = plain(it.title || it.name || dir || "") || id;
+
+      // categories / models：id 就是数字，直接用
+      // tags：tags_json 的 id 是**标签名**，站点 tag_ids 只认数字。
+      //       但 /tags/<dir>/ 这条页面本身就能当标签筛选，所以 tags 项用 dir 走搜索路径。
+      if (kind === "tags") {
+        if (!dir && !id) continue;
+        items.push({
+          id: "dir:" + (dir || id),
+          name: name,
+          count: String(it.total == null ? "" : it.total),
+          slug: dir || id,
+        });
+        continue;
+      }
+
       if (!/^[0-9]+$/.test(id) || id === "0") continue;
       items.push({
         id: id,
-        name: plain(it.title || it.name || it.dir || "") || id,
+        name: name,
         count: String(it.total == null ? "" : it.total),
-        slug: String(it.dir || ""),
+        slug: dir,
       });
     }
     return { kind: kind, page: pg || 1, total: Number(obj && obj.total_count) || 0, items: items };
