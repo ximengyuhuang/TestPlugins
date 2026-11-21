@@ -309,7 +309,7 @@ export default class Hanime1 extends Spider {
     if (gm) {
       let g = decode(gm[1]);
       try { g = decodeURIComponent(g); } catch (e) { }
-      genres.push('[a=cr={"id":"g:' + g.trim() + '"}/]' + clean(gm[2]) + "[/a]");
+      genres.push('[a=cr:{"id":"g:' + g.trim() + '"}/]' + clean(gm[2]) + "[/a]");
     }
 
     // 标签（video-tags-wrapper 区块）
@@ -328,7 +328,7 @@ export default class Hanime1 extends Spider {
         if (!kw || seenT[kw]) continue;
         seenT[kw] = 1;
         const name = clean(m[2]).replace(/\(\d+\)$/, "").trim() || kw;
-        tags.push('[a=cr={"id":"q:' + kw + '"}/]' + name + "[/a]");
+        tags.push('[a=cr:{"id":"q:' + kw + '"}/]' + name + "[/a]");
         if (tags.length >= 12) break;
       }
     }
@@ -339,7 +339,7 @@ export default class Hanime1 extends Spider {
     let authorRemarks = "";
     if (artistName) {
       authorRemarks = artistId
-        ? '[a=cr={"id":"' + artistId + '"}/]' + artistName + "[/a]"
+        ? '[a=cr:{"id":"' + artistId + '"}/]' + artistName + "[/a]"
         : artistName;
     }
 
