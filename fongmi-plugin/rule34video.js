@@ -104,25 +104,22 @@ function slugName(slug) {
  *   搜索      /search/<词>/<N>/
  * 排序 sort_by 与时间 from/to 走 query。
  */
-function buildListUrl(path, p, sort, time) {
-  const qs = [];
-  if (sort) qs.push("sort_by=" + encodeURIComponent(sort));
-  const rp = rangeParams(time);
-  if (rp) qs.push(rp.substring(1));
-
+function buildListUrl(path, p, query) {
+  const q = query ? "?" + query : "";
   let base = path || "/";
+
+  // 去掉旧的页码尾巴（/3/ 这类），再拼新页码
+  base = base.replace(/\/(\d+)\/$/, "/");
+  if (!base) base = "/";
+  if (base.charAt(base.length - 1) !== "/") base += "/";
 
   if (base === "/") {
     // 首页也是路径式分页：/2/、/3/ …（用 ?page=N 会返回第 1 页）
     const home = p > 1 ? "/" + p + "/" : "/";
-    return BASE + home + (qs.length ? "?" + qs.join("&") : "");
+    return BASE + home + q;
   }
-
-  // 去掉旧的页码尾巴（/3/ 这类），再拼新页码
-  base = base.replace(/\/(\d+)\/$/, "/");
-  if (base.charAt(base.length - 1) !== "/") base += "/";
   const withPage = p > 1 ? base + p + "/" : base;
-  return BASE + withPage + (qs.length ? "?" + qs.join("&") : "");
+  return BASE + withPage + q;
 }
 
 function hasNextPage(html, p) {
@@ -255,9 +252,24 @@ export default class Rule34Video extends Spider {
       path = pageUrlOf(sid).replace(/^https?:\/\/[^/]+/, "");
     }
 
-    const sort = (extend && extend.order) || "post_date";
-    const time = (extend && extend.time) || "all";
-    let url = buildListUrl(path, p, sort, time);
+    // path 里可能自带查询（抽屉里预设的排序/时间，如 "p:/?sort_by=rating"）
+    let pathPart = path;
+    let queryPart = "";
+    const qi = path.indexOf("?");
+    if (qi >= 0) {
+      pathPart = path.substring(0, qi);
+      queryPart = path.substring(qi + 1);
+    }
+
+    const parts = [];
+    if (queryPart) parts.push(queryPart);
+    const sort = (extend && extend.order) || "";
+    if (sort && queryPart.indexOf("sort_by=") < 0) parts.push("sort_by=" + encodeURIComponent(sort));
+    const time = (extend && extend.time) || "";
+    const rp = rangeParams(time);
+    if (rp && queryPart.indexOf("from=") < 0) parts.push(rp.substring(1));
+
+    let url = buildListUrl(pathPart, p, parts.join("&"));
 
     let html = "";
     try {
@@ -359,9 +371,95 @@ export default class Rule34Video extends Spider {
     };
   }
 
+  // ---------------- 侧边栏（App 左侧抽屉） ----------------
+  // App 调 action("side|") 期望 { groups:[{name, items:[{name, id}]}] }
+  async action(op) {
+    const s = String(op || "");
+    if (s.indexOf("side|") !== 0) return "{}";
+
+    let html = "";
+    try {
+      const r = await this.net.req(BASE + "/", { headers: hdrs(BASE + "/") });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) {
+      html = "";
+    }
+    if (!html) return JSON.stringify({ groups: [] });
+
+    const groups = [];
+
+    // 站点侧边栏三个区块：Top Categories / Top Artists / Newest(标签云)
+    const cats = this.parseAside(html, "categories", 12);
+    if (cats.length) {
+      cats.push({ name: "▸ 全部分类（46）", id: "cats" });
+      groups.push({ name: "热门分类", items: cats });
+    }
+
+    const artists = this.parseAside(html, "models", 12);
+    if (artists.length) {
+      artists.push({ name: "▸ 全部模型（48）", id: "models" });
+      groups.push({ name: "热门画师", items: artists });
+    }
+
+    // 常用排序也放进抽屉，方便直接进「高评分/最多观看」
+    groups.push({
+      name: "排行榜",
+      items: [
+        { name: "最多观看", id: "p:/?sort_by=video_viewed" },
+        { name: "最高评分", id: "p:/?sort_by=rating" },
+        { name: "时长最长", id: "p:/?sort_by=duration" },
+        { name: "随机", id: "p:/?sort_by=pseudo_rand" },
+      ],
+    });
+
+    groups.push({
+      name: "按时间",
+      items: [
+        { name: "今天", id: "p:/" + rangeParams("today").replace(/^&/, "?").replace(/&/g, "&") },
+        { name: "本周", id: "p:/" + rangeParams("week").replace(/^&/, "?") },
+        { name: "本月", id: "p:/" + rangeParams("month").replace(/^&/, "?") },
+        { name: "今年", id: "p:/" + rangeParams("year").replace(/^&/, "?") },
+      ],
+    });
+
+    return JSON.stringify({ groups: groups });
+  }
+
+  /** 从首页「侧边栏区域」解析某类条目（categories / models） */
+  parseAside(html, kind, limit) {
+    const text = String(html || "");
+    const at = text.indexOf('class="aside');
+    if (at < 0) return [];
+    const seg = text.substring(at, at + 20000);   // 侧边栏两块（热门分类 + 热门画师）都在里面
+
+    const out = [];
+    const seen = {};
+    const re = new RegExp('href="https:\\/\\/rule34video\\.com\\/' + kind + '\\/([^"/]+)\\/"', "g");
+    const marks = [];
+    let m;
+    while ((m = re.exec(seg)) !== null) {
+      marks.push({ slug: m[1], idx: m.index, end: m.index + m[0].length });
+    }
+    for (let i = 0; i < marks.length; i++) {
+      const cur = marks[i];
+      if (seen[cur.slug]) continue;
+      seen[cur.slug] = 1;
+      const stop = i + 1 < marks.length ? marks[i + 1].idx : Math.min(seg.length, cur.end + 1500);
+      const block = seg.substring(cur.end, Math.min(stop, cur.end + 1500));
+
+      const nm = block.match(/<div class="name">\s*([\s\S]{0,120}?)\s*(?:<div|$)/);
+      const alt = block.match(/alt="([^"]{1,60})"/);
+      const name = clean(nm ? nm[1] : "") || (alt ? decode(alt[1]) : "") || slugName(cur.slug);
+
+      out.push({ name: name, id: "p:/" + kind + "/" + cur.slug + "/" });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
-    const url = buildListUrl("/search/" + encodeURIComponent(key) + "/", p, "post_date", "all");
+    const url = buildListUrl("/search/" + encodeURIComponent(key) + "/", p, "");
 
     let html = "";
     try {
