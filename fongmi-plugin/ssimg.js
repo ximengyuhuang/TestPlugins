@@ -20,6 +20,7 @@ const PAGE_SIZE = 18;
 
 const CATS = [
   ["latest", "最新", "/"],
+  ["random", "随机", "/"],          // 站点只有「随机挑一篇」，见 categoryContent 里的特殊处理
   ["cos", "cos", "/category/cos/"],
   ["r15", "r15", "/category/r15/"],
   ["r18", "r18", "/category/r18/"],
@@ -135,6 +136,52 @@ export default class Ssimg extends Spider {
       } catch (e) {
       }
       return this.page([], p, PAGE_SIZE, 0);
+    }
+
+    // 随机：站点没有随机列表，只有「随机挑一篇」（首页导航里的 javascript 跳转）
+    // 每次请求首页拿一个新的随机帖子 → 下拉刷新就换一个
+    if (tid === "random") {
+      let html = "";
+      try {
+        const r = await this.net.req(BASE + "/", { headers: hdrs() });
+        if (r && r.code === 200) html = r.content;
+      } catch (e) {
+        html = "";
+      }
+      const m = html && html.match(/onclick="location\.href='([^']+)';"\s+title="随机文章"/);
+      if (!m) return this.page([], 1, PAGE_SIZE, 0);
+
+      const url = absolute(m[1]);
+      // 随机帖不在首页列表里，抓一次详情拿标题/封面/张数
+      let remarks = "随机";
+      let pic = "";
+      let title = "";
+      try {
+        const d = await this.net.req(url, { headers: hdrs(url) });
+        if (d && d.code === 200) {
+          title = pageTitle(d.content) || "";
+          const imgs = parseImages(d.content);
+          if (imgs.length) {
+            remarks = imgs.length + "P";
+            pic = imgs[0];
+          }
+        }
+      } catch (e) {
+      }
+
+      const list = parseCards(html).filter((c) => c.vod_id === url);
+      if (list.length) {
+        list[0].vod_remarks = remarks;
+        if (pic) list[0].vod_pic = pic;
+        if (title) list[0].vod_name = title;
+        return this.page(list, 1, PAGE_SIZE, 1);
+      }
+      return this.page([{
+        vod_id: url,
+        vod_name: title || "随机图集",
+        vod_pic: pic,
+        vod_remarks: remarks,
+      }], 1, PAGE_SIZE, 1);
     }
 
     // 标签跳转：详情里的 t:<url>
