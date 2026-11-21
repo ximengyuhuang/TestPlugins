@@ -138,7 +138,7 @@ function absolute(u) {
 function pageUrlOf(raw) {
   let u = String(raw || "").trim();
   u = u.replace(/^(v|mix)\|/, "");
-  if (u.indexOf("t:") === 0 || u.indexOf("a:") === 0) u = u.substring(2);
+  if (u.indexOf("t:") === 0 || u.indexOf("a:") === 0 || u.indexOf("c:") === 0) u = u.substring(2);
   const bar = u.lastIndexOf("|");
   if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
   return absolute(u);
@@ -524,7 +524,7 @@ export default class Rule34Video extends Spider {
     let path = "/";
     const sid = String(tid);
     if (sid.indexOf("p:") === 0) path = sid.substring(2);
-    else if (sid.indexOf("t:") === 0 || sid.indexOf("a:") === 0) {
+    else if (sid.indexOf("t:") === 0 || sid.indexOf("a:") === 0 || sid.indexOf("c:") === 0) {
       path = pageUrlOf(sid).replace(/^https?:\/\/[^/]+/, "");
     }
 
@@ -581,6 +581,37 @@ export default class Rule34Video extends Spider {
     return this.page(cards, p, PAGE_SIZE, totalFor(html, cards, p));
   }
 
+  /** 解析详情页的 Categories / Artist / Tags 区块（按 vp-group 切，避开侧边栏） */
+  detailGroups(html) {
+    const text = String(html || "");
+    const out = {};
+    const re = /<div class="label vp-group__title">\s*([^<]{1,20}?)\s*<\/div>([\s\S]{0,6000}?)(?=<div class="label vp-group__title">|<\/div>\s*<\/div>\s*<div class="row|$)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const label = m[1].trim();
+      const block = m[2];
+      const items = [];
+      const seen = {};
+      // 每种区块里的链接形态：categories/ models/ tags/
+      const rx = /href="https:\/\/rule34video\.com\/(categories|models|tags)\/([^"\/]+)\/"[^>]*>([\s\S]{0,300}?)<\/a>/g;
+      let mm;
+      while ((mm = rx.exec(block)) !== null) {
+        const url = "https://rule34video.com/" + mm[1] + "/" + mm[2] + "/";
+        if (seen[url]) continue;
+        seen[url] = 1;
+        // 名字：优先 img alt，其次链接文本
+        const alt = mm[3].match(/alt="([^"]{1,60})"/);
+        const txt = mm[3].replace(/<[^>]+>/g, " ");
+        items.push({
+          url: url,
+          name: (alt ? decode(alt[1]) : clean(txt)) || slugName(mm[2]),
+        });
+      }
+      if (items.length) out[label] = items;
+    }
+    return out;
+  }
+
   async detailContent(ids) {
     const url = pageUrlOf(ids[0]);
     let title = "";
@@ -602,32 +633,31 @@ export default class Rule34Video extends Spider {
       if (shot) pic = decode(shot[1]);
     }
 
-    // 标签 chips（t:）与模型 chips（a:）
-    const lines = [];
-    const tags = [];
-    const seenT = {};
-    const reT = /href="(https:\/\/rule34video\.com\/tags\/([^"\/]+)\/)"/g;
-    let m;
-    while ((m = reT.exec(html)) !== null) {
-      const u = m[1];
-      if (seenT[u]) continue;
-      seenT[u] = 1;
-      tags.push('[a=cr:{"id":"t:' + u + '"}/]' + slugName(m[2]) + "[/a]");
-      if (tags.length >= 10) break;
-    }
-    if (tags.length) lines.push(tags.join(" · "));
+    // 站点详情页把「Categories / Artist / Tags」放在 <div class="vp-group"> 里，
+    // 每个区块由 <div class="label vp-group__title">XXX</div> 开头。
+    // 注意：页面开头的 models 链接是侧边栏 Top Artists，不能用！必须按区块取。
+    const groups = this.detailGroups(html);
 
-    const models = [];
-    const seenM = {};
-    const reM = /href="(https:\/\/rule34video\.com\/models\/([^"\/]+)\/)"/g;
-    while ((m = reM.exec(html)) !== null) {
-      const u = m[1];
-      if (seenM[u]) continue;
-      seenM[u] = 1;
-      models.push('[a=cr:{"id":"a:' + u + '"}/]' + slugName(m[2]) + "[/a]");
-      if (models.length >= 6) break;
+    const lines = [];
+
+    // 作者行：Artist 区块的第一个（App 会把它显示成作者并可点）
+    const artists = groups.Artist || [];
+    let authorRemarks = "";
+    if (artists.length) {
+      authorRemarks = "[a=cr:{\"id\":\"a:" + artists[0].url + "\"}/]" + artists[0].name + "[/a]";
     }
-    if (models.length) lines.push(models.join(" · "));
+
+    // 分类 chips（用 c: 前缀，和标签区分）
+    if ((groups.Categories || []).length) {
+      lines.push((groups.Categories || []).map((x) => '[a=cr:{"id":"c:' + x.url + '"}/]' + x.name + "[/a]").join(" · "));
+    }
+
+    // 标签 chips
+    if ((groups.Tags || []).length) {
+      const tags = (groups.Tags || []).slice(0, 12)
+        .map((x) => '[a=cr:{"id":"t:' + x.url + '"}/]' + x.name + "[/a]");
+      lines.push(tags.join(" · "));
+    }
 
     return {
       list: [{
@@ -635,7 +665,7 @@ export default class Rule34Video extends Spider {
         vod_name: title || url,
         vod_pic: pic,
         vod_content: lines.join("\n"),
-        vod_remarks: "",
+        vod_remarks: authorRemarks,
         gallery: false,
         vod_play_from: "Rule34Video",
         vod_play_url: "正片$" + url,
