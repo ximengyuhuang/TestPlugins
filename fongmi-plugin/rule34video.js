@@ -378,9 +378,13 @@ function facetGroup(key, name) {
   return { key: key, name: name, multi: true, type: "facet", value: facetOptions(key) };
 }
 
-/** 内置一组常用分面选项（离线可用；App 点开就能选） */
+/** 内置一组常用分面选项（离线可用；App 点开就能选）
+ *  ⚠️ 第一项必须是空值「不限」——App 会把每组第一项当默认选中，
+ *     若第一项带了真实值，主页一进来就会带上 tag_ids/category_ids/model_ids，导致 0 条。
+ */
 function facetOptions(key) {
   if (key === "tags") return [
+    { n: "不限", v: "" },
     { n: "Genshin Impact", v: "tag:1942" },
     { n: "Honkai Star Rail", v: "tag:2890" },
     { n: "Futanari", v: "tag:22" },
@@ -388,9 +392,11 @@ function facetOptions(key) {
     { n: "Blender", v: "tag:4687" },
   ];
   if (key === "cats") return [
+    { n: "不限", v: "" },
     { n: "Genshin Impact", v: "cat:269" },
   ];
   if (key === "arts") return [
+    { n: "不限", v: "" },
     { n: "Jackerman", v: "art:639" },
   ];
   return [];
