@@ -26,7 +26,7 @@ const BASE = "https://xxcosplay.com";
 const MEDIA = "https://media.xxcosplay.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE_SIZE = 24;
-const FACET_PAGE = 200;
+const FACET_PAGE = 100;   // 每页 100 个，博主 164 → 两页，能看到「加载更多」
 
 function hdrs(ref) {
   return {
