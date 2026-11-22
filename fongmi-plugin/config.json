@@ -227,7 +227,8 @@
       "api": "./hentaiclub.js",
       "style": {
         "type": "rect",
-        "ratio": 0.7
+        "ratio": 0.7,
+        "masonry": true
       },
       "ext": {}
     },
