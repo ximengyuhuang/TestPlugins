@@ -389,6 +389,9 @@ export default class Mrds extends Spider {
       playUrl = d.vids.map((u, i) => ("视频" + (i + 1)) + "$" + u).join("#");
     }
 
+    // 相关推荐：优先取同分类的最新 8 篇（排除自己）
+    const rel = await this.relatedByCategory(d.catName, url, 8);
+
     return {
       list: [{
         vod_id: url,
@@ -399,8 +402,36 @@ export default class Mrds extends Spider {
         gallery: true,
         vod_play_from: playFrom,
         vod_play_url: playUrl,
-      }],
+      }, ...rel],
     };
+  }
+
+  /** 分类名 → slug（用 GROUPS 里已有的中文名匹配） */
+  slugOfCategory(name) {
+    if (!name) return "";
+    for (const g of GROUPS) {
+      for (const sub of g.subs) {
+        if (sub.name === name) return sub.id.substring(4);
+      }
+    }
+    return "";
+  }
+
+  /** 同分类的相关推荐（排除自己），拿不到就退回「全部」首页 */
+  async relatedByCategory(catName, selfUrl, limit) {
+    const out = [];
+    try {
+      const slug = this.slugOfCategory(catName);
+      const path = slug ? "/category/" + slug + "/" : "/";
+      const r = await this.net.req(BASE + path, { headers: hdrs() });
+      if (!r || r.code !== 200) return out;
+      for (const c of parseCards(r.content)) {
+        if (c.vod_id === selfUrl) continue;
+        out.push({ vod_id: c.vod_id, vod_name: c.vod_name, vod_pic: imgProxy(this, c.vod_pic), vod_remarks: c.vod_remarks });
+        if (out.length >= limit) break;
+      }
+    } catch (e) { }
+    return out;
   }
 
   async playerContent(flag, id) {

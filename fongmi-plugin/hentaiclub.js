@@ -308,6 +308,9 @@ export default class HentaiClub extends Spider {
     }
     if (d.count) lines.push("共 " + d.count + " 张");
 
+    // 相关推荐：同标签的其他内容（排除自己）
+    const rel = await this.relatedByTag((d.tags.length ? d.tags[0].name : ""), url, 8);
+
     return {
       list: [{
         vod_id: url,
@@ -318,11 +321,33 @@ export default class HentaiClub extends Spider {
         gallery: true,
         vod_play_from: "绅士会所",
         vod_play_url: "图集$" + url,
-      }],
+      }, ...rel],
     };
   }
 
   /** 图集站没有视频流；万一 App 走到播放，交给内置浏览器 */
+  /** 同标签的相关推荐（排除自己） */
+  async relatedByTag(tag, selfUrl, limit) {
+    const out = [];
+    if (!tag) return out;
+    try {
+      const r = await this.tagList(tag, 1);
+      const cards = (r && r.list) ? r.list : [];
+      for (const c of cards) {
+        if (!c.vod_id || c.vod_id === selfUrl) continue;
+        if (out.some((x) => x.vod_id === c.vod_id)) continue;
+        out.push({
+          vod_id: c.vod_id,
+          vod_name: c.vod_name,
+          vod_pic: c.vod_pic,
+          vod_remarks: c.vod_remarks,
+        });
+        if (out.length >= limit) break;
+      }
+    } catch (e) { }
+    return out;
+  }
+
   async playerContent(flag, id) {
     const url = pageUrlOf(id);
     return { parse: 0, url: "web://" + url, header: {} };

@@ -618,6 +618,36 @@ export default class Rule34Video extends Spider {
     return out;
   }
 
+  /** 详情页的「Related Videos」区块（最多 8 个，站点 data-display-limit=8） */
+  relatedVideos(html) {
+    const out = [];
+    if (!html) return out;
+    const start = html.indexOf('id="custom_list_videos_related_videos_items"');
+    if (start < 0) return out;
+    // 只取到这个区块结束（下一个 headline 或 60000 字符）
+    const seg = html.substring(start, start + 60000);
+
+    const re = /<a class="th" href="(https:\/\/rule34video\.com\/video\/[^"]+)"\s+title="([^"]*)"/g;
+    let m;
+    while ((m = re.exec(seg)) !== null) {
+      const url = decode(m[1]);
+      if (out.some((x) => x.url === url)) continue;
+
+      // 往后找这一项的封面和时长
+      const tail = seg.substring(m.index, m.index + 2000);
+      const pic = tail.match(/data-rd-jpg="([^"]+)"/) || tail.match(/data-rd-src="([^"]+)"/);
+      const dur = tail.match(/<div class="time">([^<]+)<\/div>/);
+
+      out.push({
+        url: url,
+        name: clean(m[2]) || url,
+        pic: pic ? decode(pic[1]) : "",
+        remarks: dur ? clean(dur[1]) : "",
+      });
+    }
+    return out;
+  }
+
   async detailContent(ids) {
     const url = pageUrlOf(ids[0]);
     let title = "";
@@ -665,18 +695,28 @@ export default class Rule34Video extends Spider {
       lines.push(tags.join(" · "));
     }
 
-    return {
-      list: [{
-        vod_id: url,
-        vod_name: title || url,
-        vod_pic: pic,
-        vod_content: lines.join("\n"),
-        vod_remarks: authorRemarks,
-        gallery: false,
-        vod_play_from: "Rule34Video",
-        vod_play_url: "正片$" + url,
-      }],
-    };
+    const list = [{
+      vod_id: url,
+      vod_name: title || url,
+      vod_pic: pic,
+      vod_content: lines.join("\n"),
+      vod_remarks: authorRemarks,
+      gallery: false,
+      vod_play_from: "Rule34Video",
+      vod_play_url: "正片$" + url,
+    }];
+
+    // 相关推荐：详情页自带的 Related Videos 区块（App 渲染成底部横向列表）
+    for (const r of this.relatedVideos(html)) {
+      list.push({
+        vod_id: r.url,
+        vod_name: r.name,
+        vod_pic: r.pic,
+        vod_remarks: r.remarks,
+      });
+    }
+
+    return { list: list };
   }
 
   async playerContent(flag, id) {

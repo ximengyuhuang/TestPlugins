@@ -101,6 +101,38 @@ function clean(s) {
   return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
+/** 详情页右侧播放列表（站点自带的相关影片，12 个，可「更多相關影片」续加载） */
+function parsePlaylist(html, selfId) {
+  const out = [];
+  const text = String(html || "");
+  const i = text.indexOf('id="playlist-scroll"');
+  if (i < 0) return out;
+  const seg = text.substring(i, i + 60000);
+
+  const re = /<div class="playlist-video-card[\s\S]*?data-href="([^"]*watch\?v=(\d+))"[\s\S]*?<\/div>\s*<\/div>/g;
+  // 上面结构不稳，改用逐项扫描
+  const reItem = /playlist-hover-wrap[^>]*data-href="([^"]*watch\?v=(\d+))"/g;
+  let m;
+  while ((m = reItem.exec(seg)) !== null) {
+    const vid = m[2];
+    if (vid === String(selfId)) continue;
+    if (out.some((x) => x.vod_id === BASE + "/watch?v=" + vid)) continue;
+
+    const tail = seg.substring(m.index, m.index + 3000);
+    const img = tail.match(/class="main-thumb"[^>]*src="([^"]+)"/);
+    const dur = tail.match(/class="duration"[^>]*>\s*([0-9:]{3,8})\s*</);
+    const tt = tail.match(/<h4 class="video-title"[^>]*>([\s\S]{0,200}?)<\/h4>/);
+
+    out.push({
+      vod_id: BASE + "/watch?v=" + vid,
+      vod_name: clean(tt ? tt[1] : "") || ("视频 " + vid),
+      vod_pic: img ? decode(img[1]) : "",
+      vod_remarks: dur ? clean(dur[1]) : "",
+    });
+  }
+  return out;
+}
+
 function pageUrlOf(raw) {
   let u = String(raw || "").trim();
   u = u.replace(/^(v|mix)\|/, "");
@@ -288,6 +320,10 @@ export default class Hanime1 extends Spider {
     const lines = [];
     if (duration) lines.push("时长：" + duration);
 
+    // 相关推荐：站点详情页右侧播放列表（12 个）；没有就用当前标签兜底
+    const selfId = (url.match(/[?&]v=(\d+)/) || [])[1] || "";
+    let rel = parsePlaylist(html, selfId);
+
     // 作者
     let artistName = "";
     let artistId = "";
@@ -354,7 +390,7 @@ export default class Hanime1 extends Spider {
         gallery: false,
         vod_play_from: "Hanime1",
         vod_play_url: "正片$" + url,
-      }],
+      }, ...rel],
     };
   }
 

@@ -144,6 +144,36 @@ function parseEpisodes(html) {
   return out;
 }
 
+/** 详情页「相关视频」区块（站点自带，8 个） */
+function parseRelated(html) {
+  const out = [];
+  const text = String(html || "");
+  const i = text.indexOf('id="related-videos-title"');
+  if (i < 0) return out;
+  const seg = text.substring(i, i + 40000);
+
+  const re = /<article id="video_(\d+)"[^>]*>([\s\S]*?)<\/article>/g;
+  let m;
+  while ((m = re.exec(seg)) !== null) {
+    const id = m[1];
+    const b = m[2];
+    const vid = BASE + "/videos/" + id;
+    if (out.some((x) => x.vod_id === vid)) continue;
+
+    const aria = b.match(/aria-label="([^"]*)"/);
+    const img = b.match(/<img[^>]*src="([^"]+)"/);
+    const dur = b.match(/class="badge[^"]*"[^>]*>([^<]+)</);
+
+    out.push({
+      vod_id: vid,
+      vod_name: clean(aria ? aria[1] : ""),
+      vod_pic: img ? decode(img[1]) : "",
+      vod_remarks: dur ? clean(dur[1]) : "",
+    });
+  }
+  return out;
+}
+
 function pageUrlOf(raw) {
   let u = String(raw || "").trim();
   u = u.replace(/^(v|p):/, "");
@@ -296,6 +326,10 @@ export default class HuangVideo extends Spider {
 
     const playUrl = ld && ld.contentUrl ? ld.contentUrl : "";
 
+    // 相关推荐：优先用站点「相关视频」区块，没有就退回同博主
+    let rel = parseRelated(html);
+    if (!rel.length && whoM) rel = await this.relatedByCreator(whoM[1], url, 8);
+
     return {
       list: [{
         vod_id: url,
@@ -306,8 +340,30 @@ export default class HuangVideo extends Spider {
         gallery: false,
         vod_play_from: "黄视频",
         vod_play_url: "正片$" + (playUrl || url),
-      }],
+      }, ...rel],
     };
+  }
+
+  /** 同博主的其他视频（站点没有推荐时兜底） */
+  async relatedByCreator(slug, selfUrl, limit) {
+    const out = [];
+    if (!slug) return out;
+    try {
+      const r = await this.net.req(BASE + "/c/" + slug + "?page=1", { headers: hdrs() });
+      if (!r || r.code !== 200) return out;
+      for (const c of parseCards(r.content)) {
+        if (!c.vod_id || c.vod_id === selfUrl) continue;
+        if (out.some((x) => x.vod_id === c.vod_id)) continue;
+        out.push({
+          vod_id: c.vod_id,
+          vod_name: c.vod_name,
+          vod_pic: c.vod_pic,
+          vod_remarks: c.vod_remarks,
+        });
+        if (out.length >= limit) break;
+      }
+    } catch (e) { }
+    return out;
   }
 
   async playerContent(flag, id) {

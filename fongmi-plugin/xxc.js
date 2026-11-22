@@ -308,6 +308,9 @@ export default class XxCosplay extends Spider {
       playUrl = a.vids.map((u, i) => ("视频" + (i + 1)) + "$" + u).join("#");
     }
 
+    // 相关推荐：同一博主的其他相册（拿不到就退回全部首屏）
+    const rel = await this.relatedByArtist(a.artistSlug, url, 8);
+
     return {
       list: [{
         vod_id: url,
@@ -318,8 +321,35 @@ export default class XxCosplay extends Spider {
         gallery: true,
         vod_play_from: playFrom,
         vod_play_url: playUrl,
-      }],
+      }, ...rel],
     };
+  }
+
+  /** 同一博主的其他相册（排除自己），拿不到就退回全部首屏 */
+  async relatedByArtist(slug, selfUrl, limit) {
+    const out = [];
+    const paths = [];
+    if (slug) paths.push("/artists/" + slug);
+    paths.push("/");
+    for (const p of paths) {
+      try {
+        const r = await this.net.req(BASE + p, { headers: hdrs() });
+        if (!r || r.code !== 200) continue;
+        for (const c of parseCards(r.content)) {
+          if (c.vod_id === selfUrl) continue;
+          if (out.some((x) => x.vod_id === c.vod_id)) continue;
+          out.push({
+            vod_id: c.vod_id,
+            vod_name: c.vod_name,
+            vod_pic: c.vod_pic,
+            vod_remarks: c.vod_remarks,
+          });
+          if (out.length >= limit) break;
+        }
+      } catch (e) { }
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   async playerContent(flag, id) {
