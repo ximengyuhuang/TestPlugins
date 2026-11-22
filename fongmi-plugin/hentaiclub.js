@@ -166,7 +166,29 @@ export default class HentaiClub extends Spider {
     ];
 
     // 站点只有分级，无排序/时长/画质 → 不给筛选组
-    return { class: classes, filters: {} };
+    return { class: classes, filters: {}, subFromTab: true };
+  }
+
+  /** 某标签（博主）的图集列表 */
+  async tagList(name, p) {
+    if (!name) return this.page([], p, PAGE_SIZE, 0);
+    const enc = encodeURIComponent(name);
+    const url = p <= 1 ? BASE + "/tag/" + enc + "/" : BASE + "/tag/" + enc + "/" + p + "/";
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+
+    const cards = html ? parseCards(html) : [];
+    if (!cards.length && p === 1) {
+      return this.page([{
+        vod_id: "", vod_name: "标签「" + name + "」没有内容（标签名需与站点完全一致）",
+        vod_pic: "", vod_remarks: "提示",
+      }], 1, PAGE_SIZE, 1);
+    }
+    const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -178,8 +200,17 @@ export default class HentaiClub extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    // 标签搜索框那个 tab 不该走到这里（App 侧只弹输入框）
-    if (t === "tagsearch") return this.page([], p, PAGE_SIZE, 0);
+    // 「标签」tab：面板里选了标签 → extend.sub = "tag:<名字>"，就地返回该标签的列表
+    if (t === "tagsearch") {
+      const sel = (extend && extend.sub) ? String(extend.sub) : "";
+      if (!sel || sel.indexOf("tag:") !== 0) {
+        return this.page([{
+          vod_id: "", vod_name: "在上方选一个标签（博主）",
+          vod_pic: "", vod_remarks: "提示",
+        }], 1, PAGE_SIZE, 1);
+      }
+      return this.tagList(sel.substring(4).trim(), p);
+    }
 
     // ---------- 随机：/rand.html 302 到随机详情页，取 4 条 ----------
     if (t === "rand") {
