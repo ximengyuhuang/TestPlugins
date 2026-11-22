@@ -118,7 +118,7 @@ function parseCards(html) {
     }
 
     let title = "";
-    const tm = b.match(/class="post-card-title"[^>]*>([\s\S]{0,400}?)<\/h2>/);
+    const tm = b.match(/class="post-card-title"[^>]*>([\s\S]*?)<\/h2>/);
     if (tm) title = clean(tm[1]);
     if (!title) {
       const tm2 = b.match(/<h2[^>]*>([\s\S]{0,200}?)<\/h2>/);
