@@ -109,6 +109,8 @@ function parseCards(html) {
       vod_name: title,
       vod_pic: pic,
       vod_remarks: remarks,
+      // 视频封面是 16:9 拼图 → 用横版裁切；图集是竖图 → 0 表示跟随站点（自适应不裁切）
+      vod_ratio: isVideo ? 1.78 : 0,
     });
   }
   return out;
