@@ -379,6 +379,7 @@ export default class Kanliao extends Spider {
         vod_name: title || "视频",
         vod_pic: pic,
         vod_content: content,
+        gallery: true,
         vod_play_from: "今日看料",
         vod_play_url: playUrl,
       });

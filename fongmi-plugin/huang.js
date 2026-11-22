@@ -235,7 +235,8 @@ export default class HuangVideo extends Spider {
           list: [{
             vod_id: url, vod_name: title || url, vod_pic: img ? decode(img[1]) : "",
             vod_content: "这个短剧还没有剧集", vod_remarks: "",
-            vod_play_from: "黄视频", vod_play_url: "正片$" + url,
+            gallery: false,
+        vod_play_from: "黄视频", vod_play_url: "正片$" + url,
           }],
         };
       }
@@ -247,7 +248,8 @@ export default class HuangVideo extends Spider {
           vod_pic: img ? decode(img[1]) : "",
           vod_content: "共 " + eps.length + " 集",
           vod_remarks: eps.length + " 集",
-          vod_play_from: "黄视频",
+          gallery: false,
+        vod_play_from: "黄视频",
           vod_play_url: eps.map((e) => e.name + "$" + BASE + "/videos/" + e.id).join("#"),
         }],
       };
@@ -301,6 +303,7 @@ export default class HuangVideo extends Spider {
         vod_pic: pic,
         vod_content: lines.join("\n"),
         vod_remarks: dur,
+        gallery: false,
         vod_play_from: "黄视频",
         vod_play_url: "正片$" + (playUrl || url),
       }],

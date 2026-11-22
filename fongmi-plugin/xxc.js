@@ -358,6 +358,7 @@ export default class Xxc extends Spider {
         vod_name: title || "xxcosplay",
         vod_pic: pic,
         vod_content: content,
+        gallery: true,
         vod_play_from: "xxcosplay",
         vod_play_url: playUrl,
       });

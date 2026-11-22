@@ -551,6 +551,7 @@ export default class Ncg extends Spider {
         vod_name: title || "Cosplay",
         vod_pic: pic,
         vod_content: content,
+        gallery: true,
         vod_play_from: "NudeCosplayGirls",
         vod_play_url: playUrl,
       });

@@ -551,7 +551,8 @@ export default class Mrds extends Spider {
           vod_name: title || "视频",
           vod_pic: pic,
           vod_content: content,
-          vod_play_from: "每日大赛",
+          gallery: true,
+        vod_play_from: "每日大赛",
           vod_play_url: playUrl,
         });
         continue;
@@ -571,6 +572,7 @@ export default class Mrds extends Spider {
         vod_name: title || "视频",
         vod_pic: "",
         vod_content: vids.length ? "视频 " + vids.length + " 个" : "该帖没有视频",
+        gallery: true,
         vod_play_from: "每日大赛",
         vod_play_url:
           vids.length > 1

@@ -246,6 +246,7 @@ export default class Photos18 extends Spider {
         vod_name: title || "色圖網",
         vod_pic: pic,
         vod_content: content,
+        gallery: true,
         vod_play_from: "色圖網",
         vod_play_url: "图集$" + pageUrl,
       });

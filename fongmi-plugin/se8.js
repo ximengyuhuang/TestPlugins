@@ -533,6 +533,7 @@ export default class Se8 extends Spider {
         vod_name: title || "8se",
         vod_pic: pic,
         vod_content: content,
+        gallery: true,
         vod_play_from: "8se",
         vod_play_url: playUrl,
       });

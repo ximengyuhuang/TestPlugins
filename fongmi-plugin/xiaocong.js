@@ -350,7 +350,8 @@ export default class Xiaocong extends Spider {
           vod_name: name,
           vod_pic: pic,
           vod_content: content,
-          vod_play_from: "小葱资源",
+          gallery: true,
+        vod_play_from: "小葱资源",
           vod_play_url: "正片$" + id,
         });
         continue;
@@ -362,6 +363,7 @@ export default class Xiaocong extends Spider {
         vod_name: "图集",
         vod_pic: "",
         vod_content: "",
+        gallery: true,
         vod_play_from: "小葱资源",
         vod_play_url: "查看图集$" + id,
       });
