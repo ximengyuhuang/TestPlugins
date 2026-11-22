@@ -379,8 +379,6 @@ export default class XxCosplay extends Spider {
   /** 标签索引（/tags 共 22 页，并发抓） */
   async allTags() {
     if (this.tagCache) return this.tagCache;
-    const pages = [];
-    for (let pg = 1; pg <= 24; pg++) pages.push(pg);
 
     const fetchPage = async (pg) => {
       try {
@@ -391,29 +389,25 @@ export default class XxCosplay extends Spider {
       }
     };
 
-    for (let i = 0; i < pages.length; i += 6) {
-      const batch = pages.slice(i, i + 6).map(fetchPage);
-      await Promise.all(batch);
-    }
-    // 上面并发只是热身（拿不到结果也没关系），逐页取一次确保稳定
+    // 一次性并发抓（原来先热身再顺序抓，等于抓两遍，很慢）
+    const pages = [];
+    for (let pg = 1; pg <= 24; pg++) pages.push(pg);
+    const htmls = await Promise.all(pages.map(fetchPage));
+
     const out = [];
-    let seen = {};   // 全局去重，跨页也生效
-    for (const pg of pages) {
-      const html = await fetchPage(pg);
-      if (!html) break;
+    const seen = {};
+    for (const html of htmls) {
+      if (!html) continue;
       const re = /<a[^>]+href="\/tags\/([a-z0-9\-]+)"[^>]*>([\s\S]{0,300}?)<\/a>/g;
       let m;
-      let found = 0;
       while ((m = re.exec(html)) !== null) {
         const slug = m[1];
         if (seen[slug]) continue;
         seen[slug] = 1;
         // 名字里常带「4611 albums」这种计数，去掉
-        let name = clean(m[2]).replace(/\s*\d+\s*albums?\s*$/i, "").trim();
+        const name = clean(m[2]).replace(/\s*\d+\s*albums?\s*$/i, "").trim();
         out.push({ name: name || slug.replace(/-/g, " "), id: "tag:" + slug });
-        found++;
       }
-      if (!found) break;
     }
     this.tagCache = out;
     return out;
