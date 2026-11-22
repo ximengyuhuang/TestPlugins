@@ -70,8 +70,10 @@ function parseCards(html) {
       vod_id: url,
       vod_name: clean(title ? title[1] : "") || url,
       vod_pic: img ? decode(img[1]) : "",
-      // 图集站：remarks 用「11P」标记，App 会显示成图集角标
-      vod_remarks: (num ? num[1] + "P" : "") + (sort ? " · " + clean(sort[1]) : ""),
+      // 图集站：remarks 必须是纯「11P」——App 用 ^(\\d+)P(?:[·\\s]*(\\d+)V)?$ 判定
+      // 判定为「纯图集」后点卡片才直接进图集，否则会进详情页再跳网页
+      vod_remarks: num ? num[1] + "P" : "",
+      vod_tag: "",
     });
   }
   return out;
@@ -199,7 +201,7 @@ export default class HentaiClub extends Spider {
           vod_id: url,
           vod_name: d.title || url,
           vod_pic: d.cover,
-          vod_remarks: (d.count ? d.count + "P" : "") + " · 随机",
+          vod_remarks: d.count ? d.count + "P" : "",
         });
       }
       return this.page(cards, 1, PAGE_SIZE, cards.length);
