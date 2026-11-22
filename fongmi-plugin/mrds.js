@@ -82,7 +82,7 @@ function decryptImage(encBytes) {
 function imgProxy(spider, url) {
   if (!url) return "";
   try {
-    return spider.proxyUrl({ u: url, m: "img" });
+    return spider.proxyUrl({ u: url, m: "img", k: IMG_KEY, iv: IMG_IV });
   } catch (e) {
     return url;
   }
