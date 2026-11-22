@@ -136,10 +136,10 @@
       "key": "xiaocong",
       "name": "小葱资源",
       "type": 3,
-      "api": "./xiaocong.js",
+      "api": "./xiaocongzy.js",
       "style": {
         "type": "rect",
-        "ratio": 0.66
+        "ratio": 1.78
       },
       "ext": {}
     },
