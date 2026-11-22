@@ -69,7 +69,8 @@ function parseCards(html) {
     if (!idm) continue;
     const kind = idm[1];
     const num = idm[2];
-    const url = BASE + "/" + kind + "s/" + num;
+    // 注意：video → /videos/<id>，series → /series/<id>（不能统一加 s）
+    const url = BASE + (kind === "series" ? "/series/" : "/videos/") + num;
     if (seen[url]) continue;
     seen[url] = 1;
 
