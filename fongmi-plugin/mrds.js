@@ -25,6 +25,69 @@ const BASE = "https://mrds.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE_SIZE = 30;
 
+// 图床图片是加密的（浏览器用 CryptoJS AES 解密后转 data URI）。
+// 参数从站点 /usr/plugins/tbxw/js/zzz.js 的 decryptImage() 提取：
+//   key = "f5d965df75336270"  iv = "97b60394abc2fbe1"  AES-128-CBC / PKCS7
+const IMG_KEY = "f5d965df75336270";
+const IMG_IV = "97b60394abc2fbe1";
+
+// ---- base64 编解码（QuickJS 没有 btoa/atob）----
+const B64C = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function bytesToB64(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i] & 0xff;
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] & 0xff : 0;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] & 0xff : 0;
+    out += B64C.charAt(b0 >> 2);
+    out += B64C.charAt(((b0 & 3) << 4) | (b1 >> 4));
+    out += i + 1 < bytes.length ? B64C.charAt(((b1 & 15) << 2) | (b2 >> 6)) : "=";
+    out += i + 2 < bytes.length ? B64C.charAt(b2 & 63) : "=";
+  }
+  return out;
+}
+
+function b64ToBytes(str) {
+  const clean = String(str || "").replace(/[^A-Za-z0-9+/]/g, "");
+  const out = [];
+  for (let i = 0; i < clean.length; i += 4) {
+    const n0 = B64C.indexOf(clean.charAt(i));
+    const n1 = B64C.indexOf(clean.charAt(i + 1));
+    const n2 = B64C.indexOf(clean.charAt(i + 2));
+    const n3 = B64C.indexOf(clean.charAt(i + 3));
+    out.push(((n0 << 2) | (n1 >> 4)) & 0xff);
+    if (n2 >= 0 && i + 2 < clean.length) out.push(((n1 << 4) | (n2 >> 2)) & 0xff);
+    if (n3 >= 0 && i + 3 < clean.length) out.push(((n2 << 6) | n3) & 0xff);
+  }
+  return out;
+}
+
+/** 解密一张图床图片，返回 { bytes, mime } */
+function decryptImage(encBytes) {
+  const b64 = bytesToB64(encBytes);
+  const plain = aesX("AES/CBC/PKCS5Padding", false, b64, true, IMG_KEY, IMG_IV, true);
+  if (!plain) return null;
+  const bytes = b64ToBytes(plain);
+  if (!bytes.length) return null;
+  let mime = "image/jpeg";
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) mime = "image/png";
+  else if (bytes[0] === 0xff && bytes[1] === 0xd8) mime = "image/jpeg";
+  else if (bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) mime = "image/webp";
+  else return null;   // 解出来不是图片
+  return { bytes: bytes, mime: mime };
+}
+
+/** 图片一律走本地代理解密；插件里其他地方 append 这个前缀 */
+function imgProxy(spider, url) {
+  if (!url) return "";
+  try {
+    return spider.proxyUrl({ u: url, m: "img" });
+  } catch (e) {
+    return url;
+  }
+}
+
 // 20 个分类，按性质分 4 组（tab + ▾ 二级菜单）
 const GROUPS = [
   {
@@ -239,6 +302,30 @@ export default class Mrds extends Spider {
     return { class: classes, filters: {} };
   }
 
+  /** 把卡片/图集的图片地址换成「本地代理解密」地址 */
+  wrapImages(cards) {
+    for (const c of cards) {
+      if (c.vod_pic) c.vod_pic = imgProxy(this, c.vod_pic);
+    }
+    return cards;
+  }
+
+  /** 本地图片代理：拉加密图 → AES 解密 → 返回原始字节 */
+  async proxy(params) {
+    const u = (params && (params.u || params.url)) || "";
+    if (!u) return [404, "text/plain", "no url"];
+    try {
+      const st = await this.net.openStream(u, { headers: hdrs(u) });
+      const enc = await this.readBytes(st);
+      if (!enc || !enc.length) return [404, "text/plain", "empty"];
+      const dec = decryptImage(enc);
+      if (!dec) return [404, "text/plain", "decrypt failed"];
+      return [200, dec.mime, dec.bytes];
+    } catch (e) {
+      return [500, "text/plain", String(e && e.message ? e.message : e)];
+    }
+  }
+
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     const t = String(tid || "all");
@@ -269,7 +356,7 @@ export default class Mrds extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
-    const cards = await fillBadges(this, parseCards(html));
+    const cards = await fillBadges(this, this.wrapImages(parseCards(html)));
     const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
@@ -306,7 +393,7 @@ export default class Mrds extends Spider {
       list: [{
         vod_id: url,
         vod_name: d.title || url,
-        vod_pic: d.cover,
+        vod_pic: imgProxy(this, d.cover),
         vod_content: lines.join("\n"),
         vod_remarks: badge || d.duration,
         gallery: true,
@@ -342,7 +429,7 @@ export default class Mrds extends Spider {
       } catch (e) { html = ""; }
       const d = parseDetail(html);
       return {
-        list: d.imgs.map((u) => ({ url: u })),
+        list: d.imgs.map((u) => ({ url: imgProxy(this, u) })),
         tags: d.tags.slice(0, 8).map((t) => ({ name: t, id: "q:" + t })),
       };
     }
@@ -359,7 +446,7 @@ export default class Mrds extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, 0);
 
-    const cards = await fillBadges(this, parseCards(html));
+    const cards = await fillBadges(this, this.wrapImages(parseCards(html)));
     const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
