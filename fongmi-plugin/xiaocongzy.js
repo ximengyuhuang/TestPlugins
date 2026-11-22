@@ -96,8 +96,8 @@ function parseCards(html) {
     if (isVideo) {
       const pm = b.match(/<video[^>]*poster="([^"]+)"/) || b.match(/<source[^>]*src="([^"]+)"/);
       pic = pm ? decode(pm[1]) : "";
-      // 列表里站点不提供视频时长，只能给个类型角标（图集那边是「7P」）
-      remarks = "视频";
+      // 站点不给时长 → 按「1 个视频」写 1V（与图集的 7P 同一套约定）
+      remarks = "1V";
     } else {
       const im = b.match(/class="post-gallery"[\s\S]{0,600}?<img[^>]*src="([^"]+)"/) || b.match(/<img[^>]*src="([^"]+)"/);
       pic = im ? decode(im[1]) : "";
