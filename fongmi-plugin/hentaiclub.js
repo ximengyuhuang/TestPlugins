@@ -359,7 +359,11 @@ export default class HentaiClub extends Spider {
         if (r && r.code === 200) html = r.content;
       } catch (e) { html = ""; }
       const d = parseDetail(html);
-      return { list: d.imgs.map((u) => ({ url: u })) };
+      // 图集页顶部标签栏：App 读 tags:[{name,id}]
+      return {
+        list: d.imgs.map((u) => ({ url: u })),
+        tags: d.tags.map((t) => ({ name: t.name, id: "tag:" + t.slug })),
+      };
     }
     return {};
   }
