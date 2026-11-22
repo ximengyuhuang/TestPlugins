@@ -161,7 +161,8 @@
       "api": "./mrds.js",
       "style": {
         "type": "rect",
-        "ratio": 2
+        "ratio": 0.75,
+        "masonry": true
       },
       "ext": {}
     },
