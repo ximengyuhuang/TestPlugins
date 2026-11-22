@@ -175,12 +175,13 @@ export default class Hanime1 extends Spider {
         { key: "genre", name: "类型", value: GENRES.map((s) => ({ n: s, v: s })) },
         { key: "date", name: "时间", value: DATES.map((s) => ({ n: s, v: s })) },
         { key: "dur", name: "时长", value: DURS.map((s) => ({ n: s, v: s })) },
-        // 7 组标签：多选 + 可搜索（分面）
+        // 7 组标签：选项全部本地下发 → local:true，面板里直接平铺多选（不走联网搜索）
         ...TAG_GROUPS.map(([gname, tags]) => ({
           key: "tag_" + gname,
           name: gname,
           multi: true,
           type: "facet",
+          local: true,
           value: tags.map((t) => ({ n: t, v: t })),
         })),
       ],
