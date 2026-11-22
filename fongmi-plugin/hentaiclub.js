@@ -295,9 +295,60 @@ export default class HentaiClub extends Spider {
     return { parse: 0, url: "web://" + url, header: {} };
   }
 
+  /** 全部标签（从 /tagshow.html 一次性抓取，进程内缓存） */
+  async allTags() {
+    if (this.tagCache) return this.tagCache;
+    let html = "";
+    try {
+      const r = await this.net.req(BASE + "/tagshow.html", { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) return [];
+
+    // 只在 .post-tags 区块里找，避免把导航链接混进来
+    let start = html.indexOf("post-tags");
+    if (start < 0) start = 0;
+    const seg = html.substring(start);
+
+    const out = [];
+    const seen = {};
+    const re = /<a[^>]*href="[^"]*\/tag\/([^"\/]+)\/"[^>]*>\s*([^<]{1,40})/g;
+    let m;
+    while ((m = re.exec(seg)) !== null) {
+      let slug = m[1];
+      try { slug = decodeURIComponent(slug); } catch (e) { }
+      slug = decode(slug).trim();
+      const name = clean(m[2]) || slug;
+      if (!slug || seen[slug]) continue;
+      seen[slug] = 1;
+      out.push({ id: slug, name: name });
+    }
+    this.tagCache = out;
+    return out;
+  }
+
   /** 图集站：点击卡片直接进图集浏览。App 通过 action("gal|<url>") 取图片 */
   async action(op) {
     if (!op) return {};
+
+    // 标签模糊搜索：App 的「标签」搜索框走这里
+    if (op.indexOf("facet|tags|") === 0) {
+      const rest = op.substring("facet|tags|".length);
+      const bar = rest.lastIndexOf("|");
+      const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim();
+      const tags = await this.allTags();
+      if (!tags.length) return { items: [] };
+      const low = kw.toLowerCase();
+      const hit = [];
+      for (const t of tags) {
+        if (!kw || t.name.toLowerCase().indexOf(low) >= 0 || t.id.toLowerCase().indexOf(low) >= 0) {
+          hit.push({ id: t.id, name: t.name, count: "" });
+          if (hit.length >= 60) break;
+        }
+      }
+      return { items: hit };
+    }
+
     if (op.indexOf("gal|") === 0) {
       const url = pageUrlOf(op.substring(4));
       let html = "";
