@@ -201,6 +201,27 @@ export default class Xiaocong extends Spider {
     return BASE + (p <= 1 ? "/" : "/page/" + p + "/");
   }
 
+  /** 某博主的帖子列表 */
+  async tagList(name, p) {
+    if (!name) return this.page([], p, PAGE_SIZE, 0);
+    const enc = encodeURIComponent(name);
+    const url = BASE + "/tags/" + enc + "/" + (p <= 1 ? "" : "page/" + p + "/");
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    const cards = html ? parseCards(html) : [];
+    if (!cards.length && p === 1) {
+      return this.page([{
+        vod_id: "", vod_name: "博主「" + name + "」没有内容",
+        vod_pic: "", vod_remarks: "提示",
+      }], 1, PAGE_SIZE, 1);
+    }
+    const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
+  }
+
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     const t = String(tid || "all");
@@ -209,28 +230,21 @@ export default class Xiaocong extends Spider {
       try { openWeb({ url: BASE + "/" }); } catch (e) { }
       return this.page([], p, PAGE_SIZE, 0);
     }
-    if (t === "tagsearch") return this.page([], p, PAGE_SIZE, 0);
-
-    // 博主（标签）列表
-    if (t.indexOf("tag:") === 0) {
-      const name = t.substring(4).trim();
-      if (!name) return this.page([], p, PAGE_SIZE, 0);
-      const enc = encodeURIComponent(name);
-      const url = BASE + "/tags/" + enc + "/" + (p <= 1 ? "" : "page/" + p + "/");
-      let html = "";
-      try {
-        const r = await this.net.req(url, { headers: hdrs() });
-        if (r && r.code === 200) html = r.content;
-      } catch (e) { html = ""; }
-      const cards = html ? parseCards(html) : [];
-      if (!cards.length && p === 1) {
+    // 「博主」tab：面板里选了博主 → extend.sub = "tag:<名字>"，就地返回该博主的列表
+    if (t === "tagsearch") {
+      const sel = (extend && extend.sub) ? String(extend.sub) : "";
+      if (!sel || sel.indexOf("tag:") !== 0) {
         return this.page([{
-          vod_id: "", vod_name: "博主「" + name + "」没有内容",
+          vod_id: "", vod_name: "在上方选一个博主，或搜索后点选",
           vod_pic: "", vod_remarks: "提示",
         }], 1, PAGE_SIZE, 1);
       }
-      const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
-      return this.page(cards, p, PAGE_SIZE, total);
+      return this.tagList(sel.substring(4).trim(), p);
+    }
+
+    // 博主（标签）列表（从 profile 页直达的旧入口也走这里）
+    if (t.indexOf("tag:") === 0) {
+      return this.tagList(t.substring(4).trim(), p);
     }
 
     const url = this.listUrl(t, extend, p);
