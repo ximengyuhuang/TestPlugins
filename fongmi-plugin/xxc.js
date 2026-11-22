@@ -165,6 +165,26 @@ function parseAlbum(html) {
   };
 }
 
+/** 部分相册的图片路径没有 [68P] 标记 —— 对这些卡片补抓详情页拿准确数量（最多 10 个，并发） */
+async function fillBadges(spider, cards) {
+  const todo = [];
+  for (const c of cards) {
+    if (!c.vod_remarks && todo.length < 10) todo.push(c);
+  }
+  if (!todo.length) return cards;
+  await Promise.all(todo.map(async (c) => {
+    try {
+      const r = await spider.net.req(c.vod_id, { headers: hdrs(c.vod_id) });
+      if (!r || r.code !== 200) return;
+      const a = parseAlbum(r.content);
+      const p = a.imgs.length, v = a.vids.length;
+      if (!p && !v) return;
+      c.vod_remarks = (p ? p + "P" : "") + (v ? (p ? "·" : "") + v + "V" : "");
+    } catch (e) { }
+  }));
+  return cards;
+}
+
 function pageUrlOf(raw) {
   let u = String(raw || "").trim();
   u = u.replace(/^(v|p):/, "");
@@ -200,7 +220,7 @@ export default class XxCosplay extends Spider {
       const r = await this.net.req(url, { headers: hdrs() });
       if (r && r.code === 200) html = r.content;
     } catch (e) { html = ""; }
-    const cards = html ? parseCards(html) : [];
+    const cards = html ? await fillBadges(this, parseCards(html)) : [];
     const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
@@ -237,7 +257,7 @@ export default class XxCosplay extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
-    const cards = parseCards(html);
+    const cards = await fillBadges(this, parseCards(html));
     const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
@@ -448,7 +468,7 @@ export default class XxCosplay extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, 0);
 
-    const cards = parseCards(html);
+    const cards = await fillBadges(this, parseCards(html));
     const total = cards.length >= PAGE_SIZE - 1 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
