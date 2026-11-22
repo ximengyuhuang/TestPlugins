@@ -167,11 +167,20 @@ function parseAlbum(html) {
 
 /** 部分相册的图片路径没有 [68P] 标记 —— 对这些卡片补抓详情页拿准确数量（最多 10 个，并发） */
 async function fillBadges(spider, cards) {
+  if (!spider.badgeCache) spider.badgeCache = {};
+  const cache = spider.badgeCache;
+
+  // 命中缓存直接填
+  for (const c of cards) {
+    if (!c.vod_remarks && cache[c.vod_id]) c.vod_remarks = cache[c.vod_id];
+  }
+
   const todo = [];
   for (const c of cards) {
-    if (!c.vod_remarks && todo.length < 10) todo.push(c);
+    if (!c.vod_remarks && todo.length < 6) todo.push(c);
   }
   if (!todo.length) return cards;
+
   await Promise.all(todo.map(async (c) => {
     try {
       const r = await spider.net.req(c.vod_id, { headers: hdrs(c.vod_id) });
@@ -179,7 +188,9 @@ async function fillBadges(spider, cards) {
       const a = parseAlbum(r.content);
       const p = a.imgs.length, v = a.vids.length;
       if (!p && !v) return;
-      c.vod_remarks = (p ? p + "P" : "") + (v ? (p ? "·" : "") + v + "V" : "");
+      const badge = (p ? p + "P" : "") + (v ? (p ? "·" : "") + v + "V" : "");
+      c.vod_remarks = badge;
+      cache[c.vod_id] = badge;
     } catch (e) { }
   }));
   return cards;
