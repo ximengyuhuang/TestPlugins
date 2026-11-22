@@ -139,7 +139,7 @@
       "api": "./xiaocongzy.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 0.75
       },
       "ext": {}
     },
