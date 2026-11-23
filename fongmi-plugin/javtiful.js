@@ -157,10 +157,6 @@ export default class Javtiful extends Spider {
 
     const vMedia = VIDEO_TYPES.map((t) => ({ n: t.name, v: t.slug }));
 
-    // 分类 tab 的二级 chips：进站时拉一次索引（21 个），失败就只有「全部」
-    const cats = await this.loadCategories();
-    const cMedia = [{ n: "全部", v: "" }].concat(
-      cats.map((c) => ({ n: c.name, v: c.slug })));
 
     const filters = {
       video: [
@@ -169,12 +165,12 @@ export default class Javtiful extends Spider {
       ],
       // 多组筛选会渲染在 tab 行下方独立一行（bili241 起），不会再吃掉 tab 行
       category: [
-        { key: "media", name: "分类", value: cMedia },
         { key: "order", name: "排序", value: CAT_ORDERS },
         { key: "vtype", name: "类型", panel: true, value: CAT_TYPES },
       ],
     };
-    return { class: classes, filters: filters };
+    // 分类 chips 走二级机制（action("sub|category")），不依赖 homeContent 联网
+    return { class: classes, filters: filters, subFromTab: true };
   }
 
   /** 通用列表页：path + ?sort + ?page */
@@ -228,7 +224,9 @@ export default class Javtiful extends Spider {
 
     // 分类：二级 chips = 分类名；点卡片进某分类
     if (t === "category") {
-      const cat = String(ext.media || "");
+      let cat = String(ext.media || "");
+      const subVal = String(ext.sub || "");
+      if (!cat && subVal.indexOf("cat:") === 0) cat = subVal.substring(4);
       if (!cat) return this.listPage("/videos", p, String(ext.order || ""));
       const vtype = String(ext.vtype || "");
       const qs = [];
@@ -277,7 +275,7 @@ export default class Javtiful extends Spider {
         }
       }
     } catch (e) { }
-    this.catCache = out;
+    if (out.length) this.catCache = out;   // 空结果不缓存，避免一次抖动永久为空
     return out;
   }
 
@@ -489,6 +487,16 @@ export default class Javtiful extends Spider {
   async action(op) {
     if (!op) return [];
     if (op.indexOf("gal|") === 0) return { list: [] };
+
+    // 分类 tab 的二级 chips：21 个分类（异步加载，不占 homeContent 时间）
+    if (op === "sub|category") {
+      const cats = await this.loadCategories();
+      const out = [{ name: "全部", value: "" }];
+      for (const c of cats) out.push({ name: c.name, value: "cat:" + c.slug });
+      return out;
+    }
+    if (op.indexOf("sub|") === 0) return [];
+
     return [];
   }
 
