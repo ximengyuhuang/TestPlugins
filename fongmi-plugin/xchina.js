@@ -30,6 +30,29 @@ const PAGE_SIZE = 24;
 
 // 影片分类（作为「影片」tab 的二级 chips）
 // 套图的顶层系列（/photos 页面顶部 chips；每个系列页里还有一层子系列）
+// 套图标签（/categories?type=photo，37 个）
+const PHOTO_TAGS = [
+  { slug: "pussy-visible", name: "露底" }, { slug: "interaction", name: "互动" },
+  { slug: "sex", name: "性爱" }, { slug: "exposure", name: "露出" },
+  { slug: "stockings", name: "丝袜" }, { slug: "lingerie", name: "情趣内衣" },
+  { slug: "props", name: "道具" }, { slug: "shaved", name: "白虎" },
+  { slug: "bondage", name: "捆绑" }, { slug: "lesbian", name: "女同" },
+  { slug: "cosplay", name: "Cosplay" }, { slug: "maid", name: "女仆" },
+  { slug: "jk", name: "JK" }, { slug: "ol", name: "OL" },
+  { slug: "ancient", name: "古装" }, { slug: "nurse", name: "护士" },
+  { slug: "police", name: "警察" }, { slug: "bunny-girl", name: "兔女郎" },
+  { slug: "air-hostess", name: "空姐" }, { slug: "teacher", name: "教师" },
+  { slug: "one-piece-swimsuit", name: "连体泳装" }, { slug: "fishnet", name: "渔网袜" },
+  { slug: "garter", name: "吊袜带" }, { slug: "pantyhose", name: "连裤袜" },
+  { slug: "white-stockings", name: "白丝袜" }, { slug: "black-stockings", name: "黑丝袜" },
+  { slug: "color-stockings", name: "彩色丝袜" }, { slug: "high-heels", name: "高跟鞋" },
+  { slug: "outdoor", name: "户外" }, { slug: "bathroom", name: "浴室" },
+  { slug: "car", name: "车内" }, { slug: "classroom", name: "教室" },
+  { slug: "wedding-dress", name: "婚纱" }, { slug: "bikini", name: "比基尼" },
+  { slug: "cheongsam", name: "旗袍" }, { slug: "spreading", name: "掰穴" },
+  { slug: "peeing", name: "放尿" },
+];
+
 const PHOTO_SERIES = [
   { id: "618e4909ea9b6", name: "各国其他套图" },
   { id: "665f65ec88e78", name: "中国工作室" },
@@ -163,9 +186,16 @@ export default class XChina extends Spider {
     const pMedia = [{ n: "全部", v: "" }].concat(
       PHOTO_SERIES.map((c) => ({ n: c.name, v: "p:" + c.id })));
 
+    // 套图标签（站点不支持与系列组合，选中标签时以标签为准）
+    const pTags = [{ n: "不限", v: "" }].concat(
+      PHOTO_TAGS.map((t) => ({ n: t.name, v: t.slug })));
+
     const filters = {
       video: [{ key: "media", name: "分类", value: vMedia }],
-      photo: [{ key: "media", name: "分类", value: pMedia }],
+      photo: [
+        { key: "media", name: "分类", value: pMedia },
+        { key: "tag", name: "标签", value: pTags },
+      ],
     };
     return { class: classes, filters: filters };
   }
@@ -192,6 +222,10 @@ export default class XChina extends Spider {
 
     // 套图 tab：三级结构 = 顶层系列(p:<id>) → 子系列(sub=pseries:<id>)
     if (t === "photo") {
+      // 标签优先：站点不支持「系列 + 标签」组合，选了标签就按标签出
+      const tag = (extend && extend.tag) ? String(extend.tag) : "";
+      if (tag) return this.listPage("/photos/tag/" + tag, p);
+
       const sub2 = sub.indexOf("pseries:") === 0 ? sub.substring(8) : "";
       if (sub2) return this.listPage("/photo-series/" + sub2, p);
       const sid = mediaRaw.indexOf("p:") === 0 ? mediaRaw.substring(2) : "";
