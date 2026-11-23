@@ -498,6 +498,9 @@ export default class Javtiful extends Spider {
 
     if (dur) lines.push("时长：" + dur);
 
+    // 相关推荐：站点详情页自带「相关视频」区块（#watch-related-panel）
+    const rel = this.parseRelated(html, url);
+
     return {
       list: [{
         vod_id: url,
@@ -508,8 +511,24 @@ export default class Javtiful extends Spider {
         gallery: false,
         vod_play_from: "Javtiful",
         vod_play_url: "正片$" + url,
-      }],
+      }, ...rel],
     };
+  }
+
+  /** 详情页「相关视频」区块 → 推荐卡片（排除自己，最多 8 个） */
+  parseRelated(html, selfUrl) {
+    const text = String(html || "");
+    const i = text.indexOf('id="watch-related-panel"');
+    if (i < 0) return [];
+    const seg = text.substring(i, i + 40000);
+    const out = [];
+    for (const c of parseCards(seg)) {
+      if (!c.vod_id || c.vod_id === selfUrl) continue;
+      if (out.some((x) => x.vod_id === c.vod_id)) continue;
+      out.push(c);
+      if (out.length >= 8) break;
+    }
+    return out;
   }
 
   /** 两步换流：拿 ticket → POST playback → 播放地址 */
