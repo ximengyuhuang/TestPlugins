@@ -77,6 +77,13 @@ const CAT_TYPES = [
   { n: "减码", v: "reducing-mosaic" },
 ];
 
+/** 卡片类型 → 中文短词（角标用） */
+const TYPE_CN = {
+  "reducing mosaic": "减码",
+  "uncensored": "无码",
+  "censored": "有码",
+};
+
 function hdrs(ref) {
   return {
     "User-Agent": UA,
@@ -117,11 +124,12 @@ function parseCards(html) {
     const title = b.match(/class="video-card__title"[^>]*title="([^"]*)"/)
       || b.match(/class="video-card__title"[^>]*>([^<]{1,200})</);
 
-    // 角标：优先时长（details 里的 01:47:35）
+    // 角标：类型·时长（如「减码·01:47:35」），画质本站全是 FHD，不显示
+    const tMatch = b.match(/video-card__type">([^<]*)</);
+    const typeCn = tMatch ? (TYPE_CN[clean(tMatch[1]).toLowerCase()] || "") : "";
     const dur = b.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*<\/span>/);
-    const meta = b.match(/class="video-card__meta">([\s\S]{0,80}?)<\/div>/);
-    let remarks = dur ? dur[1] : "";
-    if (!remarks && meta) remarks = "";
+    const durText = dur ? dur[1] : "";
+    let remarks = [typeCn, durText].filter((x) => x).join("·");
 
     out.push({
       vod_id: url,
