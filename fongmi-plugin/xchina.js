@@ -380,6 +380,12 @@ export default class XChina extends Spider {
     const dur = html.match(/<span class="[^"]*tabular-nums[^"]*"[^>]*>(\d{1,2}:\d{2}(?::\d{2})?)</);
     if (dur) lines.push("时长：" + clean(dur[1]));
 
+    // 相关推荐：同系列优先（更精准），没有再退回同分类
+    const series = crumbs.find((c) => c.kind === "video-series");
+    const cat = crumbs.find((c) => c.kind === "video-category");
+    let rel = series ? await this.relatedBy("/video-series/" + series.slug, url, 8) : [];
+    if (!rel.length && cat) rel = await this.relatedBy("/video-category/" + cat.slug, url, 8);
+
     return {
       list: [{
         vod_id: url,
@@ -390,8 +396,29 @@ export default class XChina extends Spider {
         gallery: false,          // 纯视频帖不给「查看图集」按钮
         vod_play_from: "xChina",
         vod_play_url: "正片$" + (playUrl || url),
-      }],
+      }, ...rel],
     };
+  }
+
+  /** 相关推荐：从某个列表页（系列/分类）取内容，排除自己、去重、限 8 个 */
+  async relatedBy(path, selfUrl, limit) {
+    const out = [];
+    try {
+      const r = await this.net.req(BASE + path, { headers: hdrs() });
+      if (!r || r.code !== 200) return out;
+      for (const c of parseCards(r.content)) {
+        if (!c.vod_id || c.vod_id === selfUrl) continue;
+        if (out.some((x) => x.vod_id === c.vod_id)) continue;
+        out.push({
+          vod_id: c.vod_id,
+          vod_name: c.vod_name,
+          vod_pic: c.vod_pic,
+          vod_remarks: c.vod_remarks,
+        });
+        if (out.length >= limit) break;
+      }
+    } catch (e) { }
+    return out;
   }
 
   /** 套图详情里的图片（按文件名去重，_600x0 → 原图） */
