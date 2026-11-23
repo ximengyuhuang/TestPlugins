@@ -166,11 +166,11 @@ export default class Javtiful extends Spider {
         { key: "media", name: "类型", value: vMedia },
         { key: "order", name: "排序", value: ORDERS },
       ],
-      // 注意：App 有一条规则——某个 tab 有 ≥2 组「非排序」筛选时，会清空 tab 行改用筛选行，
-      // 导致 tab 全部消失。所以分类 tab 只保留「分类」一组（类型筛选放到「视频」tab）。
+      // 多组筛选会渲染在 tab 行下方独立一行（bili241 起），不会再吃掉 tab 行
       category: [
         { key: "media", name: "分类", value: cMedia },
         { key: "order", name: "排序", value: CAT_ORDERS },
+        { key: "vtype", name: "类型", value: CAT_TYPES },
       ],
     };
     return { class: classes, filters: filters };
