@@ -1,447 +1,451 @@
-// javtiful.com —— FongMi / TVBox QuickJS 源
+// Javtiful（javtiful.com /zh）—— BiliTV / catvod QuickJS 插件
 //
-// 取流：视频页 <script id="watch-config"> 里有 playback.endpoint + ticket
-//       → POST endpoint (ticket) → {"sources":[{src,type}]}
-//       → src 是带 expires/signature 的 MP4 直链（整片，无广告）
+// 站类型：纯视频（无图集）
+//
+//   推荐   /zh/foryou                    服务端每次随机 → 下拉刷新 = 换一批
+//   视频   /zh/videos                    全部
+//          /zh/censored                  有码
+//          /zh/uncensored                无码
+//          /zh/reducing-mosaic           减码
+//   分类   /zh/categories → /zh/category/<名字>
+//   频道   /zh/channels   → /zh/channel/<slug>
+//   女优   /zh/actresses  → /zh/actress/<slug>
+//   搜索   /zh/search?q=<词>
+//
+// 排序（?sort=）：added_today/added_week/added_month、
+//                 popular_today/popular_week/popular_month、most_liked/most_viewed
+// 分页：?page=N（23 条/页）
+//
+// 卡片：
+//   <article class="video-card">
+//     <a href="/zh/video/116220/slug" class="video-card__thumbnail">
+//       <img src="占位.svg" data-front-lazy-src="/uploads/…/thumb.jpg">   ← 封面在 data 属性
+//       <span class="video-card__type">Uncensored</span>
+//       <span class="video-card__details"><strong>FHD</strong>01:47:35</span>
+//     </a>
+//     <a class="video-card__title" title="标题">标题</a>
+//     <div class="video-card__meta">5.2K 次观看 · 刚刚</div>
+//
+// 播放（关键：HTML 里没有 src，票是单次有效的）：
+//   详情页内联 JSON  "playback":{"endpoint":"/zh/video/<id>/playback","ticket":"p1.xxx"}
+//   → POST endpoint（form: ticket=<票>，带 X-Requested-With）
+//   → {"sources":[{"src":"/zh/media/video/<id>/720p?expires=&signature=","type":"video/mp4"}]}
+//   → 带 Referer 拉 /zh/media/... （206 video/mp4）
 
 import { Spider, openWeb } from "catvod";
 
 const BASE = "https://javtiful.com";
-const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+const LANG = "/zh";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const PAGE_SIZE = 23;
 
-// [tid, 路径, 名称]
-const CATS = [
-  ["new", "/videos", "最新"],
-  ["viewed", "/videos?sort=most_viewed", "最多观看"],
-  ["rated", "/videos?sort=top_rated", "评分最高"],
-  ["chinese", "/category/chinese-av", "国产AV"],
-  ["mature", "/category/mature-woman", "成熟女性"],
-  ["amateur", "/category/amateur", "素人"],
-  ["beauty", "/category/beautiful-girl", "美少女"],
-  ["married", "/category/married-woman", "人妻"],
-  ["bigtits", "/category/big-tits", "巨乳"],
-  ["school", "/category/school-girls", "学生"],
-  ["drama", "/category/drama", "剧情"],
-  ["affair", "/category/affair", "出轨"],
-  ["office", "/category/office-lady", "OL"],
-  ["student", "/category/female-student", "女学生"],
-  ["cosplay", "/category/cosplay", "Cosplay"],
-  ["teacher", "/category/female-teacher", "女教师"],
-  ["milf", "/category/milf", "熟女"],
-  ["nurse", "/category/nurse", "护士"],
-  ["boss", "/category/female-boss", "女上司"],
-  ["sister", "/category/sister-in-law", "嫂子"],
+// 视频类型（视频 tab 的二级）
+const VIDEO_TYPES = [
+  { slug: "", name: "全部", path: "/videos" },
+  { slug: "censored", name: "有码", path: "/censored" },
+  { slug: "uncensored", name: "无码", path: "/uncensored" },
+  { slug: "reducing-mosaic", name: "减码", path: "/reducing-mosaic" },
 ];
 
-// PornHub 标准分类（29 个），本站用搜索实现；值以 / 开头则直接用该路径
-const GENRES = [
-  ["Asian", "asian"], ["Japanese", "japanese"], ["Uncensored", "/uncensored"], ["Korean", "korean"],
-  ["Amateur", "amateur"], ["Anal", "anal"], ["Big Ass", "big-ass"],
-  ["Big Tits", "big-tits"], ["Blonde", "blonde"], ["Blowjob", "blowjob"],
-  ["Brunette", "brunette"], ["Cosplay", "cosplay"], ["Creampie", "creampie"],
-  ["Cuckold", "cuckold"], ["Ebony", "ebony"], ["Fetish", "fetish"],
-  ["Handjob", "handjob"], ["Hardcore", "hardcore"], ["Latina", "latina"],
-  ["Lesbian", "lesbian"], ["Massage", "massage"], ["Mature", "mature"],
-  ["MILF", "milf"], ["Masturbation", "masturbation"], ["POV", "pov"],
-  ["Public", "public"], ["Squirt", "squirt"], ["Threesome", "threesome"],
-  ["Toys", "toys"],
+// 排序 9 项
+const ORDERS = [
+  { n: "最新", v: "" },
+  { n: "今日新增", v: "added_today" },
+  { n: "本周新增", v: "added_week" },
+  { n: "本月新增", v: "added_month" },
+  { n: "今日热门", v: "popular_today" },
+  { n: "本周热门", v: "popular_week" },
+  { n: "本月热门", v: "popular_month" },
+  { n: "最多点赞", v: "most_liked" },
+  { n: "最多观看", v: "most_viewed" },
 ];
 
-function headers(ref) {
+// 分类 tab 的排序（站点分类页只给 4 项）
+const CAT_ORDERS = [
+  { n: "今日新增", v: "added_today" },
+  { n: "本周新增", v: "added_week" },
+  { n: "本月新增", v: "added_month" },
+  { n: "热门", v: "popular_week" },
+];
+
+// VIDEO TYPE（分类页的 4 项）
+const CAT_TYPES = [
+  { n: "全部", v: "" },
+  { n: "有码", v: "censored" },
+  { n: "无码", v: "uncensored" },
+  { n: "减码", v: "reducing-mosaic" },
+];
+
+function hdrs(ref) {
   return {
     "User-Agent": UA,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Referer": ref || BASE + "/",
+    "Referer": ref || BASE + LANG + "/main",
   };
 }
 
 function decode(s) {
-  if (!s) return "";
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ");
+  return String(s || "")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, d) => String.fromCharCode(parseInt(d, 16)))
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ");
 }
 
-function strip(s) {
-  return decode((s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+function clean(s) {
+  return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-function absolute(u) {
-  if (!u) return "";
-  if (u.indexOf("//") === 0) return "https:" + u;
-  if (u.indexOf("/") === 0) return BASE + u;
-  if (u.indexOf("http") === 0) return u;
-  return BASE + "/" + u;
-}
-
-// 卡片：<article class="video-card">
+/** 列表卡片 */
 function parseCards(html) {
+  const text = String(html || "");
   const out = [];
   const seen = {};
-  const parts = html.split(/<article class="video-card/);
-  for (let i = 1; i < parts.length; i++) {
-    const block = parts[i].substring(0, 3000);
-
-    const t = block.match(/<a href="([^"]+)" class="video-card__title"\s+title="([^"]*)"/) ||
-              block.match(/class="video-card__title"[^>]*href="([^"]+)"[^>]*title="([^"]*)"/) ||
-              block.match(/<a href="([^"]+)" class="video-card__title"[^>]*>([^<]*)</);
-    if (!t) continue;
-    const url = absolute(t[1]);
-    if (!url || seen[url] || url.indexOf("/video/") < 0) continue;
+  const re = /<article class="video-card"[\s\S]*?<\/article>/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const b = m[0];
+    const link = b.match(/href="(\/zh\/video\/\d+\/[^"]*)"/);
+    if (!link) continue;
+    const url = BASE + link[1];
+    if (seen[url]) continue;
     seen[url] = 1;
 
-    const img = block.match(/<img[^>]*data-front-lazy-src="([^"]+)"/) || block.match(/<img[^>]*data-front-lazy-current-src="([^"]+)"/);
-    const det = block.match(/<span class="video-card__details">([\s\S]{0,120}?)<\/span>/);
-    let dur = "";
-    let q = "";
-    if (det) {
-      const dm = det[1].match(/(\d{1,2}:\d{2}:\d{2})/);
-      if (dm) dur = dm[1];
-      const qm = det[1].match(/<strong[^>]*>([^<]{1,8})<\/strong>/);
-      if (qm) q = strip(qm[1]);
-    }
+    const pic = b.match(/data-front-lazy-src="([^"]+)"/);
+    const title = b.match(/class="video-card__title"[^>]*title="([^"]*)"/)
+      || b.match(/class="video-card__title"[^>]*>([^<]{1,200})</);
 
-    // 角标：有清晰度就用「FHD 02:48:06」，否则只显示时长
-    let remark = "";
-    if (q && dur) remark = q + " " + dur;
-    else if (q) remark = q;
-    else if (dur) remark = dur;
+    // 角标：优先时长（details 里的 01:47:35）
+    const dur = b.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*<\/span>/);
+    const meta = b.match(/class="video-card__meta">([\s\S]{0,80}?)<\/div>/);
+    let remarks = dur ? dur[1] : "";
+    if (!remarks && meta) remarks = "";
 
     out.push({
       vod_id: url,
-      vod_name: decode(t[2]) || strip(t[2]),
-      vod_pic: img ? absolute(img[1]) : "",
-      vod_remarks: remark,
+      vod_name: clean(title ? (title[1] || title[0]) : ""),
+      vod_pic: pic ? BASE + decode(pic[1]).replace(BASE, "") : "",
+      vod_remarks: remarks,
     });
   }
   return out;
 }
 
+function pageUrlOf(raw) {
+  let u = String(raw || "").trim();
+  u = u.replace(/^(v|p):/, "");
+  const bar = u.lastIndexOf("|");
+  if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
+  if (u.indexOf("http") === 0) return u;
+  return BASE + (u.charAt(0) === "/" ? u : "/" + u);
+}
+
 export default class Javtiful extends Spider {
-  init(extend) {
-    this.log("javtiful ready");
-  }
+  init() { }
 
-  async homeContent(filter) {
-    // CATS = [最新, 最多观看, 评分最高, ...题材]
-    const sorts3 = CATS.slice(0, 3);
-    const themes = CATS.slice(3);
-    const classes = sorts3.map(([k, , n]) => ({ type_id: k, type_name: n }));
-    classes.splice(1, 0, { type_id: "web", type_name: "网页" });
-
-    // 动态补全分类：/categories 页的 category-card
-    if (!this.cats) {
-      try {
-        const r = await this.net.req(BASE + "/categories", { headers: headers() });
-        if (r && r.code === 200) {
-          const list = [];
-          const re = /<a class="category-card" href="([^"]+)"[\s\S]{0,500}?alt="([^"]*)"/g;
-          let m;
-          while ((m = re.exec(r.content)) !== null) {
-            const path = m[1];
-            const name = decode(m[2]).trim();
-            if (name && path && path.indexOf("/category/") >= 0) list.push([name, path]);
-          }
-          this.cats = list;
-        }
-      } catch (e) {
-        this.log("categories failed: " + e);
-      }
-    }
-
-    // 动态分类收进「分类」文件夹（不在首页平铺）
-    const dyn = (this.cats || []).slice();
-
-    // 二级结构：题材 / 分类 / 标准分类 三个文件夹入口
-    classes.push({ type_id: "themef", type_name: "题材 (" + themes.length + ")", type_flag: "1" });
-    classes.push({ type_id: "catf", type_name: "分类 (" + dyn.length + ")", type_flag: "1" });
-    classes.push({ type_id: "genf", type_name: "标准分类 (" + GENRES.length + ")", type_flag: "1" });
-
-    // 排序筛选器（右下角漏斗；分类页会忽略，列表页生效）
-    const sorts = [
-      { n: "最新", v: "" },
-      { n: "最多观看", v: "most_viewed" },
-      { n: "评分最高", v: "top_rated" },
+  async homeContent() {
+    const classes = [
+      { type_id: "foryou", type_name: "推荐" },
+      { type_id: "video", type_name: "视频" },
+      { type_id: "category", type_name: "分类" },
+      { type_id: "channel", type_name: "频道" },
+      { type_id: "actress", type_name: "女优" },
+      { type_id: "web", type_name: "网页" },
     ];
-    const filters = {};
-    for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
-    for (const [name] of GENRES) filters["g:" + name] = [{ key: "sort", name: "排序", value: sorts }];
-    for (const [, path] of dyn) filters["c:" + path] = [{ key: "sort", name: "排序", value: sorts }];
 
+    const vMedia = VIDEO_TYPES.map((t) => ({ n: t.name, v: t.slug }));
+    const filters = {
+      video: [
+        { key: "media", name: "类型", value: vMedia },
+        { key: "order", name: "排序", value: ORDERS },
+      ],
+      category: [
+        { key: "media", name: "分类", value: [{ n: "全部", v: "" }] },   // 运行时填充
+        { key: "order", name: "排序", value: CAT_ORDERS },
+        { key: "vtype", name: "类型", value: CAT_TYPES },
+      ],
+    };
     return { class: classes, filters: filters };
   }
 
-  // 题材文件夹
-  themeFolders() {
-    return CATS.slice(3).map(([key, , name]) => ({
-      vod_id: "t:" + key,
-      vod_name: name,
-      vod_pic: "",
-      vod_remarks: "题材",
-      vod_tag: "folder",
-    }));
-  }
+  /** 通用列表页：path + ?sort + ?page */
+  async listPage(path, p, sort) {
+    const qs = [];
+    if (sort) qs.push("sort=" + sort);
+    if (p > 1) qs.push("page=" + p);
+    const url = BASE + path + (qs.length ? "?" + qs.join("&") : "");
 
-  // 分类文件夹：动态分类
-  catFolders() {
-    return (this.cats || []).map(([name, path]) => ({
-      vod_id: "c:" + path,
-      vod_name: name,
-      vod_pic: "",
-      vod_remarks: "分类",
-      vod_tag: "folder",
-    }));
-  }
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
-  // 标准分类文件夹
-  genreFolders() {
-    return GENRES.map(([name]) => ({
-      vod_id: "g:" + name,
-      vod_name: name,
-      vod_pic: "",
-      vod_remarks: "标准",
-      vod_tag: "folder",
-    }));
+    const cards = parseCards(html);
+    const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
   }
 
   async categoryContent(tid, pg, filter, extend) {
-    if (tid === "web") {
-      try {
-        openWeb({ url: BASE });
-      } catch (e) {
-        this.log("openWeb failed: " + e);
-      }
-      return this.page([], 1, 24, 0);
-    }
-
-    // ---- 文件夹导航层 ----
-    if (tid === "themef") {
-      const list = this.themeFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid === "catf") {
-      const list = this.catFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid === "genf") {
-      const list = this.genreFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-
-    let path = CATS[0][1];
-    if (tid.indexOf("c:") === 0) {
-      path = tid.substring(2);
-    } else if (tid.indexOf("t:") === 0) {
-      const key = tid.substring(2);
-      for (const c of CATS) {
-        if (c[0] === key) {
-          path = c[1];
-          break;
-        }
-      }
-    } else {
-      for (const c of CATS) {
-        if (c[0] === tid) {
-          path = c[1];
-          break;
-        }
-      }
-    }
-
     const p = Number(pg) || 1;
+    const t = String(tid || "foryou");
+    const ext = extend || {};
 
-    // 标准分类：值以 / 开头用路径，否则走搜索
-    if (tid.indexOf("g:") === 0) {
-      const name = tid.substring(2);
-      let val = "";
-      for (const g of GENRES) {
-        if (g[0] === name) {
-          val = g[1];
-          break;
-        }
-      }
-
-      let url;
-      if (val.indexOf("/") === 0) {
-        url = BASE + val + (p > 1 ? "?page=" + p : "");
-      } else {
-        url = BASE + "/search?q=" + encodeURIComponent(name) + (p > 1 ? "&page=" + p : "");
-      }
-
-      const r = await this.net.req(url, { headers: headers() });
-      if (!r || r.code !== 200) return this.page([], p, 24, 0);
-      const cards = parseCards(r.content);
-      if (cards.length === 0) return this.page([], p, 24, (p - 1) * 24);
-      return this.page(cards, p, 24, (p + 1) * 24);
+    if (t === "web") {
+      try { openWeb({ url: BASE + LANG + "/main" }); } catch (e) { }
+      return this.page([], p, PAGE_SIZE, 0);
     }
 
-    const sep = path.indexOf("?") >= 0 ? "&" : "?";
-    const sort = (extend && extend.sort) || "";
-    let url = BASE + path + (p > 1 ? sep + "page=" + p : "");
-    if (sort) url += (url.indexOf("?") >= 0 ? "&" : "?") + "sort=" + sort;
+    // 推荐：服务端每次随机（下拉刷新即换一批）
+    if (t === "foryou") return this.listPage("/foryou", p, "");
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 24, 0);
+    // 视频：二级 = 类型
+    if (t === "video") {
+      const type = String(ext.media || "");
+      const hit = VIDEO_TYPES.find((x) => x.slug === type) || VIDEO_TYPES[0];
+      return this.listPage(hit.path, p, String(ext.order || ""));
+    }
 
-    const cards = parseCards(r.content);
-    if (cards.length === 0) return this.page([], p, 24, (p - 1) * 24);
-    return this.page(cards, p, 24, (p + 1) * 24);
+    // 分类：二级 chips = 分类名；点卡片进某分类
+    if (t === "category") {
+      const cat = String(ext.media || "");
+      if (!cat) return this.categoryList(p);
+      const vtype = String(ext.vtype || "");
+      // 分类页的类型筛选：/zh/category/<name>?type=<slug>
+      const qs = [];
+      if (ext.order) qs.push("sort=" + ext.order);
+      if (vtype) qs.push("type=" + vtype);
+      if (p > 1) qs.push("page=" + p);
+      const url = BASE + LANG + "/category/" + cat + (qs.length ? "?" + qs.join("&") : "");
+      return this.reqPage(url, p);
+    }
+
+    // 频道 / 女优：下钻时 tid 是 ch:<slug> / ac:<slug>
+    if (t.indexOf("ch:") === 0) return this.listPage("/channel/" + t.substring(3), p, "");
+    if (t.indexOf("ac:") === 0) return this.listPage("/actress/" + t.substring(3), p, "");
+
+    // 频道 / 女优 索引行
+    if (t === "channel" || t === "actress") return this.directoryList(t, p);
+
+    return this.listPage("/videos", p, "");
+  }
+
+  /** 分类索引（21 个，做成二级 chips 的数据源） */
+  async categoryList(p) {
+    const out = [];
+    try {
+      const r = await this.net.req(BASE + LANG + "/categories", { headers: hdrs() });
+      if (r && r.code === 200) {
+        const re = /href="\/zh\/category\/([^"]+)"[\s\S]{0,900}?<\/a>/g;
+        let m;
+        const seen = {};
+        while ((m = re.exec(r.content)) !== null) {
+          const slug = m[1];
+          if (seen[slug]) continue;
+          seen[slug] = 1;
+          const nm = m[0].match(/category-card__name">([^<]{1,40})</);
+          const capt = m[0].match(/category-card__caption">([\s\S]{0,120}?)<\/span>/);
+          let name = nm ? clean(nm[1]) : "";
+          if (!name && capt) name = clean(capt[1]);
+          if (!name) {
+            try { name = decodeURIComponent(slug); } catch (e) { name = slug; }
+          }
+          out.push({ slug: slug, name: name });
+        }
+      }
+    } catch (e) { }
+
+    // 分类名取不到时用 slug 兜底；作为「文件夹」行
+    return this.page(out.map((c) => ({
+      vod_id: "cat:" + c.slug,
+      vod_name: c.name,
+      vod_pic: "",
+      vod_remarks: "",
+      vod_tag: "folder",
+    })), p, 30, out.length);
+  }
+
+  /** 频道 / 女优索引（文件夹行，可翻页） */
+  async directoryList(kind, p) {
+    const listPath = kind === "channel" ? "/channels" : "/actresses";
+    const linkKind = kind === "channel" ? "channel" : "actress";
+    const out = [];
+    try {
+      const url = BASE + LANG + listPath + (p > 1 ? "?page=" + p : "");
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) {
+        const re = new RegExp('href="/zh/' + linkKind + '/([^"]+)"[\\s\\S]{0,600}?directory-card__name">([^<]{1,60})<', "g");
+        let m;
+        const seen = {};
+        while ((m = re.exec(r.content)) !== null) {
+          const slug = m[1];
+          if (seen[slug]) continue;
+          seen[slug] = 1;
+          const cnt = m[0].match(/directory-card__count">([^<]{1,30})</);
+          out.push({
+            vod_id: (kind === "channel" ? "ch:" : "ac:") + slug,
+            vod_name: clean(m[2]) || slug,
+            vod_pic: "",
+            vod_remarks: cnt ? clean(cnt[1]) : "",
+            vod_tag: "folder",
+          });
+        }
+      }
+    } catch (e) { }
+    const total = out.length >= 20 ? (p + 1) * 30 : (p - 1) * 30 + out.length;
+    return this.page(out, p, 30, total);
+  }
+
+  /** 直接请求某个列表 URL */
+  async reqPage(url, p) {
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+    const cards = parseCards(html);
+    const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
   }
 
   async detailContent(ids) {
-    const list = [];
-    for (const id of ids) {
-      const pageUrl = String(id).indexOf("http") === 0 ? String(id) : absolute(String(id));
-      let title = "";
-      let pic = "";
-      let content = "";
-      let duration = "";
-
-      try {
-        const r = await this.net.req(pageUrl, { headers: headers() });
-        if (r && r.code === 200) {
-          const html = r.content;
-
-          const ogt = html.match(/property="og:title"[^>]*content="([^"]+)"/);
-          const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
-          title = ogt ? decode(ogt[1]) : h1 ? strip(h1[1]) : "";
-          title = title.replace(/\s*[-|]\s*Javtiful.*$/i, "").trim();
-
-          const ogi = html.match(/property="og:image"[^>]*content="([^"]+)"/);
-          pic = ogi ? decode(ogi[1]) : "";
-
-          const d = html.match(/(\d{1,2}:\d{2}:\d{2})/);
-          if (d) duration = d[1];
-
-          const lines = [];
-          if (duration) lines.push("时长: " + duration);
-
-          const tags = [];
-          const reT = /href="https:\/\/javtiful\.com\/(?:zh\/)?(?:category|tag)\/([^"\/]+)"/g;
-          let m;
-          while ((m = reT.exec(html)) !== null) {
-            try {
-              const g = decodeURIComponent(m[1]);
-              if (tags.indexOf(g) < 0) tags.push(g);
-            } catch (e) {}
-          }
-          if (tags.length) lines.push("分类: " + tags.slice(0, 10).join(" / "));
-
-          const desc = html.match(/property="og:description"[^>]*content="([^"]+)"/);
-          if (desc) lines.push(decode(desc[1]).substring(0, 120));
-
-          content = lines.filter(Boolean).join("\n");
-        }
-      } catch (e) {
-        this.log("detail failed: " + e);
-      }
-
-      list.push({
-        vod_id: pageUrl,
-        vod_name: title || String(id),
-        vod_pic: pic,
-        vod_content: content,
-        vod_remarks: duration,
-        vod_play_from: "javtiful",
-        vod_play_url: "正片$" + pageUrl,
-      });
-    }
-    return { list: list };
-  }
-
-  async playerContent(flag, id, vipFlags) {
-    const pageUrl = String(id).indexOf("http") === 0 ? String(id) : absolute(String(id));
-
-    const r = await this.net.req(pageUrl, { headers: headers() });
-    if (!r || r.code !== 200) throw new Error("无法打开详情页");
-
-    // watch-config 里的 playback
-    const m = r.content.match(/<script[^>]*id="watch-config"[^>]*>([\s\S]*?)<\/script>/);
-    if (!m) throw new Error("找不到 watch-config");
-
-    let cfg;
+    const url = pageUrlOf(ids[0]);
+    let html = "";
     try {
-      cfg = JSON.parse(m[1].trim());
-    } catch (e) {
-      throw new Error("watch-config 解析失败");
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+
+    let title = "";
+    const t = html.match(/property="og:title"[^>]*content="([^"]*)"/) ||
+      html.match(/<title>([^<]*)<\/title>/);
+    if (t) title = clean(t[1]).replace(/\s*\|\s*Javtiful\s*$/i, "").trim();
+
+    const pic = html.match(/property="og:image"[^>]*content="([^"]*)"/) ||
+      html.match(/<video[^>]*poster="([^"]+)"/);
+    const poster = pic ? (pic[1].indexOf("http") === 0 ? decode(pic[1]) : BASE + decode(pic[1])) : "";
+
+    // 时长
+    let dur = "";
+    const dm = html.match(/"duration":"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?"/);
+    if (dm) {
+      const h = Number(dm[1] || 0), mi = Number(dm[2] || 0), se = Number(dm[3] || 0);
+      const total = h * 3600 + mi * 60 + se;
+      dur = Math.floor(total / 3600) > 0
+        ? Math.floor(total / 3600) + ":" + ("0" + Math.floor((total % 3600) / 60)).slice(-2) + ":" + ("0" + (total % 60)).slice(-2)
+        : Math.floor(total / 60) + ":" + ("0" + (total % 60)).slice(-2);
     }
 
-    const pb = cfg.playback || {};
-    const endpoint = pb.endpoint || "";
-    const ticket = pb.ticket || "";
-    if (!endpoint || !ticket) throw new Error("缺少播放参数");
-
-    const ep = endpoint.indexOf("http") === 0 ? endpoint : BASE + endpoint;
-
-    // POST ticket 换 sources
-    const r2 = await this.net.req(ep, {
-      method: "POST",
-      headers: {
-        "User-Agent": UA,
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": pageUrl,
-        "Origin": BASE,
-      },
-      body: "ticket=" + encodeURIComponent(ticket),
-    });
-
-    if (!r2 || r2.code !== 200) throw new Error("换源失败");
-
-    let data;
-    try {
-      data = JSON.parse(r2.content);
-    } catch (e) {
-      throw new Error("换源返回解析失败");
+    // 女优 / 频道 / 分类 → chips
+    const lines = [];
+    const chips = [];
+    const are = /href="\/zh\/actress\/([^"]+)"[^>]*>([\s\S]{0,400}?)<\/a>/g;
+    let am;
+    const seenA = {};
+    while ((am = are.exec(html)) !== null) {
+      if (seenA[am[1]]) continue;
+      const nm = clean(am[2]);
+      if (!nm) continue;              // 只有图片没有文字就跳过，免得出现空 chip
+      seenA[am[1]] = 1;
+      chips.push('[a=cr:{"id":"ac:' + am[1] + '"}/]' + nm + "[/a]");
+      if (chips.length >= 6) break;
     }
+    if (chips.length) lines.push(chips.join(" · "));
 
-    const sources = data.sources || [];
-    if (!sources.length) throw new Error("没有可用源");
-
-    // 按 URL 里的 1080p/720p/480p 归类（多画质交给播放器切）
-    function qualityOf(u) {
-      const q = String(u).match(/(\d{3,4})p/);
-      return q ? Number(q[1]) : 0;
+    const chre = /href="\/zh\/channel\/([^"]+)"[^>]*>([\s\S]{0,400}?)<\/a>/g;
+    let cm;
+    const chanChips = [];
+    const seenC = {};
+    while ((cm = chre.exec(html)) !== null) {
+      if (seenC[cm[1]]) continue;
+      const nm = clean(cm[2]);
+      if (!nm) continue;
+      seenC[cm[1]] = 1;
+      chanChips.push('[a=cr:{"id":"ch:' + cm[1] + '"}/]' + nm + "[/a]");
+      if (chanChips.length >= 4) break;
     }
+    if (chanChips.length) lines.push(chanChips.join(" · "));
 
-    const values = [];
-    const seenSrc = {};
-    for (const s of sources) {
-      const src = s && s.src ? absolute(s.src) : "";
-      if (!src || seenSrc[src]) continue;
-      seenSrc[src] = 1;
-      const q = qualityOf(src);
-      values.push({ n: q ? q + "P" : "源" + (values.length + 1), v: src, q: q });
-    }
-    values.sort((a, b) => b.q - a.q);
-    if (values.length === 0) throw new Error("没有可用源");
-
-    const urlField = values.length > 1
-      ? { values: values.map((x) => ({ n: x.n, v: x.v })), position: 0 }
-      : values[0].v;
+    if (dur) lines.push("时长：" + dur);
 
     return {
-      parse: 0,
-      url: urlField,
-      header: { "User-Agent": UA, "Referer": pageUrl },
+      list: [{
+        vod_id: url,
+        vod_name: title || url,
+        vod_pic: poster,
+        vod_content: lines.join("\n"),
+        vod_remarks: dur,
+        gallery: false,
+        vod_play_from: "Javtiful",
+        vod_play_url: "正片$" + url,
+      }],
     };
   }
 
-  async searchContent(key, quick, pg = "1") {
+  /** 两步换流：拿 ticket → POST playback → 播放地址 */
+  async resolvePlay(url) {
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) throw new Error("详情页打不开");
+
+    const m = html.match(/"playback":\{"endpoint":"([^"]+)","ticket":"([^"]+)"\}/);
+    if (!m) throw new Error("没找到播放票");
+    const endpoint = m[1];
+    const ticket = m[2];
+
+    let txt = "";
+    try {
+      const r = await this.net.req(BASE + endpoint, {
+        method: "POST",
+        postType: "form",
+        data: { ticket: ticket },
+        headers: Object.assign(hdrs(url), {
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest",
+          "Origin": BASE,
+        }),
+      });
+      if (r) txt = r.content || "";
+    } catch (e) {
+      txt = "";
+    }
+
+    if (!txt) throw new Error("播放接口无响应");
+    let data = null;
+    try { data = JSON.parse(txt); } catch (e) { data = null; }
+    if (!data || !data.success || !Array.isArray(data.sources) || !data.sources.length) {
+      throw new Error("播放接口未返回地址");
+    }
+    const src = data.sources[0].src || "";
+    return src.indexOf("http") === 0 ? src : BASE + src;
+  }
+
+  async playerContent(flag, id) {
+    const url = pageUrlOf(id);
+    const play = await this.resolvePlay(url);
+    return {
+      parse: 0,          // 是 mp4 直链（/zh/media/video/<id>/720p?...）
+      url: play,
+      header: { "User-Agent": UA, "Referer": BASE + LANG + "/main" },
+    };
+  }
+
+  async action(op) {
+    if (!op) return [];
+    if (op.indexOf("gal|") === 0) return { list: [] };
+    return [];
+  }
+
+  async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
-    const url = BASE + (p > 1 ? "/search?page=" + p + "&q=" : "/search?q=") + encodeURIComponent(key);
-
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 24, 0);
-
-    const cards = parseCards(r.content);
-    if (cards.length === 0) return this.page([], p, 24, (p - 1) * 24);
-    return this.page(cards, p, 24, (p + 1) * 24);
+    const url = BASE + LANG + "/search?q=" + encodeURIComponent(key) + (p > 1 ? "&page=" + p : "");
+    return this.reqPage(url, p);
   }
 }
