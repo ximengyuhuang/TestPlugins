@@ -227,7 +227,12 @@ export default class Javtiful extends Spider {
       let cat = String(ext.media || "");
       const subVal = String(ext.sub || "");
       if (!cat && subVal.indexOf("cat:") === 0) cat = subVal.substring(4);
-      if (!cat) return this.listPage("/videos", p, String(ext.order || ""));
+      // 没选具体分类（= 全部）时，类型筛选走站点自己的分区路径
+      if (!cat) {
+        const vt = String(ext.vtype || "");
+        const hit = VIDEO_TYPES.find((x) => x.slug === vt) || VIDEO_TYPES[0];
+        return this.listPage(hit.path, p, String(ext.order || ""));
+      }
       const vtype = String(ext.vtype || "");
       const qs = [];
       if (ext.order) qs.push("sort=" + ext.order);
@@ -491,9 +496,8 @@ export default class Javtiful extends Spider {
     // 分类 tab 的二级 chips：21 个分类（异步加载，不占 homeContent 时间）
     if (op === "sub|category") {
       const cats = await this.loadCategories();
-      const out = [{ name: "全部", value: "" }];
-      for (const c of cats) out.push({ name: c.name, value: "cat:" + c.slug });
-      return out;
+      // 不要返回空值项：App 会自动在 chips 行首加「全部」
+      return cats.map((c) => ({ name: c.name, value: "cat:" + c.slug }));
     }
     if (op.indexOf("sub|") === 0) return [];
 
