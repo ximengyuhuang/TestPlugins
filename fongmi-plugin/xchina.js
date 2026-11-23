@@ -30,11 +30,11 @@ const PAGE_SIZE = 24;
 
 // 影片分类（作为「影片」tab 的二级 chips）
 const VIDEO_CATS = [
-  { value: "cat:jav", name: "日本AV" },
-  { value: "cat:cn", name: "国产" },
-  { value: "cat:movie", name: "电影" },
-  { value: "cat:ai", name: "AI视频" },
-  { value: "cat:other", name: "其他" },
+  { slug: "jav", name: "日本AV" },
+  { slug: "cn", name: "国产" },
+  { slug: "movie", name: "电影" },
+  { slug: "ai", name: "AI视频" },
+  { slug: "other", name: "其他" },
 ];
 
 function hdrs(ref) {
@@ -141,7 +141,11 @@ export default class XChina extends Spider {
       { type_id: "trend", type_name: "热门" },
       { type_id: "web", type_name: "网页" },
     ];
-    return { class: classes, filters: {}, subFromTab: true };
+    // 影片：二级 = 分类（media 组），三级 = 该分类下的系列（action("sub|<分类>")）
+    const media = [{ n: "全部", v: "" }].concat(
+      VIDEO_CATS.map((c) => ({ n: c.name, v: c.slug })));
+    const filters = { video: [{ key: "media", name: "分类", value: media }] };
+    return { class: classes, filters: filters };
   }
 
   async categoryContent(tid, pg, filter, extend) {
@@ -154,11 +158,12 @@ export default class XChina extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    // 影片 tab：可带分类（cat:<slug>）
+    // 影片 tab：三级结构 = 分类(media) → 系列(sub)
     if (t === "video") {
-      const slug = sub.indexOf("cat:") === 0 ? sub.substring(4) : "";
-      const base = slug ? "/video-category/" + slug : "/videos";
-      return this.listPage(base, p);
+      const series = sub.indexOf("series:") === 0 ? sub.substring(7) : "";
+      if (series) return this.listPage("/video-series/" + series, p);
+      const media = (extend && extend.media) ? String(extend.media) : "";
+      return this.listPage(media ? "/video-category/" + media : "/videos", p);
     }
 
     if (t === "photo") return this.listPage("/photos", p);
@@ -172,6 +177,31 @@ export default class XChina extends Spider {
     }
 
     return this.listPage("/videos", p);
+  }
+
+  /** 某个分类下的系列（三级 chips）；缓存 */
+  async seriesOfCategory(slug) {
+    if (!this.seriesCache) this.seriesCache = {};
+    if (this.seriesCache[slug]) return this.seriesCache[slug];
+
+    const out = [{ name: "全部系列", value: "" }];
+    try {
+      const r = await this.net.req(BASE + "/video-category/" + slug, { headers: hdrs() });
+      if (r && r.code === 200) {
+        const re = /<a href="\/video-series\/(\d+)"[^>]*>\s*([^<]{1,24})/g;
+        let m;
+        const seen = {};
+        while ((m = re.exec(r.content)) !== null) {
+          const id = m[1];
+          const nm = clean(m[2]);
+          if (!nm || seen[id]) continue;
+          seen[id] = 1;
+          out.push({ name: nm, value: "series:" + id });
+        }
+      }
+    } catch (e) { }
+    this.seriesCache[slug] = out;
+    return out;
   }
 
   /** 热门榜：/trend 只有排名和标题（无封面），给前 N 个补抓详情页封面 */
@@ -397,11 +427,11 @@ export default class XChina extends Spider {
   async action(op) {
     if (!op) return [];
 
-    // 影片 tab 的二级 chips：分类
-    if (op === "sub|video") {
-      return [{ name: "全部", value: "" }].concat(VIDEO_CATS).map((c) => ({ name: c.name, value: c.value }));
+    // 三级 chips：某个分类下的系列
+    if (op.indexOf("sub|") === 0) {
+      const slug = op.substring(4);
+      return await this.seriesOfCategory(slug);
     }
-    if (op.indexOf("sub|") === 0) return [];
 
     // 图集
     if (op.indexOf("gal|") === 0) {
