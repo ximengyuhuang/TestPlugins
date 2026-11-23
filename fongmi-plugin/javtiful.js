@@ -181,7 +181,7 @@ export default class Javtiful extends Spider {
   async listPage(path, p, sort, vtype) {
     const qs = [];
     if (sort) qs.push("sort=" + sort);
-    if (vtype) qs.push("type=" + vtype);
+    if (vtype) qs.push("video_type=" + vtype);   // 站点参数名是 video_type（type= 无效）
     if (p > 1) qs.push("page=" + p);
     // 必须带 /zh 前缀：不带会 302 到语言首页，设备上跟随重定向不稳定 → 空列表
     const fixed = path.indexOf(LANG + "/") === 0 ? path : LANG + path;
@@ -233,7 +233,7 @@ export default class Javtiful extends Spider {
       const vtype = String(ext.vtype || "");
       const qs = [];
       if (ext.order) qs.push("sort=" + ext.order);
-      if (vtype) qs.push("type=" + vtype);
+      if (vtype) qs.push("video_type=" + vtype);
       if (p > 1) qs.push("page=" + p);
       const url = BASE + LANG + "/category/" + cat + (qs.length ? "?" + qs.join("&") : "");
       return this.reqPage(url, p);
