@@ -362,13 +362,47 @@ export default class Javtiful extends Spider {
     const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
     const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
 
-    const all = await this.indexChips(kind);          // 复用已有索引（带缓存）
-    const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
+    const wrap = (arr) => ({
+      items: arr.map((x) => ({ id: x.value, name: x.name, count: "", pic: x.pic || "" })),
+    });
+
+    // 没有关键词 → 直接取第 page 个索引页（每页 24 个），「加载更多」才真能翻
+    if (!kw) {
+      const items = await this.fetchIndexPage(kind, page);
+      return wrap(items);
+    }
+
+    // 有关键词 → 全量索引里过滤（缓存），一次给 100 个
+    const all = await this.indexChips(kind);
+    const hit = all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0);
     const PAGE = 100;
     const from = (page - 1) * PAGE;
-    // 必须返回对象 {items:[...]}：App 的 facets() 用 JSONObject 解析，裸数组会被丢掉
-    const items = hit.slice(from, from + PAGE).map((x) => ({ id: x.value, name: x.name, count: "", pic: x.pic || "" }));
-    return { items: items };
+    return wrap(hit.slice(from, from + PAGE));
+  }
+
+  /** 取某个索引页（频道/女优，每页 24 个） */
+  async fetchIndexPage(kind, page) {
+    const listPath = kind === "channel" ? "/channels" : "/actresses";
+    const linkKind = kind === "channel" ? "channel" : "actress";
+    const prefix = kind === "channel" ? "ch:" : "ac:";
+    const url = BASE + LANG + listPath + (page > 1 ? "?page=" + page : "");
+    const out = [];
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (!r || r.code !== 200) return out;
+      const re = new RegExp('href="/zh/' + linkKind + '/([^"]+)"[\\s\\S]{0,600}?directory-card__name">([^<]{1,60})<', "g");
+      let m;
+      const seen = {};
+      while ((m = re.exec(r.content)) !== null) {
+        const slug = m[1];
+        if (seen[slug]) continue;
+        seen[slug] = 1;
+        const img = m[0].match(/<img[^>]*src="([^"]+)"/);
+        const pic = img ? (img[1].indexOf("http") === 0 ? img[1] : BASE + img[1]) : "";
+        out.push({ name: clean(m[2]) || slug, value: prefix + slug, pic: pic });
+      }
+    } catch (e) { }
+    return out;
   }
 
   /** 频道 / 女优索引进 chips（取前 3 页，约 72 个），缓存 */
@@ -382,7 +416,8 @@ export default class Javtiful extends Spider {
     const out = [];
     const seen = {};
 
-    for (let p = 1; p <= 3; p++) {
+    // 关键词搜索需要全量：最多抓 60 页（约 1440 个），够用且不会失控
+    for (let p = 1; p <= 60; p++) {
       try {
         const url = BASE + LANG + listPath + (p > 1 ? "?page=" + p : "");
         const r = await this.net.req(url, { headers: hdrs() });
