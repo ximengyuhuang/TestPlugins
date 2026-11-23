@@ -345,7 +345,9 @@ export default class Javtiful extends Spider {
     const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
     const PAGE = 100;
     const from = (page - 1) * PAGE;
-    return hit.slice(from, from + PAGE).map((x) => ({ id: x.value, name: x.name, count: "", pic: x.pic || "" }));
+    // 必须返回对象 {items:[...]}：App 的 facets() 用 JSONObject 解析，裸数组会被丢掉
+    const items = hit.slice(from, from + PAGE).map((x) => ({ id: x.value, name: x.name, count: "", pic: x.pic || "" }));
+    return { items: items };
   }
 
   /** 频道 / 女优索引进 chips（取前 3 页，约 72 个），缓存 */
