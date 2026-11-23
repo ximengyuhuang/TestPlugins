@@ -110,6 +110,10 @@ function parseCards(html) {
       if (tt) name = clean(tt[1]);
     }
 
+    // 站点原始角标是「429P + 1V」，App 只认「429P·1V」这种格式，
+    // 带加号会被当成普通视频（卡片上不会出现「视频/图集」双按钮）
+    badge = badge.replace(/\s*\+\s*/g, "·").replace(/\s+/g, "").trim();
+
     out.push({
       vod_id: BASE + "/" + marks[i].kind + "/" + marks[i].id,
       vod_name: name || (marks[i].kind + " " + marks[i].id),
