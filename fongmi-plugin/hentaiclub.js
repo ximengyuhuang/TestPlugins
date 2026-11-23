@@ -55,15 +55,16 @@ function parseCards(html) {
     const to = i + 1 < marks.length ? marks[i + 1] : text.length;
     const b = text.substring(from, to);
 
-    const link = b.match(/href="(https:\/\/www\.hentaiclub\.net\/(?:r15|r18)\/\d+\.html)"/);
+    // 站点现在给的是相对地址 href="/r15/71554.html"
+    const link = b.match(/href="((?:https:\/\/www\.hentaiclub\.net)?\/(?:r15|r18)\/\d+\.html)"/);
     if (!link) continue;
-    const url = link[1];
+    const url = link[1].indexOf("http") === 0 ? link[1] : BASE + link[1];
     if (seen[url]) continue;
     seen[url] = 1;
 
     const img = b.match(/data-original="([^"]+)"/) || b.match(/src="(https:\/\/cdn[^"]+)"/);
-    const title = b.match(/class="item-link-text">\s*([\s\S]{0,200}?)\s*<\/div>/);
-    const num = b.match(/class="item-num">\s*\[?\s*(\d+)\s*P\s*\]?/);
+    const title = b.match(/class="item-link-text">\s*([\s\S]{0,200}?)\s*<\/(?:span|div)>/);
+    const num = b.match(/class="item-num"[^>]*>\s*\[?\s*(\d+)\s*P/);
     const sort = b.match(/class="item-sort">\s*([^<]{1,10})\s*</);
 
     out.push({
