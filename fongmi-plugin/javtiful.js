@@ -133,6 +133,16 @@ function parseCards(html) {
   return out;
 }
 
+/** 页面里有没有下一页（站点给的是 page=N+1 链接 / rel=next / 下一页） */
+function hasNextPage(html, p) {
+  const t = String(html || "");
+  if (!t) return false;
+  return t.indexOf("page=" + (p + 1)) >= 0
+    || t.indexOf("page%3D" + (p + 1)) >= 0
+    || t.indexOf('rel="next"') >= 0
+    || t.indexOf("下一页") >= 0;
+}
+
 function pageUrlOf(raw) {
   let u = String(raw || "").trim();
   u = u.replace(/^(v|p):/, "");
@@ -207,7 +217,9 @@ export default class Javtiful extends Spider {
         if (r2 && r2.code === 200) cards = parseCards(r2.content);
       } catch (e) { }
     }
-    const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    const total = hasNextPage(html, p)
+      ? (p + 1) * PAGE_SIZE
+      : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
 
@@ -434,7 +446,10 @@ export default class Javtiful extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
     const cards = parseCards(html);
-    const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    // 有下一页就把 total 撑到下一页，否则到本页为止（结果不足 12 条也能继续翻）
+    const total = hasNextPage(html, p)
+      ? (p + 1) * PAGE_SIZE
+      : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
 
