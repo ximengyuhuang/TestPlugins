@@ -155,15 +155,22 @@ export default class Javtiful extends Spider {
     ];
 
     const vMedia = VIDEO_TYPES.map((t) => ({ n: t.name, v: t.slug }));
+
+    // 分类 tab 的二级 chips：进站时拉一次索引（21 个），失败就只有「全部」
+    const cats = await this.loadCategories();
+    const cMedia = [{ n: "全部", v: "" }].concat(
+      cats.map((c) => ({ n: c.name, v: c.slug })));
+
     const filters = {
       video: [
         { key: "media", name: "类型", value: vMedia },
         { key: "order", name: "排序", value: ORDERS },
       ],
+      // 注意：App 有一条规则——某个 tab 有 ≥2 组「非排序」筛选时，会清空 tab 行改用筛选行，
+      // 导致 tab 全部消失。所以分类 tab 只保留「分类」一组（类型筛选放到「视频」tab）。
       category: [
-        { key: "media", name: "分类", value: [{ n: "全部", v: "" }] },   // 运行时填充
+        { key: "media", name: "分类", value: cMedia },
         { key: "order", name: "排序", value: CAT_ORDERS },
-        { key: "vtype", name: "类型", value: CAT_TYPES },
       ],
     };
     return { class: classes, filters: filters };
@@ -211,7 +218,7 @@ export default class Javtiful extends Spider {
     // 分类：二级 chips = 分类名；点卡片进某分类
     if (t === "category") {
       const cat = String(ext.media || "");
-      if (!cat) return this.categoryList(p);
+      if (!cat) return this.listPage("/videos", p, String(ext.order || ""));
       const vtype = String(ext.vtype || "");
       // 分类页的类型筛选：/zh/category/<name>?type=<slug>
       const qs = [];
@@ -230,6 +237,35 @@ export default class Javtiful extends Spider {
     if (t === "channel" || t === "actress") return this.directoryList(t, p);
 
     return this.listPage("/videos", p, "");
+  }
+
+  /** 分类索引（21 个），给 chips 用；缓存一次 */
+  async loadCategories() {
+    if (this.catCache) return this.catCache;
+    const out = [];
+    try {
+      const r = await this.net.req(BASE + LANG + "/categories", { headers: hdrs() });
+      if (r && r.code === 200) {
+        const re = /href="\/zh\/category\/([^"]+)"[\s\S]{0,900}?<\/a>/g;
+        let m;
+        const seen = {};
+        while ((m = re.exec(r.content)) !== null) {
+          const slug = m[1];
+          if (seen[slug]) continue;
+          seen[slug] = 1;
+          const nm = m[0].match(/category-card__name">([^<]{1,40})</);
+          const capt = m[0].match(/category-card__caption">([\s\S]{0,120}?)<\/span>/);
+          let name = nm ? clean(nm[1]) : "";
+          if (!name && capt) name = clean(capt[1]);
+          if (!name) {
+            try { name = decodeURIComponent(slug); } catch (e) { name = slug; }
+          }
+          out.push({ slug: slug, name: name });
+        }
+      }
+    } catch (e) { }
+    this.catCache = out;
+    return out;
   }
 
   /** 分类索引（21 个，做成二级 chips 的数据源） */
