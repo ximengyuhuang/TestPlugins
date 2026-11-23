@@ -184,7 +184,8 @@ export default class XChina extends Spider {
     if (!this.seriesCache) this.seriesCache = {};
     if (this.seriesCache[slug]) return this.seriesCache[slug];
 
-    const out = [{ name: "全部系列", value: "" }];
+    // 不返回空值项：App 会自动在 chips 行首插入一个「全部」
+    const out = [];
     try {
       const r = await this.net.req(BASE + "/video-category/" + slug, { headers: hdrs() });
       if (r && r.code === 200) {
