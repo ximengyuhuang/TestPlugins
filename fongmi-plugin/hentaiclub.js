@@ -143,6 +143,16 @@ function parseDetail(html) {
   return { title: title, imgs: imgs, tags: tags, count: num ? Number(num[1]) : imgs.length, cover: cover };
 }
 
+/** 大小写无关地取响应头（okhttp 给的是小写键） */
+function headerOf(headers, name) {
+  if (!headers) return "";
+  const want = name.toLowerCase();
+  for (const k of Object.keys(headers)) {
+    if (String(k).toLowerCase() === want) return String(headers[k] || "");
+  }
+  return "";
+}
+
 function pageUrlOf(raw) {
   let u = String(raw || "").trim();
   u = u.replace(/^(v|p):/, "");
@@ -213,21 +223,29 @@ export default class HentaiClub extends Spider {
       return this.tagList(sel.substring(4).trim(), p);
     }
 
-    // ---------- 随机：/rand.html 302 到随机详情页，取 4 条 ----------
+    // ---------- 随机：/rand 返回 302（Location 就是随机到的详情页）----------
     if (t === "rand") {
-      const want = 4;
+      const want = 6;
       const cards = [];
       const seen = {};
-      for (let i = 0; i < want; i++) {
+      for (let i = 0; i < want && cards.length < 4; i++) {
+        // 关键：redirect:0 才拿得到 302 的 Location，跟随跳转后 HTML 里没有任何自身链接
+        let loc = "";
+        try {
+          const r = await this.net.req(BASE + "/rand", { headers: hdrs(), redirect: 0 });
+          loc = headerOf(r && r.headers, "location");
+        } catch (e) { loc = ""; }
+        if (!loc) continue;
+        const url = loc.indexOf("http") === 0 ? loc : BASE + loc;
+        if (seen[url]) continue;
+        seen[url] = 1;
+
         let html = "";
         try {
-          const r = await this.net.req(BASE + "/rand.html", { headers: hdrs() });
-          if (r && r.code === 200) html = r.content;
+          const r2 = await this.net.req(url, { headers: hdrs() });
+          if (r2 && r2.code === 200) html = r2.content;
         } catch (e) { html = ""; }
         if (!html) continue;
-        const url = selfLink(html);
-        if (!url || seen[url]) continue;
-        seen[url] = 1;
         const d = parseDetail(html);
         cards.push({
           vod_id: url,
