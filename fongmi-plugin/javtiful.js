@@ -345,7 +345,7 @@ export default class Javtiful extends Spider {
     const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
     const PAGE = 100;
     const from = (page - 1) * PAGE;
-    return hit.slice(from, from + PAGE).map((x) => ({ id: x.value, name: x.name, count: "" }));
+    return hit.slice(from, from + PAGE).map((x) => ({ id: x.value, name: x.name, count: "", pic: x.pic || "" }));
   }
 
   /** 频道 / 女优索引进 chips（取前 3 页，约 72 个），缓存 */
@@ -370,7 +370,10 @@ export default class Javtiful extends Spider {
           const slug = m[1];
           if (seen[slug]) continue;
           seen[slug] = 1;
-          out.push({ name: clean(m[2]) || slug, value: prefix + slug });
+          // 头像是在同一张卡片里的 <img src=...>（collections/channels|actresses）
+          const img = m[0].match(/<img[^>]*src="([^"]+)"/);
+          const pic = img ? (img[1].indexOf("http") === 0 ? img[1] : BASE + img[1]) : "";
+          out.push({ name: clean(m[2]) || slug, value: prefix + slug, pic: pic });
           added++;
         }
         if (!added) break;
