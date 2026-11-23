@@ -62,6 +62,7 @@ const ORDERS = [
 
 // 分类 tab 的排序（站点分类页只给 4 项）
 const CAT_ORDERS = [
+  { n: "最新", v: "" },
   { n: "今日新增", v: "added_today" },
   { n: "本周新增", v: "added_week" },
   { n: "本月新增", v: "added_month" },
@@ -177,9 +178,10 @@ export default class Javtiful extends Spider {
   }
 
   /** 通用列表页：path + ?sort + ?page */
-  async listPage(path, p, sort) {
+  async listPage(path, p, sort, vtype) {
     const qs = [];
     if (sort) qs.push("sort=" + sort);
+    if (vtype) qs.push("type=" + vtype);
     if (p > 1) qs.push("page=" + p);
     // 必须带 /zh 前缀：不带会 302 到语言首页，设备上跟随重定向不稳定 → 空列表
     const fixed = path.indexOf(LANG + "/") === 0 ? path : LANG + path;
@@ -229,7 +231,6 @@ export default class Javtiful extends Spider {
       const cat = String(ext.media || "");
       if (!cat) return this.listPage("/videos", p, String(ext.order || ""));
       const vtype = String(ext.vtype || "");
-      // 分类页的类型筛选：/zh/category/<name>?type=<slug>
       const qs = [];
       if (ext.order) qs.push("sort=" + ext.order);
       if (vtype) qs.push("type=" + vtype);
@@ -239,8 +240,11 @@ export default class Javtiful extends Spider {
     }
 
     // 频道 / 女优：下钻时 tid 是 ch:<slug> / ac:<slug>
-    if (t.indexOf("ch:") === 0) return this.listPage("/channel/" + t.substring(3), p, "");
-    if (t.indexOf("ac:") === 0) return this.listPage("/actress/" + t.substring(3), p, "");
+    // 这两个页面同样支持 排序 + VIDEO TYPE（站点自带筛选面板）
+    const dOrder = String(ext.order || "");
+    const dType = String(ext.vtype || ext.media || "");
+    if (t.indexOf("ch:") === 0) return this.listPage("/channel/" + t.substring(3), p, dOrder, dType);
+    if (t.indexOf("ac:") === 0) return this.listPage("/actress/" + t.substring(3), p, dOrder, dType);
 
     // 频道 / 女优 索引行
     if (t === "channel" || t === "actress") return this.directoryList(t, p);
