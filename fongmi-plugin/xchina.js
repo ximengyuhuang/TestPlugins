@@ -1,370 +1,453 @@
-// xchina.co —— FongMi / TVBox QuickJS 源
+// xChina（xchina.co）—— BiliTV / catvod QuickJS 插件
 //
-// 用中文站 xchina.co（不要用 en.xchina.co，那是英文站，标题全英文）
-// 取流很直接：详情页 div#video-player 的 data-src 就是 m3u8（带 Referer/Origin 校验）
+// 站类型：混合站（视频 + 套图）
+//   影片   /videos/N                     分页用数字路径，?page= 无效
+//          分类 /video-category/<slug>/N   jav|cn|movie|ai|other
+//   套图   /photos/N
+//   自拍   /amateurs/N
+//   模特   /models  → /model/<id>（该模特的作品：视频 + 套图）
+//   热门   /trend
+//   详情   /video/<id>、/photo/<id>
+//   搜索   /search?q=<词>
+//
+// 卡片：
+//   <a href="/video/6ae4aea8d28b8"><span class="ph aspect-video">
+//     <img src="https://r2.xchina.download/cover/6ae4aea8d28b8.webp">
+//     <span class="cover-pill">模特私拍</span>
+//     <span class="cover-pill tabular-nums">17:30</span>
+//   套图的角标是「429P + 1V」这种
+//
+// 播放：<div id="video-player" data-src="/hls/<id>/master.m3u8">  → HLS
+// 套图：img.xchina.io/photos/<id>/NNNNN_600x0.webp（_600x0 是尺寸后缀）
+//
+// 分类形式（2026-11-23 拍板 A）：内容类型做 tab，影片分类做二级 chips。
 
 import { Spider, openWeb } from "catvod";
 
 const BASE = "https://xchina.co";
-const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const PAGE_SIZE = 24;
 
-// [tid, 路径, 名称]
-const CATS = [
-  ["s21", "/video-series/21", "麻豆传媒"],
-  ["s20", "/video-series/20", "糖心Vlog"],
-  ["s8", "/video-series/8", "香蕉视频"],
-  ["s42", "/video-series/42", "精东影业"],
-  ["s5", "/video-series/5", "无码"],
-  ["s4", "/video-series/4", "有码"],
-  ["s62", "/video-series/62", "模特私拍"],
-  ["s44", "/video-series/44", "热舞"],
-  ["s55", "/video-series/55", "PANS"],
-  ["s15", "/video-series/15", "Faphouse"],
+// 影片分类（作为「影片」tab 的二级 chips）
+const VIDEO_CATS = [
+  { value: "cat:jav", name: "日本AV" },
+  { value: "cat:cn", name: "国产" },
+  { value: "cat:movie", name: "电影" },
+  { value: "cat:ai", name: "AI视频" },
+  { value: "cat:other", name: "其他" },
 ];
 
-// 分组：厂牌 / 类型（用于二级文件夹）
-const GROUPS = [
-  ["group:brand", "厂牌", ["s21", "s20", "s8", "s42"]],
-  ["group:type", "类型", ["s5", "s4", "s62", "s44", "s55", "s15"]],
-];
-
-function headers(ref) {
+function hdrs(ref) {
   return {
     "User-Agent": UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     "Referer": ref || BASE + "/",
   };
 }
 
 function decode(s) {
-  if (!s) return "";
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ");
+  return String(s || "")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, d) => String.fromCharCode(parseInt(d, 16)))
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ");
 }
 
-function strip(s) {
-  return decode((s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+function clean(s) {
+  return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-function absolute(u) {
-  if (!u) return "";
-  if (u.indexOf("//") === 0) return "https:" + u;
-  if (u.indexOf("/") === 0) return BASE + u;
-  return u;
-}
-
-// 卡片：<a href="/video/xxx" class="group block"> … <img src=… alt="标题">
+/** 列表卡片：视频和套图两种结构，统一解析 */
 function parseCards(html) {
+  const text = String(html || "");
   const out = [];
   const seen = {};
-  const parts = html.split(/<a href="(\/video\/[^"]+)"[^>]*class="[^"]*group block[^"]*"[^>]*>/);
-  // split 带捕获组：偶数下标是内容，奇数下标是 href
-  for (let i = 1; i < parts.length; i += 2) {
-    const url = absolute(parts[i]);
-    const block = (parts[i + 1] || "").substring(0, 1600);
-    if (!url || seen[url]) continue;
-    seen[url] = 1;
 
-    const img = block.match(/<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"/) ||
-                block.match(/<img[^>]*alt="([^"]*)"[^>]*src="([^"]+)"/);
-    let pic = "";
-    let title = "";
-    if (img) {
-      if (img[1].indexOf("http") === 0) {
-        pic = img[1];
-        title = img[2];
-      } else {
-        title = img[1];
-        pic = img[2];
+  // 以 <a href="/(video|photo)/xxx" 为锚点切块
+  const marks = [];
+  const re = /<a[^>]+href="\/(video|photo|amateur)\/([a-z0-9]+)"/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    marks.push({ at: m.index, kind: m[1], id: m[2] });
+  }
+
+  for (let i = 0; i < marks.length; i++) {
+    const from = marks[i].at;
+    const to = i + 1 < marks.length ? marks[i + 1].at : Math.min(text.length, from + 3000);
+    const b = text.substring(from, to);
+
+    // 只要有封面的卡片：侧边栏/相关推荐里的纯文字链接会被排除
+    if (b.indexOf("r2.xchina.download/cover/") < 0
+        && b.indexOf("img.xchina.io/photos/") < 0
+        && b.indexOf("img.xchina.io/amateurs/") < 0) continue;
+
+    const key = marks[i].kind + "/" + marks[i].id;
+    if (seen[key]) continue;
+    seen[key] = 1;
+
+    const img = b.match(/<img[^>]*src="([^"]+)"/);
+    const alt = b.match(/<img[^>]*alt="([^"]*)"/);
+
+    // 角标：取 cover-pill 里像「17:30」「429P + 1V」的那个
+    let badge = "";
+    const pills = b.match(/<span class="cover-pill[^"]*"[^>]*>([^<]{1,20})<\/span>/g) || [];
+    for (const p of pills) {
+      const t = clean(p);
+      if (/^\d{1,2}:\d{2}/.test(t) || /^\d+\s*P/i.test(t) || /P\s*\+\s*\d+\s*V/i.test(t)) {
+        badge = t;
+        break;
       }
     }
-    if (!title) {
-      const t = block.match(/<span class="line-clamp-2[^"]*">([\s\S]*?)<\/span>/);
-      if (t) title = strip(t[1]);
-    }
-    if (!title) title = url.replace(/^.*\/video\//, "");
 
-    out.push({ vod_id: url, vod_name: decode(title), vod_pic: pic, vod_remarks: "" });
+    let name = clean(alt ? alt[1] : "");
+    // 有的 alt 是「名字 名字」重复，去掉重复段
+    const parts = name.split(" ");
+    if (parts.length === 2 && parts[0] === parts[1]) name = parts[0];
+    if (!name) {
+      // 兜底：块内的标题文本
+      const tt = b.match(/<span class="[^"]*truncate[^"]*"[^>]*>([^<]{1,60})</);
+      if (tt) name = clean(tt[1]);
+    }
+
+    out.push({
+      vod_id: BASE + "/" + marks[i].kind + "/" + marks[i].id,
+      vod_name: name || (marks[i].kind + " " + marks[i].id),
+      vod_pic: img ? decode(img[1]) : "",
+      vod_remarks: badge,
+    });
   }
   return out;
 }
 
+function pageUrlOf(raw) {
+  let u = String(raw || "").trim();
+  u = u.replace(/^(v|p):/, "");
+  const bar = u.lastIndexOf("|");
+  if (bar > 0 && /^\d+$/.test(u.slice(bar + 1))) u = u.slice(0, bar);
+  if (u.indexOf("http") === 0) return u;
+  return BASE + (u.charAt(0) === "/" ? u : "/" + u);
+}
+
 export default class XChina extends Spider {
-  init(extend) {
-    this.log("xchina ready");
-  }
+  init() { }
 
-  async homeContent(filter) {
-    const classes = [{ type_id: "latest", type_name: "最新" }];
-    classes.push({ type_id: "web", type_name: "网页" });
-    // 频道收进两个文件夹（厂牌 / 类型）
-    for (const [tid, name, keys] of GROUPS) {
-      classes.push({ type_id: tid, type_name: name + " (" + keys.length + ")", type_flag: "1" });
-    }
-    // 作者（/models 索引，取前 3 页）
-    this.models = [];
-    try {
-      for (let mp = 1; mp <= 3; mp++) {
-        const mu = BASE + "/models" + (mp > 1 ? "?page=" + mp : "");
-        const mr = await this.net.req(mu, { headers: headers() });
-        if (!mr || mr.code !== 200) break;
-        const mre = /<a[^>]*href="\/model\/([a-z0-9]+)"[^>]*>([\s\S]{0,700}?)<\/a>/g;
-        let mm;
-        let added = 0;
-        while ((mm = mre.exec(mr.content)) !== null) {
-          const id = mm[1];
-          if (this.models.some((x) => x.id === id)) continue;
-          let nm = "";
-          const alt = mm[2].match(/alt="([^"]*)"/);
-          if (alt) nm = strip(alt[1]);
-          if (!nm) {
-            const tx = mm[2].match(/<div class="[^"]*name[^"]*">\s*([^<]+)/);
-            if (tx) nm = strip(tx[1]);
-          }
-          if (!nm) continue;
-          this.models.push({ id: id, name: nm });
-          added++;
-        }
-        if (added === 0) break;
-      }
-    } catch (e) {
-      this.log("models failed: " + e);
-    }
-
-    classes.push({ type_id: "authf", type_name: "作者 (" + ((this.models || []).length) + ")", type_flag: "1" });
-
-    // 排序筛选（站点支持 ?sort=read|comment|length）
-    const sorts = [
-      { n: "最新", v: "" },
-      { n: "最多播放", v: "read" },
-      { n: "最多评论", v: "comment" },
-      { n: "时长", v: "length" },
+  async homeContent() {
+    const classes = [
+      { type_id: "video", type_name: "影片" },
+      { type_id: "photo", type_name: "套图" },
+      { type_id: "amateur", type_name: "自拍" },
+      { type_id: "model", type_name: "模特" },
+      { type_id: "trend", type_name: "热门" },
+      { type_id: "web", type_name: "网页" },
     ];
-    const filters = {};
-    for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
-
-    return { class: classes, filters: filters };
-  }
-
-  // 分组 -> 频道文件夹
-  groupFolders(gid) {
-    const g = GROUPS.find((x) => x[0] === gid);
-    if (!g) return [];
-    return g[2]
-      .map((key) => CATS.find((c) => c[0] === key))
-      .filter(Boolean)
-      .map(([tid, , name]) => ({
-        vod_id: tid,
-        vod_name: name,
-        vod_pic: "",
-        vod_remarks: "频道",
-        vod_tag: "folder",
-      }));
-  }
-
-  // 作者文件夹：按名字 A-Z 排序，不分字母层
-  authorFolders() {
-    const list = (this.models || []).slice();
-    list.sort((a, b) => {
-      const x = String(a.name).toLowerCase();
-      const y = String(b.name).toLowerCase();
-      return x < y ? -1 : x > y ? 1 : 0;
-    });
-    return list.map((m) => ({
-      vod_id: "mdl:" + m.id,
-      vod_name: m.name,
-      vod_pic: "",
-      vod_remarks: "模特",
-      vod_tag: "folder",
-    }));
+    return { class: classes, filters: {}, subFromTab: true };
   }
 
   async categoryContent(tid, pg, filter, extend) {
-    // ---- 文件夹导航层 ----
-    if (tid === "authf") {
-      const list = this.authorFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid.indexOf("group:") === 0) {
-      const list = this.groupFolders(tid);
-      return this.page(list, 1, list.length, list.length);
-    }
-
-    if (tid === "web") {
-      try {
-        openWeb({ url: BASE });
-      } catch (e) {
-        this.log("openWeb failed: " + e);
-      }
-      return this.page([], 1, 23, 0);
-    }
-
-    let path = "";
-    if (tid.indexOf("mdl:") === 0) {
-      // 模特页：/model/<id>，翻页用 ?page=N
-      const p1 = Number(pg) || 1;
-      const u1 = BASE + "/model/" + tid.substring(4) + (p1 > 1 ? "?page=" + p1 : "");
-      const r1 = await this.net.req(u1, { headers: headers() });
-      if (!r1 || r1.code !== 200) return this.page([], p1, 23, 0);
-      const c1 = parseCards(r1.content);
-      if (c1.length === 0) return this.page([], p1, 23, (p1 - 1) * 23);
-      return this.page(c1, p1, 23, (p1 + 1) * 23);
-    }
-    if (tid !== "latest") {
-      path = CATS[0][1];
-      for (const c of CATS) {
-        if (c[0] === tid) {
-          path = c[1];
-          break;
-        }
-      }
-    }
-
     const p = Number(pg) || 1;
-    const sort = (extend && extend.sort) || "";
-    const url = BASE + (path === "" ? "" : path) + (p > 1 ? "/" + p : "") + (sort ? "?sort=" + sort : "");
+    const t = String(tid || "video");
+    const sub = (extend && extend.sub) ? String(extend.sub) : "";
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 23, 0);
-
-    const cards = parseCards(r.content);
-    if (cards.length === 0) return this.page([], p, 23, (p - 1) * 23);
-
-    // 站点在超过最后一页时会重复返回最后一页，这里检测并截断
-    if (p > 1 && this.isRepeat(tid, cards)) {
-      return this.page([], p, 23, (p - 1) * 23);
+    if (t === "web") {
+      try { openWeb({ url: BASE + "/" }); } catch (e) { }
+      return this.page([], p, PAGE_SIZE, 0);
     }
 
-    return this.page(cards, p, 23, (p + 1) * 23);
+    // 影片 tab：可带分类（cat:<slug>）
+    if (t === "video") {
+      const slug = sub.indexOf("cat:") === 0 ? sub.substring(4) : "";
+      const base = slug ? "/video-category/" + slug : "/videos";
+      return this.listPage(base, p);
+    }
+
+    if (t === "photo") return this.listPage("/photos", p);
+    if (t === "amateur") return this.listPage("/amateurs", p);
+    if (t === "trend") return this.trendPage(p);
+
+    // 模特 tab：模型索引（文字行，点了进该模特的作品列表）
+    if (t === "model") {
+      if (sub.indexOf("model:") === 0) return this.listPage("/model/" + sub.substring(6), p);
+      return this.modelIndex();
+    }
+
+    return this.listPage("/videos", p);
   }
 
-  // 记录每个分类已见过的首页 id，避免越界后重复
-  isRepeat(key, cards) {
-    if (!cards.length) return false;
-    this.seenFirst = this.seenFirst || {};
-    const set = this.seenFirst[key] || (this.seenFirst[key] = {});
-    const first = cards[0].vod_id;
-    if (set[first]) return true;
-    set[first] = 1;
-    return false;
+  /** 热门榜：/trend 只有排名和标题（无封面），给前 N 个补抓详情页封面 */
+  async trendPage(p) {
+    let html = "";
+    try {
+      const r = await this.net.req(BASE + "/trend", { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) return this.page([], p, PAGE_SIZE, 0);
+
+    const items = [];
+    const seen = {};
+    const re = /<a href="\/(video|photo|amateur)\/([a-z0-9]+)"[\s\S]{0,600}?<span class="block truncate group-hover:text-brand-600">([^<]{1,80})<\/span>/g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const kind = m[1], id = m[2];
+      if (seen[kind + id]) continue;
+      seen[kind + id] = 1;
+
+      // 名次在锚点前面的序号 <span>
+      const seg = html.substring(m.index, Math.min(html.length, m.index + 900));
+      // 名次在锚点内部：<span class="w-8 ... tabular-nums ...">1</span>
+      const rk = seg.match(/<span class="w-8[^"]*">\s*(\d{1,3})\s*<\/span>/)
+        || seg.match(/tabular-nums[^"]*">\s*(\d{1,3})\s*<\/span>/);
+
+      items.push({
+        vod_id: BASE + "/" + kind + "/" + id,
+        vod_name: clean(m[3]) || (kind + " " + id),
+        vod_pic: "",
+        vod_remarks: rk ? "#" + rk[1] : "",
+      });
+      if (items.length >= PAGE_SIZE) break;
+    }
+
+    await this.fillPics(items, 16);
+    return this.page(items, p, PAGE_SIZE, items.length >= PAGE_SIZE ? (p + 1) * PAGE_SIZE : items.length);
+  }
+
+  /** 给没有封面的条目补抓详情页封面（限量 + 缓存） */
+  async fillPics(items, limit) {
+    if (!this.picCache) this.picCache = {};
+    const cache = this.picCache;
+    for (const it of items) {
+      if (!it.vod_pic && cache[it.vod_id]) it.vod_pic = cache[it.vod_id];
+    }
+    const todo = items.filter((x) => !x.vod_pic).slice(0, limit);
+    if (!todo.length) return;
+    await Promise.all(todo.map(async (it) => {
+      try {
+        const r = await this.net.req(it.vod_id, { headers: hdrs(it.vod_id) });
+        if (!r || r.code !== 200) return;
+        const c = r.content.match(/property="og:image"[^>]*content="([^"]*)"/);
+        const img = r.content.match(/<img[^>]*src="(https:\/\/img\.xchina\.io\/[^"]+)"/);
+        const pic = c && c[1].indexOf("xchina") > 0 ? decode(c[1]) : (img ? decode(img[1]) : "");
+        if (!pic) return;
+        it.vod_pic = pic;
+        cache[it.vod_id] = pic;
+      } catch (e) { }
+    }));
+  }
+
+  /** 通用列表页：/xxx/N（数字路径分页） */
+  async listPage(base, p) {
+    const url = BASE + base + (p <= 1 ? "" : "/" + p);
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+
+    const cards = parseCards(html);
+    const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
+  }
+
+  /** 模特索引：一页 55+ 个，渲染成文字行 */
+  async modelIndex() {
+    const out = [];
+    try {
+      const r = await this.net.req(BASE + "/models", { headers: hdrs() });
+      if (r && r.code === 200) {
+        const re = /<a href="\/model\/([a-z0-9]+)"[\s\S]{0,400}?alt="([^"]*)"[\s\S]{0,400}?<span class="mt-2 block truncate[^"]*">([^<]{1,40})</g;
+        let m;
+        const seen = {};
+        while ((m = re.exec(r.content)) !== null) {
+          const id = m[1];
+          if (seen[id]) continue;
+          seen[id] = 1;
+          out.push({
+            vod_id: "model:" + id,
+            vod_name: clean(m[3]) || clean(m[2]) || id,
+            vod_pic: "",
+            vod_remarks: "",
+            vod_tag: "folder",
+          });
+        }
+      }
+    } catch (e) { }
+    return this.page(out, 1, out.length || PAGE_SIZE, out.length);
   }
 
   async detailContent(ids) {
-    const list = [];
-    for (const id of ids) {
-      const pageUrl = String(id).indexOf("http") === 0 ? String(id) : absolute(String(id));
-      let title = "";
-      let pic = "";
-      let content = "";
-      let quality = "";
+    const url = pageUrlOf(ids[0]);
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
 
-      try {
-        const r = await this.net.req(pageUrl, { headers: headers() });
-        if (r && r.code === 200) {
-          const html = r.content;
+    const isPhoto = url.indexOf("/photo/") > 0 || url.indexOf("/amateur/") > 0;
 
-          const ogt = html.match(/property="og:title"[^>]*content="([^"]+)"/);
-          const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
-          title = ogt ? decode(ogt[1]) : h1 ? strip(h1[1]) : "";
-          if (title && h1) {
-            // h1 里含番号 span，取完整文本更准确
-            const full = strip(h1[1]);
-            if (full.length > title.length) title = full;
-          }
-
-          const ogi = html.match(/property="og:image"[^>]*content="([^"]+)"/);
-          if (ogi) pic = decode(ogi[1]);
-
-          const lines = [];
-          const tags = [];
-          const reT = /href="[^"]*(?:category|series)[^"]*"[^>]*>([^<]{1,30})</g;
-          let m;
-          while ((m = reT.exec(html)) !== null) {
-            const t = strip(m[1]);
-            if (t && t.length < 20 && tags.indexOf(t) < 0) tags.push(t);
-          }
-          if (tags.length) lines.push("分类: " + tags.slice(0, 10).join(" / "));
-
-          const desc = html.match(/property="og:description"[^>]*content="([^"]+)"/);
-          if (desc) lines.push(decode(desc[1]).substring(0, 140));
-
-          // 清晰度：取 master.m3u8 里最高的 RESOLUTION
-          const ds = html.match(/id="video-player"[\s\S]{0,400}?data-src="([^"]+)"/);
-          if (ds) {
-            try {
-              const pr = await this.net.req(absolute(decode(ds[1])), { headers: headers() });
-              if (pr && pr.code === 200) {
-                const res = [];
-                const reR = /RESOLUTION=\d+x(\d+)/g;
-                let mr;
-                while ((mr = reR.exec(pr.content)) !== null) res.push(Number(mr[1]));
-                if (res.length) {
-                  quality = Math.max.apply(null, res) + "P";
-                  lines.unshift("清晰度: " + quality);
-                }
-              }
-            } catch (e) {
-              this.log("quality failed: " + e);
-            }
-          }
-
-          content = lines.filter(Boolean).join("\n");
-        }
-      } catch (e) {
-        this.log("detail failed: " + e);
-      }
-
-      list.push({
-        vod_id: pageUrl,
-        vod_name: title || String(id),
-        vod_pic: pic,
-        vod_content: content,
-        vod_remarks: quality,
-        vod_play_from: "xChina",
-        vod_play_url: "正片$" + pageUrl,
-      });
+    // 标题
+    let title = "";
+    const t = html.match(/property="og:title"[^>]*content="([^"]*)"/) ||
+      html.match(/<title>([^<]*)<\/title>/);
+    if (t) {
+      let raw = clean(t[1]);
+      // 统一去掉尾巴「- 小黄书 xChina」
+      raw = raw.replace(/\s*-\s*小黄书.*$/i, "").trim();
+      // og:title 形如「标题 - 分类」，按 " - " 切后只取第一段（标题本身可能含空格，不含 " - "）
+      const parts = raw.split(" - ");
+      title = parts.length > 1 ? parts[0].trim() : raw;
     }
-    return { list: list };
-  }
 
-  async playerContent(flag, id, vipFlags) {
-    const pageUrl = String(id).indexOf("http") === 0 ? String(id) : absolute(String(id));
+    // 封面
+    const cov = html.match(/property="og:image"[^>]*content="([^"]*)"/);
+    let pic = cov ? decode(cov[1]) : "";
 
-    const r = await this.net.req(pageUrl, { headers: headers() });
-    if (!r || r.code !== 200) throw new Error("无法打开详情页");
+    // 分类 / 模特 / 系列（面包屑）
+    const lines = [];
+    const crumbs = [];
+    const cre = /<a href="\/(video-category|photo-category|video-series|photo-series|model)\/([^"]+)"[^>]*>([^<]{1,20})<\/a>/g;
+    let cm;
+    const seenC = {};
+    while ((cm = cre.exec(html)) !== null) {
+      const kind = cm[1], slug = cm[2], nm = clean(cm[3]);
+      const key = kind + "/" + slug;
+      if (seenC[key] || !nm) continue;
+      seenC[key] = 1;
+      crumbs.push({ kind: kind, slug: slug, name: nm });
+    }
+    if (crumbs.length) {
+      lines.push(crumbs.map((c) => {
+        const prefix = c.kind === "model" ? "m:" : (c.kind.indexOf("series") >= 0 ? "s:" : "g:");
+        return '[a=cr:{"id":"' + prefix + c.slug + '"}/]' + c.name + "[/a]";
+      }).join(" · "));
+    }
 
-    const m = r.content.match(/id="video-player"[\s\S]{0,400}?data-src="([^"]+)"/);
-    if (!m) throw new Error("找不到播放地址");
+    if (isPhoto) {
+      const imgs = this.parseImages(html);
+      if (imgs.length) {
+        lines.push("共 " + imgs.length + " 张");
+        pic = pic || imgs[0];
+      }
+      return {
+        list: [{
+          vod_id: url,
+          vod_name: title || url,
+          vod_pic: pic,
+          vod_content: lines.join("\n"),
+          vod_remarks: imgs.length ? imgs.length + "P" : "",
+          gallery: true,
+          vod_play_from: "xChina",
+          vod_play_url: "图集$" + url,
+        }],
+      };
+    }
 
-    const src = absolute(decode(m[1]));
+    // 视频：data-src="/hls/<id>/master.m3u8"
+    const sv = html.match(/data-src="(\/hls\/[^"]+\.m3u8[^"]*)"/);
+    const playUrl = sv ? BASE + decode(sv[1]) : "";
+
+    const dur = html.match(/<span class="[^"]*tabular-nums[^"]*"[^>]*>(\d{1,2}:\d{2}(?::\d{2})?)</);
+    if (dur) lines.push("时长：" + clean(dur[1]));
+
     return {
-      // m3u8 必须 parse:1，App 才会用 HlsMediaSource
-      parse: /\.m3u8(\?|$)/i.test(src) ? 1 : 0,
-      url: src,
-      header: {
-        "User-Agent": UA,
-        "Referer": BASE + "/",
-        "Origin": BASE,
-      },
+      list: [{
+        vod_id: url,
+        vod_name: title || url,
+        vod_pic: pic,
+        vod_content: lines.join("\n"),
+        vod_remarks: dur ? clean(dur[1]) : "",
+        gallery: false,          // 纯视频帖不给「查看图集」按钮
+        vod_play_from: "xChina",
+        vod_play_url: "正片$" + (playUrl || url),
+      }],
     };
   }
 
-  async searchContent(key, quick, pg = "1") {
+  /** 套图详情里的图片（按文件名去重，_600x0 → 原图） */
+  parseImages(html) {
+    const out = [];
+    const seen = {};
+    const re = /https:\/\/img\.xchina\.io\/photos\/[a-z0-9]+\/[0-9]+(?:_600x0)?\.(?:webp|jpg|jpeg|png)/g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const u = m[0];
+      const key = u.replace(/_\d+x\d+(?=\.)/, "");
+      if (seen[key]) continue;
+      seen[key] = 1;
+      out.push(u);
+    }
+    return out;
+  }
+
+  async playerContent(flag, id) {
+    const url = pageUrlOf(id);
+    if (/\.m3u8/.test(url)) {
+      return { parse: 1, url: url, header: { "User-Agent": UA, "Referer": BASE + "/" } };
+    }
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    const sv = html.match(/data-src="(\/hls\/[^"]+\.m3u8[^"]*)"/);
+    if (!sv) throw new Error("没找到播放地址");
+    return { parse: 1, url: BASE + decode(sv[1]), header: { "User-Agent": UA, "Referer": BASE + "/" } };
+  }
+
+  async action(op) {
+    if (!op) return [];
+
+    // 影片 tab 的二级 chips：分类
+    if (op === "sub|video") {
+      return [{ name: "全部", value: "" }].concat(VIDEO_CATS).map((c) => ({ name: c.name, value: c.value }));
+    }
+    if (op.indexOf("sub|") === 0) return [];
+
+    // 图集
+    if (op.indexOf("gal|") === 0) {
+      const url = pageUrlOf(op.substring(4));
+      let html = "";
+      try {
+        const r = await this.net.req(url, { headers: hdrs() });
+        if (r && r.code === 200) html = r.content;
+      } catch (e) { html = ""; }
+      const imgs = this.parseImages(html);
+      const tags = this.detailTags(html);
+      return { list: imgs.map((u) => ({ url: u })), tags: tags };
+    }
+
+    return [];
+  }
+
+  /** 详情页的面包屑 → 标签 chips */
+  detailTags(html) {
+    const out = [];
+    const re = /<a href="\/(video-category|video-series|model)\/([^"]+)"[^>]*>([^<]{1,20})<\/a>/g;
+    let m;
+    const seen = {};
+    while ((m = re.exec(String(html || ""))) !== null) {
+      const key = m[1] + "/" + m[2];
+      if (seen[key]) continue;
+      seen[key] = 1;
+      const nm = clean(m[3]);
+      if (!nm) continue;
+      out.push({ name: nm, id: (m[1] === "model" ? "m:" : "g:") + m[2] });
+    }
+    return out.slice(0, 8);
+  }
+
+  async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
-    const url = BASE + "/search?type=video&q=" + encodeURIComponent(key) + (p > 1 ? "&page=" + p : "");
+    const url = BASE + "/search?q=" + encodeURIComponent(key) + (p > 1 ? "&page=" + p : "");
+    let html = "";
+    try {
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) return this.page([], p, PAGE_SIZE, 0);
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 23, 0);
-
-    const cards = parseCards(r.content);
-    if (cards.length === 0) return this.page([], p, 23, (p - 1) * 23);
-    if (p > 1 && this.isRepeat("s:" + key, cards)) return this.page([], p, 23, (p - 1) * 23);
-    return this.page(cards, p, 23, (p + 1) * 23);
+    const cards = parseCards(html);
+    const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
   }
 }

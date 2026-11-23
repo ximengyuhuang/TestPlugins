@@ -95,7 +95,8 @@
       "api": "./xchina.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 0.75,
+        "masonry": true
       },
       "ext": {}
     },
