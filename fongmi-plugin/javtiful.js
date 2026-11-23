@@ -168,6 +168,15 @@ export default class Javtiful extends Spider {
         { key: "order", name: "排序", value: CAT_ORDERS },
         { key: "vtype", name: "类型", panel: true, value: CAT_TYPES },
       ],
+      // 频道 / 女优 下钻页也有同一套筛选（排序 + VIDEO TYPE）
+      channelsearch: [
+        { key: "order", name: "排序", value: CAT_ORDERS },
+        { key: "vtype", name: "类型", panel: true, value: CAT_TYPES },
+      ],
+      actresssearch: [
+        { key: "order", name: "排序", value: CAT_ORDERS },
+        { key: "vtype", name: "类型", panel: true, value: CAT_TYPES },
+      ],
     };
     // 分类 chips 走二级机制（action("sub|category")），不依赖 homeContent 联网
     return { class: classes, filters: filters, subFromTab: true };
