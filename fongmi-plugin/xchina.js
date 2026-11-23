@@ -238,7 +238,7 @@ export default class XChina extends Spider {
       if (items.length >= PAGE_SIZE) break;
     }
 
-    await this.fillPics(items, 16);
+    await this.fillPics(items, 24);
     return this.page(items, p, PAGE_SIZE, items.length >= PAGE_SIZE ? (p + 1) * PAGE_SIZE : items.length);
   }
 
