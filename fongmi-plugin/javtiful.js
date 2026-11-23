@@ -150,8 +150,8 @@ export default class Javtiful extends Spider {
       { type_id: "foryou", type_name: "推荐" },
       { type_id: "video", type_name: "视频" },
       { type_id: "category", type_name: "分类" },
-      { type_id: "channel", type_name: "频道" },
-      { type_id: "actress", type_name: "女优" },
+      { type_id: "channelsearch", type_name: "频道" },
+      { type_id: "actresssearch", type_name: "女优" },
       { type_id: "web", type_name: "网页" },
     ];
 
@@ -249,8 +249,22 @@ export default class Javtiful extends Spider {
     if (t.indexOf("ch:") === 0) return this.listPage("/channel/" + t.substring(3), p, dOrder, dType);
     if (t.indexOf("ac:") === 0) return this.listPage("/actress/" + t.substring(3), p, dOrder, dType);
 
-    // 频道 / 女优 索引行
-    if (t === "channel" || t === "actress") return this.directoryList(t, p);
+    // 频道 / 女优：选中值在 extend.sub 里（ch:<slug> / ac:<slug>），
+    // t 可能是 channel / channelsearch（面板模式）
+    if (t === "channel" || t === "actress" || t === "channelsearch" || t === "actresssearch") {
+      const isCh = t.indexOf("channel") === 0;
+      const sv = String(ext.sub || "");
+      if (isCh && sv.indexOf("ch:") === 0)
+        return this.listPage("/channel/" + sv.substring(3), p, dOrder, dType);
+      if (!isCh && sv.indexOf("ac:") === 0)
+        return this.listPage("/actress/" + sv.substring(3), p, dOrder, dType);
+      return this.page([{
+        vod_id: "",
+        vod_name: isCh ? "在上方选一个频道" : "在上方选一个女优",
+        vod_pic: "",
+        vod_remarks: "提示",
+      }], 1, PAGE_SIZE, 1);
+    }
 
     return this.listPage("/videos", p, "");
   }
@@ -317,6 +331,53 @@ export default class Javtiful extends Spider {
       vod_remarks: "",
       vod_tag: "folder",
     })), p, 30, out.length);
+  }
+
+  /** 频道 / 女优 的分面搜索：facet|<kind>|<kw>|<page> */
+  async facetIndex(op, kind) {
+    const prefix = "facet|" + kind + "|";
+    const rest = op.substring(prefix.length);
+    const bar = rest.lastIndexOf("|");
+    const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
+    const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
+
+    const all = await this.indexChips(kind);          // 复用已有索引（带缓存）
+    const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
+    const PAGE = 100;
+    const from = (page - 1) * PAGE;
+    return hit.slice(from, from + PAGE).map((x) => ({ id: x.value, name: x.name, count: "" }));
+  }
+
+  /** 频道 / 女优索引进 chips（取前 3 页，约 72 个），缓存 */
+  async indexChips(kind) {
+    if (!this.idxChipCache) this.idxChipCache = {};
+    if (this.idxChipCache[kind]) return this.idxChipCache[kind];
+
+    const listPath = kind === "channel" ? "/channels" : "/actresses";
+    const linkKind = kind === "channel" ? "channel" : "actress";
+    const prefix = kind === "channel" ? "ch:" : "ac:";
+    const out = [];
+    const seen = {};
+
+    for (let p = 1; p <= 3; p++) {
+      try {
+        const url = BASE + LANG + listPath + (p > 1 ? "?page=" + p : "");
+        const r = await this.net.req(url, { headers: hdrs() });
+        if (!r || r.code !== 200) break;
+        const re = new RegExp('href="/zh/' + linkKind + '/([^"]+)"[\\s\\S]{0,600}?directory-card__name">([^<]{1,60})<', "g");
+        let m, added = 0;
+        while ((m = re.exec(r.content)) !== null) {
+          const slug = m[1];
+          if (seen[slug]) continue;
+          seen[slug] = 1;
+          out.push({ name: clean(m[2]) || slug, value: prefix + slug });
+          added++;
+        }
+        if (!added) break;
+      } catch (e) { break; }
+    }
+    if (out.length) this.idxChipCache[kind] = out;
+    return out;
   }
 
   /** 频道 / 女优索引（文件夹行，可翻页） */
@@ -499,6 +560,10 @@ export default class Javtiful extends Spider {
       // 不要返回空值项：App 会自动在 chips 行首加「全部」
       return cats.map((c) => ({ name: c.name, value: "cat:" + c.slug }));
     }
+    // 频道 / 女优：页内搜索面板（几百个条目，chips 横滑太累）
+    if (op.indexOf("facet|channel|") === 0) return await this.facetIndex(op, "channel");
+    if (op.indexOf("facet|actress|") === 0) return await this.facetIndex(op, "actress");
+
     if (op.indexOf("sub|") === 0) return [];
 
     return [];
