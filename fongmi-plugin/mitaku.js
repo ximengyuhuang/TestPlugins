@@ -19,7 +19,7 @@ const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Geck
 const GAL = "https://ximengyuhuang.github.io/TestPlugins/fongmi-plugin/gallery.html";
 
 // [tid, 路径, 名称]
-const CATS = [
+const OLD_CATS = [
   ["video", "/category/online-video/", "视频"],
   ["cos", "/category/ero-cosplay/", "Cosplay"],
   ["nude", "/category/nude/", "Nude"],
@@ -423,18 +423,110 @@ function esc(s) {
     .replace(/ /g, "%20");
 }
 
+// ============================================================
+// 站点结构（2026-11-24 侦查）
+//   分类：/category/ero-cosplay|sexy-set|online-video|nude/   每页 9 帖
+//   首页：/            → 最新
+//   分页：/page/N/     （有 pagination 链接）
+//   搜索：/?s=关键词    （标题带 "Page x of y"）
+//   详情：article#post-N → h2.entry-title a[href]
+//        封面 .featured-image img[src]
+//        图集 .msacwl-slide [data-lazy]（原图，走 images.weserv.nl 缩略）
+//        视频 iframe src="https://n1mwq.org/e/<slug>"
+//   播放：captcha(PoW 12bit) → verify(token) → playback {fingerprint:{}} →
+//        AES-256-GCM 密文（key_parts 拆两段拼 32B key）→ 解密得 sources[].url(m3u8)
+//   相关：详情页侧栏 Trending Posts（aside#wtpsw-post-list-widget-N）
+//   标签：站点无索引页，从分类页侧栏 /tag/<slug>/ 汇总 → 搜索面板
+// ============================================================
+
+const CATS = [
+  { tid: "latest", name: "最新", path: "" },
+  { tid: "ero-cosplay", name: "Ero Cosplay", path: "/category/ero-cosplay/" },
+  { tid: "sexy-set", name: "Sexy Set", path: "/category/sexy-set/" },
+  { tid: "online-video", name: "Online Video", path: "/category/online-video/" },
+  { tid: "nude", name: "Nude", path: "/category/nude/" },
+];
+
+const PAGE_SIZE = 9;
+
+/** 列表路径（p>1 用 /page/N/） */
+function listPath(cat, p) {
+  const base = cat.path || "/";
+  if (p <= 1) return SITE + base;
+  return SITE + base + "page/" + p + "/";
+}
+
+/** 从一段 HTML 里抓卡片（article 块，含分类/标签/标题/封面） */
+function parseCards(html) {
+  const text = String(html || "");
+  const out = [];
+  const seen = {};
+  const marks = [];
+  const reArt = /<article id="post-\d+"[^>]*>/g;
+  let m;
+  while ((m = reArt.exec(text)) !== null) marks.push(m.index);
+  for (let i = 0; i < marks.length; i++) {
+    const seg = text.substring(marks[i], i + 1 < marks.length ? marks[i + 1] : marks[i] + 6000);
+    const link = seg.match(/<h2 class="entry-title">\s*<a href="([^"]+)"[^>]*>([\s\S]{0,200}?)<\/a>/);
+    if (!link) continue;
+    const url = link[1];
+    if (seen[url]) continue;
+    seen[url] = 1;
+    const img = seg.match(/class="featured-image"[\s\S]{0,600}?<img[^>]*src="([^"]+)"/);
+    out.push({
+      url: url,
+      title: strip(link[2]),
+      pic: img ? coverUrl(safeUrl(img[1])) : "",
+    });
+  }
+  return out;
+}
+
+/** 详情页：图集张数 + 是否有视频 */
+function probePost(html) {
+  const n = parseGallery(html).length;
+  const hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(String(html || ""));
+  return { n: n, hasVideo: hasVideo };
+}
+
+/** 角标：34P / 1V / 16P·1V（站点不给时长） */
+function badgeOf(n, hasVideo) {
+  if (n > 0 && hasVideo) return n + "P·1V";
+  if (n > 0) return n + "P";
+  if (hasVideo) return "1V";
+  return "";
+}
+
+/** 详情页侧栏 Trending Posts → 相关推荐卡片 */
+function parseTrending(html) {
+  const text = String(html || "");
+  const i = text.indexOf("wtpsw-post-li");
+  const seg = i >= 0 ? text.substring(Math.max(0, i - 400)) : text;
+  const out = [];
+  const seen = {};
+  const re = /<a href="(https:\/\/mitaku\.net\/[^"]+)"[^>]*>[\s\S]{0,400}?<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"/g;
+  let m;
+  while ((m = re.exec(seg)) !== null) {
+    const url = m[1];
+    if (seen[url]) continue;
+    if (!/\/(ero-cosplay|sexy-set|online-video|nude)\//.test(url)) continue;
+    seen[url] = 1;
+    out.push({ url: url, title: decode(m[3]).replace(/\s*Cover\s*$/i, "").trim(), pic: coverUrl(safeUrl(decode(m[2]))) });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 export default class Mitaku extends Spider {
   init(extend) {
-    this.epCache = {};
-    this.tagCache = null;
     this.htmlCache = {};
+    this.tagCache = null;
     this.log("mitaku ready");
   }
 
-  // 帖子页 HTML 缓存：列表探测时已经抓过，详情/播放/图集直接复用
   cacheGet(url) {
     const c = this.htmlCache && this.htmlCache[url];
-    return c && Date.now() - c.ts < 120000 ? c.html : "";
+    return c && Date.now() - c.ts < 180000 ? c.html : "";
   }
 
   cacheSet(url, html) {
@@ -442,359 +534,222 @@ export default class Mitaku extends Spider {
     this.htmlCache[url] = { html: html, ts: Date.now() };
   }
 
-  // 一个帖子页判断三件事：有没有视频、图集多少张、该给什么卡片
-  probe(url, html) {
-    const hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(html);
-    const n = parseGallery(html).length;
-    if (!hasVideo && n === 0) return null;
-    if (hasVideo && n > 0) {
-      return {
-        vod_id: "mix|" + url,
-        vod_name: "",
-        vod_pic: "",
-        vod_remarks: "视频 + 图集 " + n + "张",
-        vod_tag: "folder",
-      };
-    }
-    if (hasVideo) return { vod_id: url, vod_name: "", vod_pic: "", vod_remarks: "" };
-    // 纯图集帖：以前是被直接丢掉的
-    return { vod_id: url, vod_name: "", vod_pic: "", vod_remarks: "图集 · " + n + "张", action: "gal:" + url };
-  }
-
-  async fetchPage(url) {
+  async getHtml(url, referer) {
     const hit = this.cacheGet(url);
     if (hit) return hit;
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return "";
-    this.cacheSet(url, r.content);
-    return r.content;
+    try {
+      const r = await this.net.req(url, { headers: headers(referer) });
+      if (r && r.code === 200) {
+        this.cacheSet(url, r.content);
+        return r.content;
+      }
+    } catch (e) { }
+    return "";
   }
 
-  async homeContent(filter) {
+  async homeContent() {
     const classes = [];
-    for (const [tid, , name] of CATS) classes.push({ type_id: tid, type_name: name });
+    for (const c of CATS) classes.push({ type_id: c.tid, type_name: c.name });
+    classes.push({ type_id: "tagsearch", type_name: "标签" });
     classes.push({ type_id: "web", type_name: "网页" });
 
-    // 标签（从分类页侧栏抓一次）
-    if (!this.tagCache) {
-      try {
-        const r = await this.net.req(SITE + "/category/online-video/", { headers: headers() });
-        if (r && r.code === 200) {
-          const list = [];
-          const seen = {};
-          const re = /href="https:\/\/mitaku\.net\/tag\/([^"\/]+)\/"[^>]*>([^<]{1,24})</g;
-          let m;
-          while ((m = re.exec(r.content)) !== null) {
-            const slug = m[1];
-            if (seen[slug]) continue;
-            seen[slug] = 1;
-            const nm = strip(m[2]);
-            if (nm) list.push([slug, nm]);
-          }
-          this.tagCache = list;
-        }
-      } catch (e) {
-        this.log("tags failed: " + e);
-      }
-    }
-
-    // 作者：站点没有作者索引页，从帖子标题提取（"作者 – 作品"）
-    await this.buildAuthors();
-
-    // 标签收进「标签」文件夹（按首字母分段 → 标签 → 视频）
-    classes.push({
-      type_id: "tagf",
-      type_name: "标签 (" + ((this.tagCache || []).length) + ")",
-      type_flag: "1",
-    });
-
-    classes.push({
-      type_id: "authf",
-      type_name: "作者 (" + ((this.authors || []).length) + ")",
-      type_flag: "1",
-    });
-
-    // 排序收进「筛选」按钮（WordPress 支持 ?orderby= / ?order=）
-    const sortFilter = [
-      {
-        key: "sort",
-        name: "排序",
-        value: [
-          { n: "最新", v: "date" },
-          { n: "最早", v: "asc" },
-          { n: "随机", v: "rand" },
-        ],
-      },
-    ];
+    // 排序走 ⇅ 面板（WordPress: ?orderby=）
+    const sortGroup = {
+      key: "order",
+      name: "排序",
+      value: [
+        { n: "最新", v: "" },
+        { n: "最早", v: "asc" },
+      ],
+    };
     const filters = {};
-    for (const [tid] of CATS) filters[tid] = sortFilter;
+    for (const c of CATS) filters[c.tid] = [sortGroup];
     return { class: classes, filters: filters };
   }
 
-  // 从标题提取作者（"Tokar 浵卡 – Kisaki (Blue Archive)" → "Tokar 浵卡"）
-  async buildAuthors() {
-    if (this.authors) return this.authors;
-    const names = {};
-    for (let p = 1; p <= 3; p++) {
-      const u = SITE + "/category/online-video/" + (p > 1 ? "page/" + p + "/" : "");
-      let r;
-      try {
-        r = await this.net.req(u, { headers: headers() });
-      } catch (e) {
-        break;
-      }
-      if (!r || r.code !== 200) break;
-      const posts = parsePosts(r.content);
-      if (!posts.length) break;
-      for (const post of posts) {
-        const t = String(post.title || "");
-        const m = t.match(/^(.*?)\s+[–—\-]\s+/);
-        if (!m) continue;
-        const nm = m[1].replace(/["“”'']/g, "").trim();
-        if (!nm || nm.length > 40 || nm.length < 2) continue;
-        names[nm] = (names[nm] || 0) + 1;
-      }
-    }
-    this.authors = Object.keys(names)
-      .map((n) => ({ name: n, count: names[n] }))
-      .sort((a, b) => {
-        const x = a.name.toLowerCase();
-        const y = b.name.toLowerCase();
-        return x < y ? -1 : x > y ? 1 : 0;
-      });
-    return this.authors;
-  }
-
-  // 作者文件夹（A-Z 平铺，不分字母层）
-  authorFolders() {
-    return (this.authors || []).map((a) => ({
-      vod_id: "auth:" + a.name,
-      vod_name: a.name,
-      vod_pic: "",
-      vod_remarks: a.count + " 部",
-      vod_tag: "folder",
-    }));
-  }
-
-  // 按首字母分组（用标签显示名）
-  groupLetters() {
-    const groups = {};
-    for (const [slug, name] of this.tagCache || []) {
-      const ch = String(name).charAt(0).toUpperCase();
-      const key = ch >= "A" && ch <= "Z" ? ch : "#";
-      groups[key] = groups[key] || [];
-      groups[key].push([slug, name]);
-    }
-    return Object.keys(groups)
-      .sort()
-      .map((k) => ({ key: k, items: groups[k] }));
-  }
-
-  letterFolders() {
-    return this.groupLetters().map((g) => ({
-      vod_id: "seg:" + g.key,
-      vod_name: g.key,
-      vod_pic: "",
-      vod_remarks: g.items.length + " 个标签",
-      vod_tag: "folder",
-    }));
-  }
-
-  tagFolders(seg) {
-    const g = this.groupLetters().find((x) => x.key === seg);
-    if (!g) return [];
-    return g.items.map(([slug, name]) => ({
-      vod_id: "t:" + slug,
-      vod_name: name,
-      vod_pic: "",
-      vod_remarks: "标签",
-      vod_tag: "folder",
-    }));
-  }
-
+  /** 列表：分类/最新 + 排序 + 分页 */
   async categoryContent(tid, pg, filter, extend) {
-    // ---- 文件夹导航层 ----
-    if (tid === "authf") {
-      const list = this.authorFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid.indexOf("auth:") === 0) {
-      // 作者层的视频 = 用名字搜索
-      return await this.searchContent(tid.substring(5), true, String(Number(pg) || 1));
-    }
-    if (tid === "tagf") {
-      const list = this.letterFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid.indexOf("seg:") === 0) {
-      const list = this.tagFolders(tid.substring(4));
-      return this.page(list, 1, list.length, list.length);
-    }
-
-    if (tid === "web") {
-      try {
-        openWeb({ url: SITE });
-      } catch (e) {
-        this.log("openWeb failed: " + e);
-      }
-      return this.page([], 1, 9, 0);
-    }
-
-    // ---- 二级菜单：视频 / 图集 ----
-    if (tid.indexOf("mix|") === 0) {
-      const pageUrl = tid.substring(4);
-      const html = await this.fetchPage(pageUrl);
-      const list = [];
-      if (html) {
-        const hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(html);
-        const n = parseGallery(html).length;
-        if (hasVideo) {
-          list.push({ vod_id: pageUrl, vod_name: "▶ 播放视频", vod_pic: "", vod_remarks: "视频" });
-        }
-        if (n > 0) {
-          list.push({
-            vod_id: "gal|" + pageUrl,
-            vod_name: "🖼 查看图集 (" + n + " 张)",
-            vod_pic: "",
-            vod_remarks: "图集",
-            action: "gal|" + pageUrl,
-          });
-        }
-      }
-      if (list.length === 0) {
-        list.push({ vod_id: pageUrl, vod_name: "（没有内容）", vod_pic: "", vod_remarks: "" });
-      }
-      return this.page(list, 1, Math.max(list.length, 1), Math.max(list.length, 1));
-    }
-
     const p = Number(pg) || 1;
-    let url;
+    const ext = extend || {};
+    const cat = CATS.find((c) => c.tid === tid) || CATS[0];
+    let url = listPath(cat, p);
+    if (String(ext.order || "") === "asc") url += (url.indexOf("?") >= 0 ? "&" : "?") + "orderby=date&order=asc";
 
-    if (tid.indexOf("t:") === 0) {
-      const slug = tid.substring(2);
-      url = SITE + "/tag/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
-    } else {
-      let path = CATS[0][1];
-      for (const c of CATS) {
-        if (c[0] === tid) {
-          path = c[1];
-          break;
-        }
-      }
-      const sel = (extend && extend.sort) || "date";
-      let q = "";
-      if (sel === "asc") q = "?order=asc";
-      else if (sel === "rand") q = "?orderby=rand";
-      url = SITE + path + (p > 1 ? "page/" + p + "/" : "") + q;
-    }
+    const html = await this.getHtml(url);
+    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 9, 0);
+    const raw = parseCards(html);
+    // 角标需要知道每帖的张数/有没有视频 → 并发抓详情（9 个以内）
+    const cards = await Promise.all(raw.map(async (c) => {
+      const d = await this.getHtml(c.url, url);
+      const info = probePost(d);
+      return {
+        vod_id: c.url,
+        vod_name: c.title,
+        vod_pic: c.pic,
+        vod_remarks: badgeOf(info.n, info.hasVideo),
+      };
+    }));
 
-    const posts = parsePosts(r.content);
-    if (posts.length === 0) return this.page([], p, 9, (p - 1) * 9);
-
-    // 只保留有内容的帖子：一次请求同时判断「有没有视频」和「图集几张」
-    const checks = posts.map((post) =>
-      this.fetchPage(post.url)
-        .then((html) => {
-          if (!html) return null;
-          const c = this.probe(post.url, html);
-          if (!c) return null;
-          c.vod_name = post.title;
-          c.vod_pic = post.pic;
-          return c;
-        })
-        .catch(() => null)
-    );
-
-    let cards = [];
-    try {
-      const res = await Promise.all(checks);
-      for (const c of res) if (c) cards.push(c);
-    } catch (e) {
-      this.log("filter failed: " + e);
-    }
-
-    if (cards.length === 0) return this.page([], p, 9, (p - 1) * 9);
-    return this.page(cards, p, 9, (p + 1) * 9);
+    const more = /class="pagination"/.test(html) || html.indexOf("page/" + (p + 1) + "/") >= 0;
+    const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards.filter((c) => c.vod_name), p, PAGE_SIZE, total);
   }
 
+  /** 详情：图集 + 视频都算上 */
   async detailContent(ids) {
-    const list = [];
-    for (const id of ids) {
-      const pageUrl = String(id).indexOf("http") === 0 ? String(id) : SITE + String(id);
-      let title = "";
-      let pic = "";
-      let content = "";
-      let hasVideo = false;
+    const url = String(ids[0] || "");
+    const html = await this.getHtml(url);
+    if (!html) return { list: [] };
 
-      try {
-        const r = { code: 200, content: await this.fetchPage(pageUrl) };
-        if (r.content) {
-          const html = r.content;
+    const info = probePost(html);
+    const imgs = parseGallery(html);
 
-          const h1 = html.match(/<h1[^>]*class="[^"]*entry-title[^"]*"[^>]*>([\s\S]{0,200}?)<\/h1>/) ||
-                     html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
-          const ogt = html.match(/<meta property="og:title" content="([^"]+)"/);
-          title = h1 ? strip(h1[1]) : ogt ? decode(ogt[1]) : "";
-
-          const ogi = html.match(/<meta property="og:image" content="([^"]+)"/);
-          if (ogi) pic = coverUrl(safeUrl(decode(ogi[1])));
-          else {
-            const im = html.match(/class="featured-image"[\s\S]{0,400}?<img[^>]*src="([^"]+)"/);
-            if (im) pic = coverUrl(safeUrl(decode(im[1])));
-          }
-
-          hasVideo = /<iframe[^>]*src="[^"]*\/e\//.test(html);
-
-          const lines = [];
-          const tags = [];
-          const reT = /href="https:\/\/mitaku\.net\/tag\/([^"\/]+)\/"[^>]*>([^<]{1,24})</g;
-          let m;
-          while ((m = reT.exec(html)) !== null) {
-            const t = strip(m[2]);
-            if (t && tags.indexOf(t) < 0) tags.push(t);
-          }
-          if (tags.length) lines.push("标签: " + tags.slice(0, 8).join(" / "));
-
-          const cnt = html.match(/(\d+)\s*(?:Pics|Photos|images)/i);
-          if (cnt) lines.push("图片: " + cnt[1] + " 张");
-          if (hasVideo) lines.push("含视频");
-
-          const ogd = html.match(/<meta property="og:description" content="([^"]+)"/);
-          if (ogd) {
-            const d = strip(ogd[1]).substring(0, 140);
-            if (d) lines.push(d);
-          }
-
-          content = lines.filter(Boolean).join("\n");
-        }
-      } catch (e) {
-        this.log("detail failed: " + e);
-      }
-
-      list.push({
-        vod_id: pageUrl,
-        vod_name: title || String(id),
-        vod_pic: pic,
-        vod_content: content || (hasVideo ? "含视频" : "该帖没有视频"),
-        vod_play_from: "mitaku",
-        vod_play_url: "正片$" + pageUrl,
-      });
+    let title = "";
+    const t = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/) ||
+      html.match(/<h2 class="entry-title">\s*<a[^>]*>([\s\S]{0,200}?)<\/a>/);
+    if (t) title = strip(t[1]);
+    if (!title) {
+      const og = html.match(/property="og:title"[^>]*content="([^"]*)"/);
+      title = og ? strip(og[1]) : url;
     }
-    return { list: list };
+
+    const cover = html.match(/class="featured-image"[\s\S]{0,600}?<img[^>]*src="([^"]+)"/);
+
+    // 文本区：分类 + 标签做成可点 chips（每行一组）
+    const lines = [];
+    const cats = listUnique(html, /href="https:\/\/mitaku\.net\/category\/([^"\/]+)\/"[^>]*>([^<]{1,30})</g);
+    if (cats.length) {
+      lines.push(cats.slice(0, 3).map((x) => '[a=cr:{"id":"' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
+    }
+    const tags = listUnique(html, /href="https:\/\/mitaku\.net\/tag\/([^"\/]+)\/"[^>]*>([^<]{1,30})</g);
+    if (tags.length) {
+      lines.push(tags.slice(0, 6).map((x) => '[a=cr:{"id":"tag:' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
+    }
+    if (imgs.length) lines.push("图集：" + imgs.length + " 张");
+    if (info.hasVideo) lines.push("含视频：点下方「播放」");
+
+    const item = {
+      vod_id: url,
+      vod_name: title,
+      vod_pic: cover ? coverUrl(safeUrl(cover[1])) : "",
+      vod_content: lines.join("\n"),
+      vod_remarks: badgeOf(imgs.length, info.hasVideo),
+      gallery: imgs.length > 0,
+    };
+
+    if (info.hasVideo) {
+      item.vod_play_from = "Mitaku";
+      item.vod_play_url = "正片$" + url;
+    }
+
+    // 相关推荐：站点自带的 Trending Posts
+    const rel = parseTrending(html)
+      .filter((x) => x.url !== url)
+      .map((x) => ({ vod_id: x.url, vod_name: x.title, vod_pic: x.pic, vod_remarks: "" }));
+
+    return { list: [item].concat(rel) };
   }
 
-  // 解析 iframe 里的 slug
+  /** 图集图片（App 的 gal| 接口） */
+  async action(op) {
+    if (!op) return [];
+
+    if (op.indexOf("gal|") === 0) {
+      const url = op.substring(4);
+      const html = await this.getHtml(url);
+      const imgs = parseGallery(html);
+      let title = "";
+      const t = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
+      if (t) title = strip(t[1]);
+      return {
+        list: imgs.map((u, i) => ({ url: u, name: String(i + 1) })),
+        tags: [],
+        title: title,
+      };
+    }
+
+    // 标签搜索面板
+    if (op.indexOf("facet|tags|") === 0) {
+      const rest = op.substring("facet|tags|".length);
+      const bar = rest.lastIndexOf("|");
+      const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
+      const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
+      const all = await this.loadTags();
+      const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
+      const PAGE = 100;
+      const from = (page - 1) * PAGE;
+      return {
+        items: hit.slice(from, from + PAGE).map((x) => ({ id: "tag:" + x.slug, name: x.name, count: "" })),
+      };
+    }
+
+    // 标签下的帖子列表（作为 tid 打开）
+    if (op.indexOf("tag|") === 0) return [];
+
+    return [];
+  }
+
+  /** 汇总标签：站点没有索引页，从几个分类页的侧栏收集 */
+  async loadTags() {
+    if (this.tagCache && this.tagCache.length) return this.tagCache;
+    const out = [];
+    const seen = {};
+    const urls = [
+      SITE + "/category/ero-cosplay/",
+      SITE + "/category/nude/",
+      SITE + "/category/online-video/",
+      SITE + "/category/sexy-set/",
+    ];
+    // 并行抓（串行会拖到 40 秒以上，超过插件 15 秒看门狗）
+    const pages = await Promise.all(urls.map((u) => this.getHtml(u).catch(() => "")));
+    for (const html of pages) {
+      const re = /href="https:\/\/mitaku\.net\/tag\/([^"\/]+)\/"[^>]*>([^<]{1,30})</g;
+      let m;
+      while ((m = re.exec(html || "")) !== null) {
+        const slug = m[1];
+        if (seen[slug]) continue;
+        seen[slug] = 1;
+        const nm = strip(m[2]);
+        if (nm) out.push({ slug: slug, name: nm });
+      }
+    }
+    out.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+    if (out.length) this.tagCache = out;
+    return out;
+  }
+
+  /** 搜索：WordPress ?s=，分页靠 /page/N/ */
+  async searchContent(key, quick, pg) {
+    const p = Number(pg) || 1;
+    const url = SITE + (p > 1 ? "/page/" + p + "/" : "/") + "?s=" + encodeURIComponent(key);
+    const html = await this.getHtml(url);
+    if (!html) return this.page([], p, PAGE_SIZE, 0);
+
+    const raw = parseCards(html);
+    const cards = await Promise.all(raw.map(async (c) => {
+      const d = await this.getHtml(c.url, url);
+      const info = probePost(d);
+      return { vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: badgeOf(info.n, info.hasVideo) };
+    }));
+
+    const m = html.match(/Page\s+(\d+)\s+of\s+(\d+)/i);
+    let total;
+    if (m) total = Number(m[2]) * PAGE_SIZE;
+    else total = /class="pagination"/.test(html) ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+
+    return this.page(cards.filter((c) => c.vod_name), p, PAGE_SIZE, total);
+  }
+
+  /** iframe 里的 slug */
   async resolveSlug(pageUrl) {
-    const html = await this.fetchPage(pageUrl);
+    const html = await this.getHtml(pageUrl);
     if (!html) return null;
     const m = html.match(/<iframe[^>]*src="[^"]*\/e\/([A-Za-z0-9_-]+)/);
     return m ? m[1] : null;
   }
 
-  // 完整取流：PoW → verify → playback → AES-GCM → m3u8
+  /** 取流：PoW → verify → playback → AES-GCM → m3u8 */
   async resolveStreams(slug) {
     const embedHeaders = {
       "User-Agent": UA,
@@ -806,42 +761,22 @@ export default class Mitaku extends Spider {
     };
 
     const capRes = await this.net.req(API + "/api/videos/" + slug + "/embed/captcha", {
-      method: "POST",
-      headers: embedHeaders,
-      body: "{}",
+      method: "POST", headers: embedHeaders, body: "{}",
     });
     if (!capRes || capRes.code !== 200) throw new Error("captcha 失败");
-
     let cap;
-    try {
-      cap = JSON.parse(capRes.content);
-    } catch (e) {
-      throw new Error("captcha 解析失败");
-    }
+    try { cap = JSON.parse(capRes.content); } catch (e) { throw new Error("captcha 解析失败"); }
 
-    const nonce = cap.pow_nonce;
-    const difficulty = Number(cap.pow_difficulty) || 16;
-    const powToken = cap.pow_token;
-    if (!nonce || !powToken) throw new Error("captcha 字段缺失");
-
-    const t0 = Date.now();
-    const solution = solvePow(nonce, difficulty);
+    const solution = solvePow(cap.pow_nonce, Number(cap.pow_difficulty) || 12);
     if (solution === null) throw new Error("PoW 超时");
-    this.log("PoW 耗时 " + (Date.now() - t0) + "ms, solution=" + solution);
 
     const verRes = await this.net.req(API + "/api/videos/" + slug + "/embed/captcha/verify", {
-      method: "POST",
-      headers: embedHeaders,
-      body: JSON.stringify({ pow_token: powToken, solution: solution }),
+      method: "POST", headers: embedHeaders,
+      body: JSON.stringify({ pow_token: cap.pow_token, solution: solution }),
     });
     if (!verRes || verRes.code !== 200) throw new Error("verify 失败");
-
     let ver;
-    try {
-      ver = JSON.parse(verRes.content);
-    } catch (e) {
-      throw new Error("verify 解析失败");
-    }
+    try { ver = JSON.parse(verRes.content); } catch (e) { throw new Error("verify 解析失败"); }
     if (ver.status !== "ok" || !ver.token) throw new Error("verify 未通过");
 
     const pbRes = await this.net.req(API + "/api/videos/" + slug + "/embed/playback", {
@@ -850,131 +785,71 @@ export default class Mitaku extends Spider {
       body: JSON.stringify({ fingerprint: {} }),
     });
     if (!pbRes || pbRes.code !== 200) throw new Error("playback 失败");
-
     let pb;
-    try {
-      pb = JSON.parse(pbRes.content);
-    } catch (e) {
-      throw new Error("playback 解析失败");
-    }
-    const body = pb.playback || pb;
+    try { pb = JSON.parse(pbRes.content); } catch (e) { throw new Error("playback 解析失败"); }
 
+    const body = pb.playback || pb;
     const version = Number(body.version);
     const parts = body.key_parts || [];
-    const i1 = version - 1;
-    const i2 = 31 - version - 1;
-    if (!parts[i1] || !parts[i2]) throw new Error("key_parts 异常");
-
-    const p1 = b64url(parts[i1]);
-    const p2 = b64url(parts[i2]);
+    const p1 = b64url(parts[version - 1]);
+    const p2 = b64url(parts[31 - version - 1]);
+    if (!p1 || !p2) throw new Error("key_parts 异常");
     const key = new Uint8Array(p1.length + p2.length);
     key.set(p1, 0);
     key.set(p2, p1.length);
     if (key.length !== 32) throw new Error("key 长度异常");
 
-    const iv = b64url(body.iv);
-    const payload = b64url(body.payload);
-    const ct = payload.subarray(0, payload.length - 16);
-    const tag = payload.subarray(payload.length - 16);
-
-    const dec = aesGcmDecrypt(key, iv, ct, tag);
+    const dec = aesGcmDecrypt(key, b64url(body.iv), b64url(body.payload).subarray(0, b64url(body.payload).length - 16), b64url(body.payload).subarray(b64url(body.payload).length - 16));
     if (!dec.ok) this.log("AES-GCM tag 校验失败（仍尝试解析）");
 
     let data;
     try {
       data = JSON.parse(dec.text.replace(/\\u0026/g, "&").replace(/\\\//g, "/"));
-    } catch (e) {
-      throw new Error("解密内容解析失败");
-    }
+    } catch (e) { throw new Error("解密内容解析失败"); }
 
-    const sources = data.sources || [];
     const list = [];
     const seen = {};
-    for (const s of sources) {
-      if (!s || !s.url || s.url.indexOf(".m3u8") < 0) continue;
-      if (seen[s.url]) continue;
-      seen[s.url] = 1;
-      const name = s.label || (s.height ? s.height + "P" : "线路" + (list.length + 1));
-      list.push({ n: String(name), v: s.url });
+    for (const s of data.sources || []) {
+      const u = s && s.url;
+      if (!u || u.indexOf(".m3u8") < 0 || seen[u]) continue;
+      seen[u] = 1;
+      list.push({ n: String(s.label || (s.height ? s.height + "P" : "线路" + (list.length + 1))), v: u });
     }
-    if (list.length === 0) throw new Error("没有 m3u8 源");
-    // 画质从高到低
+    if (!list.length) throw new Error("没有 m3u8 源");
     list.sort((a, b) => (parseInt(b.n) || 0) - (parseInt(a.n) || 0));
-    return { list: list, sources: sources };
+    return list;
   }
 
-  async playerContent(flag, id, vipFlags) {
+  async playerContent(flag, id) {
     const pageUrl = String(id).indexOf("http") === 0 ? String(id) : SITE + String(id);
-
     const slug = await this.resolveSlug(pageUrl);
     if (!slug) throw new Error("该帖没有视频");
-
-    const res = await this.resolveStreams(slug);
+    const list = await this.resolveStreams(slug);
     return {
-      parse: 0,
-      url: { values: res.list, position: 0 },
+      parse: 1,
+      url: list[0].v,
       header: {
         "User-Agent": UA,
         "Referer": API + "/",
-        "Origin": API,
+        "Accept": "*/*",
       },
     };
   }
+}
 
-  // 点「查看图集」→ 抓帖子页 → 全部原图塞进画廊页
-  // 列表放 URL 片段（#），不会被 GitHub Pages 的 8KB 请求行上限拦成 414
-  async action(op, value) {
-    const s = String(op === undefined || op === null ? "" : op);
-    if (s.indexOf("gal|") !== 0 && s.indexOf("gal:") !== 0) return { msg: "未知操作" };
-    const u = s.substring(4);
-
-    const html = await this.fetchPage(u);
-    if (!html) return { msg: "打不开帖子页" };
-
-    const imgs = parseGallery(html);
-    if (imgs.length === 0) return { msg: "这个帖子没有图片" };
-
-    let title = "";
-    const h1 = html.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
-    const ogt = html.match(/<meta property="og:title" content="([^"]+)"/);
-    if (h1) title = strip(h1[1]);
-    else if (ogt) title = decode(ogt[1]);
-
-    const purl = GAL + "?u=" + encodeURIComponent(u) + "&_gv=20261113b";
-    const short = imgs.map((x) => (x.indexOf(SITE) === 0 ? x.substring(SITE.length) : x)).join("|");
-    const hash = "#t=" + encodeURIComponent(title) + "&b=" + encodeURIComponent(SITE) + "&i=" + esc(short);
-    return { web: { url: purl + hash, mode: "view" } };
+/** 抓一组唯一链接（slug + 显示名） */
+function listUnique(html, re) {
+  const out = [];
+  const seen = {};
+  let m;
+  re.lastIndex = 0;
+  while ((m = re.exec(String(html || ""))) !== null) {
+    const slug = m[1];
+    if (seen[slug]) continue;
+    seen[slug] = 1;
+    const nm = strip(m[2]);
+    if (nm) out.push({ slug: slug, name: nm });
+    if (out.length >= 12) break;
   }
-
-  async searchContent(key, quick, pg = "1") {
-    const p = Number(pg) || 1;
-    const url = SITE + "/?s=" + encodeURIComponent(key) + (p > 1 ? "&paged=" + p : "");
-
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 9, 0);
-
-    const posts = parsePosts(r.content);
-    if (posts.length === 0) return this.page([], p, 9, (p - 1) * 9);
-
-    // 搜索结果也区分视频 / 图集，否则点开纯图集帖会报「该帖没有视频」
-    const cards = [];
-    const checks = posts.map((post) =>
-      this.fetchPage(post.url)
-        .then((html) => {
-          if (!html) return null;
-          const c = this.probe(post.url, html);
-          if (!c) return null;
-          c.vod_name = post.title;
-          c.vod_pic = post.pic;
-          return c;
-        })
-        .catch(() => null)
-    );
-    try {
-      for (const c of await Promise.all(checks)) if (c) cards.push(c);
-    } catch (e) {
-      this.log("search probe failed: " + e);
-    }
-    return this.page(cards, p, 9, (p + 1) * 9);
-  }
+  return out;
 }
