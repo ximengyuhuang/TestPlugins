@@ -29,6 +29,17 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const PAGE_SIZE = 24;
 
 // 影片分类（作为「影片」tab 的二级 chips）
+// 套图的顶层系列（/photos 页面顶部 chips；每个系列页里还有一层子系列）
+const PHOTO_SERIES = [
+  { id: "618e4909ea9b6", name: "各国其他套图" },
+  { id: "665f65ec88e78", name: "中国工作室" },
+  { id: "6660093348354", name: "秀人网旗下" },
+  { id: "665f66f97ec4d", name: "其他套图" },
+  { id: "665f7c561767e", name: "台湾工作室" },
+  { id: "665f65d784f88", name: "日本工作室" },
+  { id: "665f6627c7295", name: "韩国工作室" },
+];
+
 const VIDEO_CATS = [
   { slug: "jav", name: "日本AV" },
   { slug: "cn", name: "国产" },
@@ -145,10 +156,17 @@ export default class XChina extends Spider {
       { type_id: "trend", type_name: "热门" },
       { type_id: "web", type_name: "网页" },
     ];
-    // 影片：二级 = 分类（media 组），三级 = 该分类下的系列（action("sub|<分类>")）
-    const media = [{ n: "全部", v: "" }].concat(
-      VIDEO_CATS.map((c) => ({ n: c.name, v: c.slug })));
-    const filters = { video: [{ key: "media", name: "分类", value: media }] };
+    // 影片：二级 = 分类，三级 = 该分类下的系列
+    const vMedia = [{ n: "全部", v: "" }].concat(
+      VIDEO_CATS.map((c) => ({ n: c.name, v: "v:" + c.slug })));
+    // 套图：二级 = 顶层系列，三级 = 该系列下的子系列（国模/日模/韩模…）
+    const pMedia = [{ n: "全部", v: "" }].concat(
+      PHOTO_SERIES.map((c) => ({ n: c.name, v: "p:" + c.id })));
+
+    const filters = {
+      video: [{ key: "media", name: "分类", value: vMedia }],
+      photo: [{ key: "media", name: "分类", value: pMedia }],
+    };
     return { class: classes, filters: filters };
   }
 
@@ -162,15 +180,23 @@ export default class XChina extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    // 影片 tab：三级结构 = 分类(media) → 系列(sub)
+    const mediaRaw = (extend && extend.media) ? String(extend.media) : "";
+
+    // 影片 tab：三级结构 = 分类(v:<slug>) → 系列(sub=series:<id>)
     if (t === "video") {
       const series = sub.indexOf("series:") === 0 ? sub.substring(7) : "";
       if (series) return this.listPage("/video-series/" + series, p);
-      const media = (extend && extend.media) ? String(extend.media) : "";
-      return this.listPage(media ? "/video-category/" + media : "/videos", p);
+      const slug = mediaRaw.indexOf("v:") === 0 ? mediaRaw.substring(2) : "";
+      return this.listPage(slug ? "/video-category/" + slug : "/videos", p);
     }
 
-    if (t === "photo") return this.listPage("/photos", p);
+    // 套图 tab：三级结构 = 顶层系列(p:<id>) → 子系列(sub=pseries:<id>)
+    if (t === "photo") {
+      const sub2 = sub.indexOf("pseries:") === 0 ? sub.substring(8) : "";
+      if (sub2) return this.listPage("/photo-series/" + sub2, p);
+      const sid = mediaRaw.indexOf("p:") === 0 ? mediaRaw.substring(2) : "";
+      return this.listPage(sid ? "/photo-series/" + sid : "/photos", p);
+    }
     if (t === "amateur") return this.listPage("/amateurs", p);
     if (t === "trend") return this.trendPage(p);
 
@@ -463,10 +489,11 @@ export default class XChina extends Spider {
   async action(op) {
     if (!op) return [];
 
-    // 三级 chips：某个分类下的系列
+    // 三级 chips：v:<分类> → 影片系列；p:<系列id> → 套图子系列
     if (op.indexOf("sub|") === 0) {
-      const slug = op.substring(4);
-      return await this.seriesOfCategory(slug);
+      const key = op.substring(4);
+      if (key.indexOf("p:") === 0) return await this.childSeries(key.substring(2));
+      return await this.seriesOfCategory(key.indexOf("v:") === 0 ? key.substring(2) : key);
     }
 
     // 图集
@@ -483,6 +510,30 @@ export default class XChina extends Spider {
     }
 
     return [];
+  }
+
+  /** 套图某一顶层系列下的子系列（国模/日模/韩模…）；缓存 */
+  async childSeries(seriesId) {
+    if (!this.childCache) this.childCache = {};
+    if (this.childCache[seriesId]) return this.childCache[seriesId];
+
+    const out = [];
+    try {
+      const r = await this.net.req(BASE + "/photo-series/" + seriesId, { headers: hdrs() });
+      if (r && r.code === 200) {
+        const re = /<a href="\/photo-series\/([a-z0-9]+)"[^>]*class="chip[^"]*"[^>]*>\s*([^<]{1,16})</g;
+        let m;
+        const seen = {};
+        while ((m = re.exec(r.content)) !== null) {
+          const id = m[1], nm = clean(m[2]);
+          if (!nm || id === seriesId || seen[id]) continue;
+          seen[id] = 1;
+          out.push({ name: nm, value: "pseries:" + id });
+        }
+      }
+    } catch (e) { }
+    this.childCache[seriesId] = out;
+    return out;
   }
 
   /** 详情页的面包屑 → 标签 chips */
