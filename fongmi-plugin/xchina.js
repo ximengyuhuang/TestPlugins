@@ -186,16 +186,13 @@ export default class XChina extends Spider {
     const pMedia = [{ n: "全部", v: "" }].concat(
       PHOTO_SERIES.map((c) => ({ n: c.name, v: "p:" + c.id })));
 
-    // 套图标签（站点不支持与系列组合，选中标签时以标签为准）
-    const pTags = [{ n: "不限", v: "" }].concat(
-      PHOTO_TAGS.map((t) => ({ n: t.name, v: t.slug })));
+    // 套图二级：「顶层系列」列表最后再挂一个「套图标签」入口，
+    // 选中它后三级 chips 变成 37 个标签（站点不支持系列+标签组合，所以做成互斥入口）
+    const pMediaAll = pMedia.concat([{ n: "套图标签", v: "tags" }]);
 
     const filters = {
       video: [{ key: "media", name: "分类", value: vMedia }],
-      photo: [
-        { key: "media", name: "分类", value: pMedia },
-        { key: "tag", name: "标签", value: pTags },
-      ],
+      photo: [{ key: "media", name: "分类", value: pMediaAll }],
     };
     return { class: classes, filters: filters };
   }
@@ -222,9 +219,19 @@ export default class XChina extends Spider {
 
     // 套图 tab：三级结构 = 顶层系列(p:<id>) → 子系列(sub=pseries:<id>)
     if (t === "photo") {
-      // 标签优先：站点不支持「系列 + 标签」组合，选了标签就按标签出
-      const tag = (extend && extend.tag) ? String(extend.tag) : "";
-      if (tag) return this.listPage("/photos/tag/" + tag, p);
+      // 二级选了「套图标签」→ 三级 chips 是 37 个标签
+      if (mediaRaw === "tags") {
+        const tg = sub.indexOf("tag:") === 0 ? sub.substring(4) : "";
+        if (!tg) {
+          return this.page([{
+            vod_id: "",
+            vod_name: "在上方选一个标签",
+            vod_pic: "",
+            vod_remarks: "提示",
+          }], 1, PAGE_SIZE, 1);
+        }
+        return this.listPage("/photos/tag/" + tg, p);
+      }
 
       const sub2 = sub.indexOf("pseries:") === 0 ? sub.substring(8) : "";
       if (sub2) return this.listPage("/photo-series/" + sub2, p);
@@ -526,6 +533,8 @@ export default class XChina extends Spider {
     // 三级 chips：v:<分类> → 影片系列；p:<系列id> → 套图子系列
     if (op.indexOf("sub|") === 0) {
       const key = op.substring(4);
+      // 套图标签：二级选了「套图标签」后，三级平铺 37 个标签
+      if (key === "tags") return PHOTO_TAGS.map((t) => ({ name: t.name, value: "tag:" + t.slug }));
       if (key.indexOf("p:") === 0) return await this.childSeries(key.substring(2));
       return await this.seriesOfCategory(key.indexOf("v:") === 0 ? key.substring(2) : key);
     }
