@@ -279,8 +279,12 @@ export default class XChina extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
-    const cards = parseCards(html);
-    const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    // 首页 /videos 是多个板块拼的（近百条），和后续页大量重复：
+    // App 追加时按 id 去重，重复的会被丢弃 → 翻页等于没翻。
+    // 所以一页只返回一页的量，保证后续页全是新内容。
+    const all = parseCards(html);
+    const cards = all.length > PAGE_SIZE ? all.slice(0, PAGE_SIZE) : all;
+    const total = all.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + all.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
 
