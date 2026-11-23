@@ -171,7 +171,7 @@ export default class Javtiful extends Spider {
       category: [
         { key: "media", name: "分类", value: cMedia },
         { key: "order", name: "排序", value: CAT_ORDERS },
-        { key: "vtype", name: "类型", value: CAT_TYPES },
+        { key: "vtype", name: "类型", panel: true, value: CAT_TYPES },
       ],
     };
     return { class: classes, filters: filters };
