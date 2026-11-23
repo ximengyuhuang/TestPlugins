@@ -106,7 +106,7 @@ function clean(s) {
 }
 
 /** 列表卡片 */
-function parseCards(html) {
+function parseCards(html, ctxType) {
   const text = String(html || "");
   const out = [];
   const seen = {};
@@ -126,10 +126,13 @@ function parseCards(html) {
 
     // 角标：类型·时长（如「减码·01:47:35」），画质本站全是 FHD，不显示
     const tMatch = b.match(/video-card__type">([^<]*)</);
-    const typeCn = tMatch ? (TYPE_CN[clean(tMatch[1]).toLowerCase()] || "") : "";
+    const typeCn = tMatch
+      ? (TYPE_CN[clean(tMatch[1]).toLowerCase()] || "")
+      : (ctxType || "");      // 卡片没写类型 → 用所在列表的类型（有码/无码/减码）
     const dur = b.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*<\/span>/);
     const durText = dur ? dur[1] : "";
-    let remarks = [typeCn, durText].filter((x) => x).join("·");
+    // 「类型|时长」：App 把类型放左上角、时长放右下角；没有类型就只给时长
+    let remarks = typeCn ? (typeCn + "|" + (durText || "")) : durText;
 
     out.push({
       vod_id: url,
@@ -202,6 +205,11 @@ export default class Javtiful extends Spider {
 
   /** 通用列表页：path + ?sort + ?page */
   async listPage(path, p, sort, vtype) {
+    // 列表本身决定了类型（站点很多卡片不写 type），用它兜底角标
+    const ctx = TYPE_CN[String(vtype || "").toLowerCase()]
+      || (/^\/zh\/censored/.test(LANG + path) ? TYPE_CN["censored"] : "")
+      || (/^\/zh\/uncensored/.test(LANG + path) ? TYPE_CN["uncensored"] : "")
+      || (/^\/zh\/reducing-mosaic/.test(LANG + path) ? TYPE_CN["reducing mosaic"] : "");
     const qs = [];
     if (sort) qs.push("sort=" + sort);
     if (vtype) qs.push("video_type=" + vtype);   // 站点参数名是 video_type（type= 无效）
@@ -217,12 +225,12 @@ export default class Javtiful extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
-    let cards = parseCards(html);
+    let cards = parseCards(html, ctx);
     // 服务端偶发返回空壳（无 article），这里重试一次并加时间戳绕开缓存
     if (!cards.length) {
       try {
         const r2 = await this.net.req(url + (url.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now(), { headers: hdrs() });
-        if (r2 && r2.code === 200) cards = parseCards(r2.content);
+        if (r2 && r2.code === 200) cards = parseCards(r2.content, ctx);
       } catch (e) { }
     }
     const total = hasNextPage(html, p)
@@ -268,7 +276,7 @@ export default class Javtiful extends Spider {
       if (vtype) qs.push("video_type=" + vtype);
       if (p > 1) qs.push("page=" + p);
       const url = BASE + LANG + "/category/" + cat + (qs.length ? "?" + qs.join("&") : "");
-      return this.reqPage(url, p);
+      return this.reqPage(url, p, vtype);
     }
 
     // 频道 / 女优：下钻时 tid 是 ch:<slug> / ac:<slug>
@@ -481,14 +489,14 @@ export default class Javtiful extends Spider {
   }
 
   /** 直接请求某个列表 URL */
-  async reqPage(url, p) {
+  async reqPage(url, p, vtype) {
     let html = "";
     try {
       const r = await this.net.req(url, { headers: hdrs() });
       if (r && r.code === 200) html = r.content;
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
-    const cards = parseCards(html);
+    const cards = parseCards(html, TYPE_CN[String(vtype || "").toLowerCase()] || "");
     // 有下一页就把 total 撑到下一页，否则到本页为止（结果不足 12 条也能继续翻）
     const total = hasNextPage(html, p)
       ? (p + 1) * PAGE_SIZE
