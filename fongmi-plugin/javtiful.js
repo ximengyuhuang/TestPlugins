@@ -181,7 +181,9 @@ export default class Javtiful extends Spider {
     const qs = [];
     if (sort) qs.push("sort=" + sort);
     if (p > 1) qs.push("page=" + p);
-    const url = BASE + path + (qs.length ? "?" + qs.join("&") : "");
+    // 必须带 /zh 前缀：不带会 302 到语言首页，设备上跟随重定向不稳定 → 空列表
+    const fixed = path.indexOf(LANG + "/") === 0 ? path : LANG + path;
+    const url = BASE + fixed + (qs.length ? "?" + qs.join("&") : "");
 
     let html = "";
     try {
@@ -190,7 +192,14 @@ export default class Javtiful extends Spider {
     } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
-    const cards = parseCards(html);
+    let cards = parseCards(html);
+    // 服务端偶发返回空壳（无 article），这里重试一次并加时间戳绕开缓存
+    if (!cards.length) {
+      try {
+        const r2 = await this.net.req(url + (url.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now(), { headers: hdrs() });
+        if (r2 && r2.code === 200) cards = parseCards(r2.content);
+      } catch (e) { }
+    }
     const total = cards.length >= 12 ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
