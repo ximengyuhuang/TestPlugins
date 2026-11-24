@@ -21,27 +21,82 @@ const BASE = "https://www.eporner.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE_SIZE = 36;
 
-// 最新页的分类 chips（站点 /cat/ 前若干热门）
+// 分类 chips：站点 /cat/ 里的热门内容分类（画质/格式另有专门筛选组，不混在这里）
 const CHIPS = [
   { n: "全部", v: "" },
-  { n: "720p", v: "hd-720p" },
-  { n: "1080p", v: "hd-1080p" },
-  { n: "60FPS", v: "60fps" },
-  { n: "VR", v: "vr-porn" },
   { n: "日本", v: "japanese" },
   { n: "Anal", v: "anal" },
-  { n: "POV", v: "pov-porn" },
   { n: "MILF", v: "milf" },
+  { n: "Teens", v: "teens" },
+  { n: "Amateur", v: "amateur" },
+  { n: "Big Tits", v: "big-tits" },
   { n: "Hentai", v: "hentai" },
-  { n: "BBW", v: "bbw" },
+  { n: "Asian", v: "asian" },
+  { n: "Latina", v: "latina" },
+  { n: "VR", v: "vr-porn" },
+  { n: "60FPS", v: "60fps" },
 ];
 
-const ORDERS = [
-  { n: "最佳", v: "" },
-  { n: "最新", v: "newest" },
+// 站点自己的 Sort by（路径段 SORT-xxx）
+const SORTS = [
+  { n: "最近", v: "" },
+  { n: "周榜", v: "top-weekly" },
+  { n: "月榜", v: "top-monthly" },
+  { n: "最多播放", v: "most-viewed" },
+  { n: "最高评分", v: "top-rated" },
   { n: "最长", v: "longest" },
-  { n: "最高分", v: "top-rated" },
 ];
+
+// PRODUCTION（路径段 PROD-xxx）
+const PRODS = [
+  { n: "全部", v: "" },
+  { n: "专业", v: "pro" },
+  { n: "自拍", v: "home" },
+];
+
+// QUALITY（query: quality=720|1080|2160）
+const QUALS = [
+  { n: "全部", v: "" },
+  { n: "720p+", v: "720" },
+  { n: "1080p+", v: "1080" },
+  { n: "4K", v: "2160" },
+];
+
+// Duration（query: duration_min_minutes / duration_max_minutes，站点滑杆 0~61，61 表示 1h+）
+const DURS = [
+  { n: "全部", v: "" },
+  { n: "5 分内", v: "0-5" },
+  { n: "5~15 分", v: "5-15" },
+  { n: "15~30 分", v: "15-30" },
+  { n: "30~60 分", v: "30-60" },
+  { n: "1 小时以上", v: "60-61" },
+];
+
+/**
+ * 列表 URL —— 对齐站点：
+ *   排序 / 制作 = 路径段：/cat/<cat>/SORT-top-rated/PROD-home/
+ *   画质 / 时长 = 查询串：?quality=1080&duration_min_minutes=15&duration_max_minutes=30
+ *   分页        = ?p=N（必须带 query，用 /N/ 会把 SORT 丢掉）
+ */
+function listUrl(cat, p, ext) {
+  // 注意：站点的「全部」要用 /cat/all/，根路径 / 会忽略 quality / duration 参数
+  let path = cat ? "/cat/" + cat + "/" : "/cat/all/";
+  const segs = [];
+  if (ext && ext.sort) segs.push("SORT-" + ext.sort);
+  if (ext && ext.prod) segs.push("PROD-" + ext.prod);
+  if (segs.length) path += segs.join("/") + "/";
+  // 分页必须写进路径（/cat/x/2/）：?p=N 在 /cat/all/ 上无效，且会丢掉 SORT/PROD
+  if (p > 1) path += p + "/";
+
+  const qs = [];
+  if (ext && ext.quality) qs.push("quality=" + ext.quality);
+  if (ext && ext.dur) {
+    const parts = String(ext.dur).split("-");
+    if (parts[0]) qs.push("duration_min_minutes=" + parts[0]);
+    if (parts[1]) qs.push("duration_max_minutes=" + parts[1]);
+  }
+  return BASE + path + (qs.length ? "?" + qs.join("&") : "");
+}
 
 function hdrs(ref) {
   return {
@@ -72,27 +127,13 @@ function headLetter(name) {
   return /[A-Z]/.test(c) ? c : "#";
 }
 
-/**
- * 列表页 URL
- *   首页：p>1 → /?p=N
- *   分类：/cat/<slug>/ 或 /cat/<slug>/?p=N
- *   带排序时统一用 ?sort=…&p=N（/2/?sort= 在站点上无效）
- */
-function listUrl(cat, p, sort) {
-  let path = cat ? "/cat/" + cat + "/" : "/";
-  const qs = [];
-  if (sort) qs.push("sort=" + sort);
-  if (p > 1) qs.push("p=" + p);
-  return BASE + path + (qs.length ? "?" + qs.join("&") : "");
-}
-
 /** 解析列表卡片 */
 function parseCards(html) {
   const text = String(html || "");
   const out = [];
   const seen = {};
   const marks = [];
-  const re = /<div class="mb"/g;
+  const re = /<div class="mb[\s"]/g;
   let m;
   while ((m = re.exec(text)) !== null) marks.push(m.index);
 
@@ -181,7 +222,10 @@ export default class Eporner extends Spider {
       filters: {
         latest: [
           { key: "media", name: "分类", value: CHIPS },
-          { key: "order", name: "排序", value: ORDERS },
+          { key: "sort", name: "排序", value: SORTS },
+          { key: "prod", name: "制作", value: PRODS },
+          { key: "quality", name: "画质", value: QUALS },
+          { key: "dur", name: "时长", value: DURS },
         ],
       },
     };
@@ -209,7 +253,6 @@ export default class Eporner extends Spider {
       return this.page([], p, PAGE_SIZE, 0);
     }
 
-    const order = String(ext.order || "");
     const sub = String(ext.sub || "");
 
     // 分类面板
@@ -217,7 +260,7 @@ export default class Eporner extends Spider {
       if (sub.indexOf("cat:") !== 0) {
         return this.page([{ vod_id: "", vod_name: "在上方选一个分类（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
       }
-      const url = listUrl(sub.substring(4), p, order);
+      const url = listUrl(sub.substring(4), p, ext);
       return this.fromHtml(await this.getHtml(url), p);
     }
 
@@ -233,7 +276,7 @@ export default class Eporner extends Spider {
 
     // 最新 / 分类 chips
     const media = String(ext.media || "");
-    const url = listUrl(media, p, order);
+    const url = listUrl(media, p, ext);
     return this.fromHtml(await this.getHtml(url), p);
   }
 
