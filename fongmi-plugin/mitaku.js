@@ -680,9 +680,18 @@ export default class Mitaku extends Spider {
     }
 
     // 相关推荐：站点自带的 Trending Posts
-    const rel = parseTrending(html)
-      .filter((x) => x.url !== url)
-      .map((x) => ({ vod_id: x.url, vod_name: x.title, vod_pic: x.pic, vod_remarks: "" }));
+    // 角标（NP / 1V / NP·MV）也要算，否则推荐的卡片不会出现「播放 / 图集」双按钮
+    const relRaw = parseTrending(html).filter((x) => x.url !== url);
+    const rel = await Promise.all(relRaw.map(async (x) => {
+      const rd = await this.getHtml(x.url, url);
+      const ri = probePost(rd);
+      return {
+        vod_id: x.url,
+        vod_name: x.title,
+        vod_pic: x.pic,
+        vod_remarks: badgeOf(ri.n, ri.hasVideo),
+      };
+    }));
 
     return { list: [item].concat(rel) };
   }
