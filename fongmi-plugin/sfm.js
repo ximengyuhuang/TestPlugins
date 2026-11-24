@@ -89,10 +89,11 @@ function feedUrl(chip, p) {
   return BASE + pg;                       // 最新
 }
 
-/** 分类 tab 的 URL：父类 或 父类/子类 */
-function catUrl(slug, p) {
+/** 分类 tab 的 URL：父类 或 父类/子类，可带排序（?order=most_views） */
+function catUrl(slug, p, sort) {
   if (!slug) return BASE + "/";
-  return BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
+  const base = BASE + "/category/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
+  return sort ? base + "?order=" + sort : base;
 }
 
 /** 解析卡片（两种模板都按 <article 切块） */
@@ -171,8 +172,18 @@ export default class Sfm extends Spider {
       ],
       filters: {
         video: [{ key: "media", name: "入口", value: CHIPS }],
-        // 分类 tab：一排父类 chips；选中父类后 App 用 action("sub|<父类>") 取角色 chips
-        category: [{ key: "media", name: "分类", value: [{ n: "全部", v: "" }].concat(PARENTS) }],
+        // 分类 tab：一排父类 chips + 排序（站点支持 ?order=most_views）
+        category: [
+          { key: "media", name: "分类", value: [{ n: "全部", v: "" }].concat(PARENTS) },
+          {
+            key: "order",
+            name: "排序",
+            value: [
+              { n: "最新", v: "" },
+              { n: "最多播放", v: "most_views" },
+            ],
+          },
+        ],
       },
     };
   }
@@ -206,11 +217,11 @@ export default class Sfm extends Spider {
       return this.fromHtml(html, p);
     }
 
-    // 分类 tab：media = 父类；选了角色时 sub = cat:<父类>/<角色>
+    // 分类 tab：media = 父类；选了角色时 sub = cat:<父类>/<角色>；order = 排序
     let slug = String(ext.media || "");
     if (sub.indexOf("cat:") === 0) slug = sub.substring(4);
 
-    const html = await this.getHtml(catUrl(slug, p));
+    const html = await this.getHtml(catUrl(slug, p, String(ext.order || "")));
     return this.fromHtml(html, p);
   }
 
