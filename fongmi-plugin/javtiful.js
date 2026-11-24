@@ -653,6 +653,34 @@ export default class Javtiful extends Spider {
     if (!op) return [];
     if (op.indexOf("gal|") === 0) return { list: [] };
 
+    // 侧边栏：热门频道 / 热门女优（各取索引第 1 页 24 个）
+    if (op === "side|") {
+      const groups = [];
+      try {
+        const ch = await this.fetchIndexPage("channel", 1);
+        const c24 = (ch || []).slice(0, 24);
+        if (c24.length) {
+          groups.push({
+            name: "热门频道",
+            facet: "channelsearch",
+            items: c24.map((x) => ({ name: x.name, count: "", id: x.value })),
+          });
+        }
+      } catch (e) { }
+      try {
+        const ac = await this.fetchIndexPage("actress", 1);
+        const a24 = (ac || []).slice(0, 24);
+        if (a24.length) {
+          groups.push({
+            name: "热门女优",
+            facet: "actresssearch",
+            items: a24.map((x) => ({ name: x.name, count: "", id: x.value })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
+    }
+
     // 分类 tab 的二级 chips：21 个分类（异步加载，不占 homeContent 时间）
     if (op === "sub|category") {
       const cats = await this.loadCategories();

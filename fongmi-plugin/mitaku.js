@@ -745,6 +745,64 @@ export default class Mitaku extends Spider {
       };
     }
 
+    // 侧边栏：热门标签 / 热门作者（给了 facet 后 App 会隐藏「标签」「作者」tab）
+    if (op === "side|") {
+      const groups = [];
+      // ⚠ 不能调 loadTags()/loadAuthors()：它们会抓 12 个 sitemap + 36 个索引页（实测 184 秒）
+      // 侧栏只做「热门预览」，各 1 次请求，剩下的靠「查看全部」进面板搜
+      // 两次请求并发，别串行等
+      const cat0 = (CATS || []).find((c) => c.path);
+      const [xmlPre, htmlPre] = await Promise.all([
+        this.getHtml(SITE + "/post_tag-sitemap1.xml").catch(() => ""),
+        cat0 ? this.getHtml(SITE + cat0.path).catch(() => "") : Promise.resolve(""),
+      ]);
+
+      try {
+        const xml = xmlPre;
+        const out = [];
+        const seen = {};
+        const re = /<loc>https:\/\/mitaku\.net\/tag\/([^<]+)\/<\/loc>/g;
+        let m;
+        while ((m = re.exec(xml || "")) !== null) {
+          const slug = m[1];
+          if (seen[slug]) continue;
+          seen[slug] = 1;
+          out.push({ slug: slug, name: pretty(slug) });
+          if (out.length >= 24) break;
+        }
+        if (out.length) {
+          groups.push({
+            name: "热门标签",
+            facet: "tagsearch",
+            items: out.map((x) => ({ name: x.name, count: "", id: "tag:" + x.slug })),
+          });
+        }
+      } catch (e) { }
+
+      try {
+        const html = htmlPre;
+        const names = [];
+        const seen2 = {};
+        const re2 = /<h2 class="entry-title">\s*<a [^>]*title="([^"]{1,120})"/g;
+        let m2;
+        while ((m2 = re2.exec(html || "")) !== null) {
+          const nm = decode(m2[1]).replace(/\s*[-–—]\s+.*$/, "").trim();
+          if (!nm || nm.length < 2 || nm.length > 40 || seen2[nm]) continue;
+          seen2[nm] = 1;
+          names.push(nm);
+          if (names.length >= 24) break;
+        }
+        if (names.length) {
+          groups.push({
+            name: "热门作者",
+            facet: "authorsearch",
+            items: names.map((n) => ({ name: n, count: "", id: "author:" + n })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
+    }
+
     // 作者搜索面板（App 把 tab id「authorsearch」去掉 search 得到 kind = author，
     // 但早期写法是 authors，两种都认，免得面板空白）
     if (op.indexOf("facet|author|") === 0 || op.indexOf("facet|authors|") === 0) {
