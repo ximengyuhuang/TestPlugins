@@ -566,17 +566,14 @@ export default class Ncg extends Spider {
     // 点条目直接 ListActivity(query = id) → 我们已兼容 tid = cat:/tag:
     if (s === "side|") {
       const groups = [];
-      groups.push({
-        name: "主分类",
-        items: MAIN_CATS.map((c) => ({ name: c.name, id: "cat:" + c.slug })),
-      });
       try {
         const cats = await this.loadCats(1);
         const models = cats.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0 && c.slug !== "blog").slice(0, 25);
         if (models.length) {
           groups.push({
             name: "热门模特",
-            items: models.map((c) => ({ name: c.name + "  " + (c.count || 0), id: "cat:" + c.slug })),
+            facet: "cosplayersearch",
+            items: models.map((c) => ({ name: c.name, count: String(c.count || 0), id: "cat:" + c.slug })),
           });
         }
       } catch (e) { }
@@ -586,7 +583,8 @@ export default class Ncg extends Spider {
         if (top.length) {
           groups.push({
             name: "热门标签",
-            items: top.map((t) => ({ name: t.name + "  " + (t.count || 0), id: "tag:" + t.slug })),
+            facet: "tagsearch",
+            items: top.map((t) => ({ name: t.name, count: String(t.count || 0), id: "tag:" + t.slug })),
           });
         }
       } catch (e) { }
