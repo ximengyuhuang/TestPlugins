@@ -373,11 +373,12 @@ export default class XxCosplay extends Spider {
   }
 
   /** 博主索引（/artists 共 4 页） */
-  async allArtists() {
+  async allArtists(maxPages) {
+    const pageLimit = Math.max(1, Number(maxPages) || 8);
     if (this.artistCache) return this.artistCache;
     const out = [];
     const seen = {};
-    for (let pg = 1; pg <= 8; pg++) {
+    for (let pg = 1; pg <= pageLimit; pg++) {
       let html = "";
       try {
         const r = await this.net.req(BASE + "/artists" + (pg <= 1 ? "" : "?page=" + pg), { headers: hdrs() });
@@ -411,7 +412,8 @@ export default class XxCosplay extends Spider {
   }
 
   /** 标签索引（/tags 共 22 页，并发抓） */
-  async allTags() {
+  async allTags(maxPages) {
+    const pageLimit = Math.max(1, Number(maxPages) || 24);
     if (this.tagCache) return this.tagCache;
 
     const fetchPage = async (pg) => {
@@ -425,7 +427,7 @@ export default class XxCosplay extends Spider {
 
     // 一次性并发抓（原来先热身再顺序抓，等于抓两遍，很慢）
     const pages = [];
-    for (let pg = 1; pg <= 24; pg++) pages.push(pg);
+    for (let pg = 1; pg <= pageLimit; pg++) pages.push(pg);
     const htmls = await Promise.all(pages.map(fetchPage));
 
     const out = [];
@@ -449,6 +451,34 @@ export default class XxCosplay extends Spider {
 
   async action(op) {
     if (!op) return [];
+
+    // 侧边栏：热门博主 + 热门标签（给了 facet 后 App 会隐藏对应 tab）
+    if (op === "side|") {
+      const groups = [];
+      try {
+        const artists = await this.allArtists(1);
+        const a25 = (artists || []).slice(0, 25);
+        if (a25.length) {
+          groups.push({
+            name: "热门博主",
+            facet: "artistsearch",
+            items: a25.map((x) => ({ name: x.name, count: "", id: x.id })),
+          });
+        }
+      } catch (e) { }
+      try {
+        const tags = await this.allTags(2);
+        const t25 = (tags || []).slice(0, 25);
+        if (t25.length) {
+          groups.push({
+            name: "热门标签",
+            facet: "tagsearch",
+            items: t25.map((x) => ({ name: x.name, count: "", id: x.id })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
+    }
 
     // 页内搜索面板：博主
     // ⚠ App 会把 tab id「artistsearch」去掉 search 得到 kind = artist（单数），

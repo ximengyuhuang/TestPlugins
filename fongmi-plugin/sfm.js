@@ -599,6 +599,43 @@ export default class Sfm extends Spider {
   /** 三级 chips：父类 → 子类 */
   async action(op) {
     if (!op) return [];
+
+    // 侧边栏：App 调 action("side|") 取 {groups:[{name,facet,items:[{name,count,id}]}]}
+    // 给了 facet 的分组，App 会隐藏对应的 tab，只从侧边栏进
+    if (op === "side|") {
+      const groups = [];
+      // 轻量：各取 25 条、REST 按文章数排序（不要走全量 loadCats/loadTags，那是几十个请求）
+      const api = async (path) => {
+        try {
+          const r = await this.net.req(BASE + path, {
+            headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
+          });
+          if (!r || r.code !== 200) return [];
+          return JSON.parse(r.content) || [];
+        } catch (e) {
+          return [];
+        }
+      };
+
+      const cats = await api("/wp-json/wp/v2/categories?per_page=25&page=1&orderby=count&order=desc&parent=0&_fields=name,slug,count");
+      if (cats.length) {
+        groups.push({
+          name: "热门分类",
+          facet: "categorysearch",
+          items: cats.map((c) => ({ name: c.name, count: String(c.count || 0), id: "cat:" + c.slug })),
+        });
+      }
+      const tags = await api("/wp-json/wp/v2/tags?per_page=25&page=1&orderby=count&order=desc&_fields=name,slug,count");
+      if (tags.length) {
+        groups.push({
+          name: "热门标签",
+          facet: "tagsearch",
+          items: tags.map((t) => ({ name: t.name, count: String(t.count || 0), id: "tag:" + t.slug })),
+        });
+      }
+      return { groups: groups };
+    }
+
     if (op.indexOf("gal|") === 0) return { list: [] };
 
     // 标签面板：WP REST API（实测 700 个标签，带文章数）

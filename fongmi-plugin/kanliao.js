@@ -434,6 +434,25 @@ export default class Kanliao extends Spider {
   async action(op) {
     if (!op) return [];
 
+    // 侧边栏：热门标签（给了 facet 后 App 会隐藏「标签」tab）
+    if (op === "side|") {
+      const groups = [];
+      try {
+        const tags = await this.loadTags();
+        const top25 = (tags || []).slice(0, 25);
+        if (top25.length) {
+          groups.push({
+            name: "热门标签",
+            facet: "tagsearch",
+            items: top25.map((x) => ({
+              name: x.name, count: String(x.count || 0), id: "tag:" + x.slug,
+            })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
+    }
+
     if (op.indexOf("gal|") === 0) return { list: [] };
 
     // 标签搜索面板（tagsearch → kind = tags）
