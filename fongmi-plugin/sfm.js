@@ -470,8 +470,17 @@ export default class Sfm extends Spider {
     const seen = {};
     seen[url] = 1;
 
+    // 只取「More From: <角色>」这一个 aside，不能把页面其它区块（Trending/最新等）也算进来
+    let region = html;
+    let moreFromCat = "";
     const mIdx = html.indexOf("g1-more-from");
-    const region = mIdx > 0 ? html.substring(mIdx) : html;
+    if (mIdx > 0) {
+      const endIdx = html.indexOf("</aside>", mIdx);
+      region = html.substring(mIdx, endIdx > mIdx ? endIdx : mIdx + 12000);
+      // 这个 aside 的标题里带角色分类地址：More From: <a href="…/category/overwatch/juno/">Juno</a>
+      const c = region.match(/href="https:\/\/sfmcompile\.club\/category\/([^"]+)\/"/);
+      if (c) moreFromCat = c[1];
+    }
 
     const marks = [];
     const reArt = /<article\s/g;
@@ -502,6 +511,26 @@ export default class Sfm extends Spider {
         vod_pic: cov ? decode(cov[1]) : "",
         vod_remarks: cat ? prettySlug(cat[1]) + "|" : "",
       });
+    }
+
+    // 站点这个区块常常只有 2 条 → 用同一角色（同分类）的最新帖子补满 8 条，
+    // 保证「More From: <角色>」的语义不变（不是乱塞别的分类）
+    if (moreFromCat && rel.length < 8) {
+      const catUrl = BASE + "/category/" + moreFromCat + "/";
+      const catHtml = await this.getHtml(catUrl);
+      if (catHtml) {
+        for (const c of parseCards(catHtml)) {
+          if (rel.length >= 8) break;
+          if (seen[c.vod_id]) continue;
+          seen[c.vod_id] = 1;
+          rel.push({
+            vod_id: c.vod_id,
+            vod_name: c.vod_name,
+            vod_pic: c.vod_pic,
+            vod_remarks: c.vod_remarks,
+          });
+        }
+      }
     }
 
     return { list: [item].concat(rel) };
