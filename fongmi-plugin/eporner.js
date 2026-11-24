@@ -78,16 +78,22 @@ function listUrl(cats, p, ext) {
     if (parts[0]) qs.push("duration_min_minutes=" + parts[0]);
     if (parts[1]) qs.push("duration_max_minutes=" + parts[1]);
   }
-  const ex = String((ext && (ext.catx || ext.exclude)) || "")
-    .split(",").map((x) => x.trim()).filter(Boolean).slice(0, 10);
+  const ex = slugs(ext && (ext.catx || ext.exclude)).slice(0, 10);
   if (ex.length) qs.push("exclude=" + ex.join(","));
 
   return BASE + path + (qs.length ? "?" + qs.join("&") : "");
 }
 
-/** "a,b,c" → ["a","b","c"] */
+/** "a,b,c" → ["a","b","c"]；App 传来的值可能带 "cat:" 前缀，去掉 */
 function slugs(v) {
-  return String(v || "").split(",").map((x) => x.trim()).filter(Boolean);
+  return String(v || "")
+    .split(",")
+    .map((x) => {
+      const t = String(x).trim();
+      const i = t.indexOf(":");
+      return i >= 0 ? t.substring(i + 1) : t;
+    })
+    .filter(Boolean);
 }
 function hdrs(ref) {
   return {
