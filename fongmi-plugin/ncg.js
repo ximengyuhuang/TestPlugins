@@ -310,18 +310,21 @@ export default class Ncg extends Spider {
       }
       const slug = sub.substring(pre.length);
       const path = (isTag ? "/tag/" : "/category/") + slug + "/";
-      const html = await this.getHtml(this.listUrl2(path, p, order));
-      return this.withBadges(html, p);
+      const url = this.listUrl2(path, p, order);
+      const html = await this.getHtml(url);
+      return this.withBadges(html, p, url);
     }
 
     // 最新：media 决定分类页（空 = 首页）
     const media = String(ext.media || "");
     if (!media) {
-      const html = await this.getHtml(BASE + "/" + (p > 1 ? "page/" + p + "/" : ""));
-      return this.withBadges(html, p);
+      const url = BASE + "/" + (p > 1 ? "page/" + p + "/" : "");
+      const html = await this.getHtml(url);
+      return this.withBadges(html, p, url);
     }
-    const html = await this.getHtml(this.listUrl2("/category/" + media + "/", p, order));
-    return this.withBadges(html, p);
+    const url = this.listUrl2("/category/" + media + "/", p, order);
+    const html = await this.getHtml(url);
+    return this.withBadges(html, p, url);
   }
 
   listUrl2(path, p, order) {
@@ -336,13 +339,22 @@ export default class Ncg extends Spider {
    *   其余的一次 REST 批量查（_fields=slug,content），本地数图片/视频。
    *   另外过滤掉 category-blog 的软文广告。
    */
-  async withBadges(html, p) {
+  async withBadges(html, p, cacheKey) {
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+
+    // 页面级缓存：翻回来 / 重进同一个列表不再重复算角标
+    this.pageCache = this.pageCache || {};
+    const key = (cacheKey || "") + "#" + p;
+    const hit = this.pageCache[key];
+    if (hit && Date.now() - hit.ts < 180000) return hit.data;
     let cards = parseCards(html).filter((c) => !c.isBlog);
+    // 整个函数的总预算：超过就返回「没有角标」的列表，绝不把 App 的 15 秒看门狗顶爆
+    const hardDeadline = Date.now() + 7000;
 
     if (cards.length) {
-      // 全部 slug 都过一遍批量计数（视频帖也可能带图，角标写 xP·yV 更准）
-      const need = cards.map((c) => slugOf(c.vod_id));
+      // 只给图集类卡片查数量：视频帖直接用 1V，
+      // 这样「全是视频」的分类页可以完全不发这次大请求
+      const need = cards.filter((c) => !c.kindVideo).map((c) => slugOf(c.vod_id));
       const counts = need.length ? await this.bulkCounts(need) : {};
 
       // 少数帖子的图集不在 REST 的 content 里（正文只有几百字节，走 [gallery] 短代码/附件），
@@ -350,9 +362,9 @@ export default class Ncg extends Spider {
       const suspects = cards.filter((c) => {
         const k = counts[slugOf(c.vod_id)];
         return !k || (k.np + k.nv) <= 1;
-      }).slice(0, 5);
-      if (suspects.length) {
-        const deadline2 = Date.now() + 6000;
+      }).slice(0, 1);                 // 兜底最多 1 条（每条详情 130KB，一次往返）
+      if (suspects.length && Date.now() < hardDeadline - 3000) {
+        const deadline2 = Math.min(hardDeadline, Date.now() + 4000);
         await Promise.all(suspects.map(async (c) => {
           if (Date.now() > deadline2) return;
           const det = await this.getHtml(c.vod_id);
@@ -368,6 +380,11 @@ export default class Ncg extends Spider {
       for (const c of cards) {
         const slug = slugOf(c.vod_id);
         const k = counts[slug];
+        if (!k && c.kindVideo) {
+          // 没查数量的视频帖：至少给 1V
+          const left0 = (c.vod_remarks || "").split("|")[0];
+          c.vod_remarks = (left0 ? left0 + "|" : "") + "1V";
+        }
         if (k && (k.np || k.nv)) {
           const badge = k.np && k.nv ? k.np + "P·" + k.nv + "V"
             : k.nv ? (k.nv > 1 ? k.nv + "V" : "1V")
@@ -381,7 +398,7 @@ export default class Ncg extends Spider {
     }
 
     // 剔掉 blog 后可能只剩几条 → 继续抓后面几页补到 10 条以上（最多 2 页）
-    if (cards.length < 10) {
+    if (cards.length < 10 && Date.now() < hardDeadline - 2500) {
       for (let extra = 1; extra <= 2 && cards.length < 10; extra++) {
         const nxt = this.nextPageUrl(html, p + extra);
         if (!nxt) break;
@@ -408,7 +425,9 @@ export default class Ncg extends Spider {
     const n = p + 1;
     const more = html.indexOf("/page/" + n + "/") >= 0 || html.indexOf("page/" + n) >= 0;
     const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
-    return this.page(cards, p, PAGE_SIZE, total);
+    const data = this.page(cards, p, PAGE_SIZE, total);
+    if (cacheKey) this.pageCache[key] = { data: data, ts: Date.now() };
+    return data;
   }
 
   /** 由当前列表 HTML 推出第 n 页地址（保留 ?order= 之类的查询串） */
@@ -679,7 +698,7 @@ export default class Ncg extends Spider {
    */
   async bulkCounts(slugs) {
     const out = {};
-    const list = (slugs || []).filter(Boolean).slice(0, 20);
+    const list = (slugs || []).filter(Boolean).slice(0, 12);
     if (!list.length) return out;
     this.countCache = this.countCache || {};
     const need = list.filter((s) => !this.countCache[s]);
@@ -721,6 +740,6 @@ export default class Ncg extends Spider {
     const p = Number(pg) || 1;
     const kw = encodeURIComponent(key);
     const url = p > 1 ? BASE + "/page/" + p + "/?s=" + kw : BASE + "/?s=" + kw;
-    return this.withBadges(await this.getHtml(url), p);
+    return this.withBadges(await this.getHtml(url), p, url);
   }
 }
