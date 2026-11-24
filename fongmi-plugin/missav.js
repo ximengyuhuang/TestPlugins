@@ -126,6 +126,17 @@ function pageUrlOf(raw) {
 }
 
 // 卡片：<div ... class="thumbnail group"> … 标题行 <div class="my-2 … truncate"><a href="…">番号 标题</a>
+/** 有没有下一页：优先读分页链接；页面完全没有分页信息时才退回「满页」 */
+function hasNextPage(html, p) {
+  const t = String(html || "");
+  const n = p + 1;
+  if (t.indexOf("/page/" + n) >= 0) return true;
+  if (t.indexOf("page=" + n) >= 0) return true;
+  if (/rel="next"/.test(t)) return true;
+  if (t.indexOf("次へ") >= 0 || t.indexOf("下一页") >= 0 || t.indexOf("Next") >= 0) return true;
+  return null;   // 页面上没有任何分页信号
+}
+
 function parseCards(html) {
   const out = [];
   const seen = {};
@@ -250,10 +261,14 @@ export default class MissAv extends Spider {
         : "抓取返回 0 条\n状态: " + code + " 长度: " + html.length + "\n地址: " + url;
       return this.page([{ vod_id: "__diag", vod_name: hint, vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
     }
-    // 不依赖页面里的末页链接（手机端 HTML 可能没有）：满页就认为后面还有
-    const total = cards.length < PAGE_SIZE
-      ? (p - 1) * PAGE_SIZE + cards.length
-      : p * PAGE_SIZE + PAGE_SIZE;
+    // 先读分页链接；页面里完全没有分页信息时，才退回「满页推定」
+    // （满页推定在末页刚好满页时会多报一页空页）
+    const next = hasNextPage(html, p);
+    const total = next === true
+      ? (p + 1) * PAGE_SIZE
+      : next === false
+        ? (p - 1) * PAGE_SIZE + cards.length
+        : (cards.length >= PAGE_SIZE ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length);
     return this.page(cards, p, PAGE_SIZE, total);
   }
 
@@ -389,9 +404,12 @@ export default class MissAv extends Spider {
 
     const cards = parseCards(html);
     // 不依赖页面里的末页链接（手机端 HTML 可能没有）：满页就认为后面还有
-    const total = cards.length < PAGE_SIZE
-      ? (p - 1) * PAGE_SIZE + cards.length
-      : p * PAGE_SIZE + PAGE_SIZE;
+    const next = hasNextPage(html, p);
+    const total = next === true
+      ? (p + 1) * PAGE_SIZE
+      : next === false
+        ? (p - 1) * PAGE_SIZE + cards.length
+        : (cards.length >= PAGE_SIZE ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length);
     return this.page(cards, p, PAGE_SIZE, total);
   }
 }
