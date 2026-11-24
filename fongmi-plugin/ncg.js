@@ -259,17 +259,22 @@ export default class Ncg extends Spider {
   async homeContent() {
     return {
       class: [
+        // 内容分类直接做成 tab（和站点导航一致），这样只有一行，不再需要 media chips
         { type_id: "latest", type_name: "最新" },
+        { type_id: "videos", type_name: "Videos" },
+        { type_id: "albums", type_name: "Albums" },
+        { type_id: "top", type_name: "Top Cosplayers" },
+        { type_id: "hot", type_name: "Hot Cosplayers" },
+        // 下面两个会被侧边栏（side| 的 facet）覆盖，App 会自动隐藏
         { type_id: "cosplayersearch", type_name: "模特" },
         { type_id: "tagsearch", type_name: "标签" },
         { type_id: "web", type_name: "网页" },
       ],
       filters: {
-        latest: [
-          { key: "media", name: "内容", value: CHIPS },
-          // 分类页支持 ?order=（首页不支持，选「全部」时排序会被忽略）
-          { key: "order", name: "排序", value: ORDERS },
-        ],
+        videos: [{ key: "order", name: "排序", value: ORDERS }],
+        albums: [{ key: "order", name: "排序", value: ORDERS }],
+        top: [{ key: "order", name: "排序", value: ORDERS }],
+        hot: [{ key: "order", name: "排序", value: ORDERS }],
         cosplayersearch: [{ key: "order", name: "排序", value: ORDERS }],
         tagsearch: [{ key: "order", name: "排序", value: ORDERS }],
       },
@@ -313,6 +318,19 @@ export default class Ncg extends Spider {
       const url = this.listUrl2(path, p, order);
       const html = await this.getHtml(url);
       return this.withBadges(html, p, url);
+    }
+
+    // 内容 tab → 分类 slug
+    const TAB_SLUG = {
+      videos: "nude-cosplay-videos",
+      albums: "nude-cosplay-albums",
+      top: "nude-cosplay",
+      hot: "nude-cosplayers",
+    };
+    if (TAB_SLUG[t]) {
+      const url2 = this.listUrl2("/category/" + TAB_SLUG[t] + "/", p, order);
+      const html2 = await this.getHtml(url2);
+      return this.withBadges(html2, p, url2);
     }
 
     // 最新：media 决定分类页（空 = 首页）
