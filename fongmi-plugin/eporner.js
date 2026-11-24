@@ -21,22 +21,6 @@ const BASE = "https://www.eporner.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE_SIZE = 36;
 
-// 分类 chips：站点 /cat/ 里的热门内容分类（画质/格式另有专门筛选组，不混在这里）
-const CHIPS = [
-  { n: "全部", v: "" },
-  { n: "日本", v: "japanese" },
-  { n: "Anal", v: "anal" },
-  { n: "MILF", v: "milf" },
-  { n: "Teens", v: "teens" },
-  { n: "Amateur", v: "amateur" },
-  { n: "Big Tits", v: "big-tits" },
-  { n: "Hentai", v: "hentai" },
-  { n: "Asian", v: "asian" },
-  { n: "Latina", v: "latina" },
-  { n: "VR", v: "vr-porn" },
-  { n: "60FPS", v: "60fps" },
-];
-
 // 站点自己的 Sort by（路径段 SORT-xxx）
 const SORTS = [
   { n: "最近", v: "" },
@@ -220,12 +204,14 @@ export default class Eporner extends Spider {
         { type_id: "web", type_name: "网页" },
       ],
       filters: {
+        // 分类不放在这里：站点有 85 个分类，走 facet 面板（可搜、可按 A-Z）；
+        // 这里只留站点那个 Sort & Filters 面板的四维
         latest: [
-          { key: "media", name: "分类", value: CHIPS },
           { key: "sort", name: "排序", value: SORTS },
-          { key: "prod", name: "制作", value: PRODS },
-          { key: "quality", name: "画质", value: QUALS },
-          { key: "dur", name: "时长", value: DURS },
+          // panel:true → 不占界面，和排序一起收进「⇅」面板（等于站点那个 Sort & Filters）
+          { key: "prod", name: "制作", value: PRODS, panel: true },
+          { key: "quality", name: "画质", value: QUALS, panel: true },
+          { key: "dur", name: "时长", value: DURS, panel: true },
         ],
       },
     };
