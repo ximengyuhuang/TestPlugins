@@ -238,6 +238,15 @@ function countVids(html) {
   return Object.keys(seen).length;
 }
 
+
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
+}
+
 export default class Ncg extends Spider {
   init() {
     this.cache = {};
@@ -632,12 +641,14 @@ export default class Ncg extends Spider {
         const pageItems = await this.loadCats(page);
         models = pageItems.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0 && c.slug !== "blog");
       } else {
+        const letterM = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
         for (let pg = 1; pg <= 4; pg++) {
           const pageItems = await this.loadCats(pg);
           if (!pageItems.length) break;
           for (const c of pageItems) {
             if (MAIN_SLUGS.indexOf(c.slug) >= 0 || c.slug === "blog") continue;
-            if (c.name.toLowerCase().indexOf(kw) >= 0 || c.slug.toLowerCase().indexOf(kw) >= 0) models.push(c);
+            if (letterM ? headLetter(c.name) === letterM
+              : (c.name.toLowerCase().indexOf(kw) >= 0 || c.slug.toLowerCase().indexOf(kw) >= 0)) models.push(c);
           }
           if (models.length >= 100) break;
         }
@@ -660,6 +671,17 @@ export default class Ncg extends Spider {
       let hit = [];
       if (!kw) {
         hit = await this.loadTags(page);
+      } else if (kw.indexOf("^") === 0) {
+        // 字母筛选：扫前几页，按首字母收集
+        const letterT = kw.substring(1).toUpperCase();
+        for (let pg = 1; pg <= 6; pg++) {
+          const pageItems = await this.loadTags(pg);
+          if (!pageItems.length) break;
+          for (const t of pageItems) {
+            if (headLetter(t.name) === letterT) hit.push(t);
+          }
+          if (hit.length >= 100) break;
+        }
       } else {
         for (let pg = 1; pg <= 6; pg++) {
           const pageItems = await this.loadTags(pg);

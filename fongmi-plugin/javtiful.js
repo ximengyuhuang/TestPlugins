@@ -163,6 +163,15 @@ function pageUrlOf(raw) {
   return BASE + (u.charAt(0) === "/" ? u : "/" + u);
 }
 
+
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
+}
+
 export default class Javtiful extends Spider {
   init() { }
 
@@ -390,7 +399,10 @@ export default class Javtiful extends Spider {
 
     // 有关键词 → 全量索引里过滤（缓存），一次给 100 个
     const all = await this.indexChips(kind);
-    const hit = all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0);
+    const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+    const hit = letter
+      ? all.filter((x) => headLetter(x.name) === letter)
+      : all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0);
     const PAGE = 100;
     const from = (page - 1) * PAGE;
     return wrap(hit.slice(from, from + PAGE));
