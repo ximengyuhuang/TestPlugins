@@ -178,8 +178,10 @@ export default class Sfm extends Spider {
           {
             key: "order",
             name: "排序",
+            // 站点下拉框的三个值：newest(默认) / oldest / most_views
             value: [
               { n: "最新", v: "" },
+              { n: "最旧", v: "oldest" },
               { n: "最多播放", v: "most_views" },
             ],
           },
@@ -190,8 +192,10 @@ export default class Sfm extends Spider {
           {
             key: "order",
             name: "排序",
+            // 站点下拉框的三个值：newest(默认) / oldest / most_views
             value: [
               { n: "最新", v: "" },
+              { n: "最旧", v: "oldest" },
               { n: "最多播放", v: "most_views" },
             ],
           },
