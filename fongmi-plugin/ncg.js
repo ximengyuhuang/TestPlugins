@@ -12,7 +12,7 @@
 //   搜索   /?s=<kw>、/page/N/?s=<kw>
 //   详情   /<slug>/  → <video src="…mp4"> + 正文 <figure class="wp-block-image"><img class="wp-image-N">
 //          article class 里 format-video / format-standard 能区分视频帖和图集帖
-//   相关   <aside class="g1-more-from">（同 SFM，取到 </aside> 为止）
+//   相关   <aside class="g1-related-entries">「You May Also Like」（取到 </aside> 为止）
 //   接口   /wp-json/wp/v2/categories|tags?per_page=100&page=N ✅（拿全量分类/标签）
 
 import { Spider, openWeb } from "catvod";
@@ -529,16 +529,14 @@ export default class Ncg extends Spider {
       vod_play_url: playUrl,
     };
 
-    // 相关推荐：g1-more-from 区块 + 同分类补满 8 条
+    // 相关推荐：g1-related-entries（You May Also Like）+ 同分类补满 8 条
     const rel = [];
     const seen = {};
     seen[url] = 1;
     let region = "";
     let moreFromCat = "";
-    // 站点的相关区标题是「You May Also Like」，容器 class = g1-related-entries
-    // （SFM 那套叫 g1-more-from，两个都认）
-    let mi = html.indexOf("g1-related-entries");
-    if (mi < 0) mi = html.indexOf("g1-more-from");
+    // 本站相关区只有一种：<aside class="g1-related-entries">「You May Also Like」
+    const mi = html.indexOf("g1-related-entries");
     if (mi > 0) {
       const start = Math.max(0, html.lastIndexOf("<aside", mi));
       const ei = html.indexOf("</aside>", mi);
