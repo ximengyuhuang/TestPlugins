@@ -186,6 +186,7 @@ export default class Sfm extends Spider {
       return this.page([{ vod_id: "", vod_name: "在上方选一个分类（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
     }
     const slug = sub.substring(4);
+    this.lastCat = slug;                       // 记住当前分类，二级 chips 要用
     const html = await this.getHtml(catUrl(slug, p));
     return this.fromHtml(html, p);
   }
@@ -236,12 +237,16 @@ export default class Sfm extends Spider {
     return this.page(cards, 1, PAGE_SIZE, cards.length);
   }
 
-  /** 全量分类：WP REST API（顶层 41 + 子类 59，按文章数排序） */
+  /**
+   * 全量分类：WP REST API（实测 300 个 = 顶层 96 + 子类 204）
+   * 每项算出 path（父类/子类），分类页地址是 /category/<path>/
+   */
   async loadCats() {
     if (this.cats && this.cats.length) return this.cats;
-    const out = [];
+
+    const raw = [];
     try {
-      for (let page = 1; page <= 4; page++) {
+      for (let page = 1; page <= 6; page++) {
         const r = await this.net.req(BASE + "/wp-json/wp/v2/categories?per_page=100&page=" + page, {
           headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
         });
@@ -251,15 +256,46 @@ export default class Sfm extends Spider {
         if (!arr || !arr.length) break;
         for (const c of arr) {
           if (!c || !c.slug) continue;
-          out.push({ slug: c.slug, name: c.name || c.slug, count: c.count || 0, parent: c.parent || 0 });
+          raw.push({ id: c.id, slug: c.slug, name: c.name || c.slug, count: c.count || 0, parentId: c.parent || 0 });
         }
         if (arr.length < 100) break;
       }
     } catch (e) { }
-    // 文章多的排前面，更符合「找得到」的直觉
-    out.sort((a, b) => (b.count || 0) - (a.count || 0));
+
+    const byId = {};
+    for (const c of raw) byId[c.id] = c;
+    for (const c of raw) {
+      const parent = c.parentId ? byId[c.parentId] : null;
+      c.path = parent ? parent.slug + "/" + c.slug : c.slug;
+      c.parentSlug = parent ? parent.slug : "";
+    }
+    // 顶层按文章数排，子类挂在父类下
+    const tops = raw.filter((c) => !c.parentId).sort((a, b) => (b.count || 0) - (a.count || 0));
+    for (const t of tops) {
+      t.kids = raw.filter((c) => c.parentId === t.id).sort((a, b) => (b.count || 0) - (a.count || 0));
+    }
+    const out = [];
+    for (const t of tops) {
+      out.push(t);
+      for (const k of t.kids) out.push(k);
+    }
     if (out.length) this.cats = out;
+    if (tops.length) this.tops = tops;
     return out;
+  }
+
+  /** 顶层分类（面板只列顶层，子类在选中后作为二级 chips 出现） */
+  async loadTops() {
+    await this.loadCats();
+    return this.tops || [];
+  }
+
+  /** 某个父类的子类 */
+  async kidsOf(parentPath) {
+    await this.loadCats();
+    const tops = this.tops || [];
+    for (const t of tops) if (t.path === parentPath) return t.kids || [];
+    return [];
   }
 
   async detailContent(ids) {
@@ -347,19 +383,32 @@ export default class Sfm extends Spider {
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
 
+      // 有搜索词 → 全量（含子类，方便直接找 Tifa/Kiriko）；没搜索词 → 只列顶层
       const all = await this.loadCats();
       const hit = kw
-        ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.toLowerCase().indexOf(kw) >= 0)
-        : all;
+        ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.path.toLowerCase().indexOf(kw) >= 0)
+        : (this.tops || []);
       const PAGE = 100;
       const from = (page - 1) * PAGE;
       return {
-        items: hit.slice(from, from + PAGE).map((x) => ({
-          id: "cat:" + x.slug,
-          name: x.name,
-          count: x.count ? x.count + " 部" : "",
-        })),
+        items: hit.slice(from, from + PAGE).map((x) => {
+          const kids = (x.kids || []).length;
+          const nm = x.parentSlug ? (x.parentSlug + " · " + x.name) : x.name;
+          return {
+            id: "cat:" + x.path,
+            name: nm,
+            count: x.count ? x.count + " 部" + (kids ? " · " + kids + " 角色" : "") : "",
+          };
+        }),
       };
+    }
+
+    // 选中某个顶层分类后，把它的子类作为二级 chips 返回
+    if (op === "sub|categorysearch" || op.indexOf("sub|categorysearch|") === 0) {
+      const cur = this.lastCat || "";
+      if (!cur || cur.indexOf("/") >= 0) return [];      // 已经在子类里了，不再往下钻
+      const kids = await this.kidsOf(cur);
+      return kids.map((k) => ({ name: k.name, value: "cat:" + k.path }));
     }
 
     if (op.indexOf("sub|") === 0) {
