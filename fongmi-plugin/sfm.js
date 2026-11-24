@@ -151,6 +151,15 @@ function parsePlay(html) {
   return m ? decode(m[1]) : "";
 }
 
+/** slug → 可读名（final-fantasy → Final Fantasy） */
+function prettySlug(slug) {
+  return String(slug || "")
+    .split("-")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ""))
+    .join(" ")
+    .trim();
+}
+
 export default class Sfm extends Spider {
   init() {
     this.cache = {};
@@ -453,27 +462,46 @@ export default class Sfm extends Spider {
       vod_play_url: play ? "正片$" + play : "网页查看$web://" + url,
     };
 
-    // 相关推荐：详情页其它帖子
+    // 相关推荐：详情页右侧「More From: <角色>」区块
+    //   卡片结构：<article class="entry-tpl-grid … category-juno …">
+    //     <a title="标题" class="g1-frame" href="…/slug/">
+    //     <img … src="data:image/svg+xml…" data-src="…uploads/xxx.jpg">   ← 懒加载，src 是占位符
     const rel = [];
     const seen = {};
     seen[url] = 1;
-    const reRel = /<h2[^>]*class="[^"]*entry-title[^"]*"[^>]*>\s*<a href="([^"]+)"/g;
-    let rm;
-    while ((rm = reRel.exec(html)) !== null) {
-      const u = decode(rm[1]);
+
+    const mIdx = html.indexOf("g1-more-from");
+    const region = mIdx > 0 ? html.substring(mIdx) : html;
+
+    const marks = [];
+    const reArt = /<article\s/g;
+    let am;
+    while ((am = reArt.exec(region)) !== null) marks.push(am.index);
+
+    for (let i = 0; i < marks.length && rel.length < 8; i++) {
+      const seg = region.substring(marks[i], i + 1 < marks.length ? marks[i + 1] : marks[i] + 4000);
+
+      const link = seg.match(/<a[^>]*href="(https:\/\/sfmcompile\.club\/[^"\/]+\/)"/);
+      if (!link) continue;
+      const u = decode(link[1]);
       if (seen[u]) continue;
       seen[u] = 1;
-      const seg = html.substring(rm.index, rm.index + 1200);
-      const t2 = seg.match(/rel="bookmark"[^>]*>([\s\S]{0,160}?)<\/a>/);
-      const p2 = seg.match(/data-poster-image="([^"]+)"/);
-      const c2 = seg.match(/class="entry-category[^"]*"[^>]*>([^<]{1,24})</);
+
+      // 标题：优先 a 的 title 属性，其次 alt
+      const tAttr = seg.match(/<a[^>]*\stitle="([^"]{2,120})"/) || seg.match(/<img[^>]*\salt="([^"]{2,120})"/);
+      // 封面：懒加载在 data-src / data-src-webp，src 是 data:image 占位
+      const cov = seg.match(/data-src="(https:[^"]+\.(?:jpg|jpeg|png|webp))"/i) ||
+        seg.match(/data-src-webp="(https:[^"]+\.(?:jpg|jpeg|png|webp))"/i) ||
+        seg.match(/srcset="(https:[^\s"]+\.(?:jpg|jpeg|png|webp))/i);
+      // 角标：取 article class 里的 category-xxx（第一个通常是角色）
+      const cat = seg.match(/\scategory-([a-z0-9\-]+)/);
+
       rel.push({
         vod_id: u,
-        vod_name: strip(t2 ? t2[1] : "") || u,
-        vod_pic: p2 ? decode(p2[1]) : "",
-        vod_remarks: c2 ? strip(c2[1]) + "|" : "",
+        vod_name: tAttr ? decode(tAttr[1]) : u,
+        vod_pic: cov ? decode(cov[1]) : "",
+        vod_remarks: cat ? prettySlug(cat[1]) + "|" : "",
       });
-      if (rel.length >= 8) break;
     }
 
     return { list: [item].concat(rel) };
