@@ -483,7 +483,8 @@ export default class Eporner extends Spider {
     const html = await this.getHtml(BASE + "/cat/all/");
     const out = [];
     const seen = {};
-    const re = /href="\/cat\/([a-z0-9\-]+)\/"[^>]*>([^<]{1,30})</g;
+    // 分类链接里可能嵌 <span class="catname">，所以允许标签并之后 strip
+    const re = /href="\/cat\/([a-z0-9\-]+)\/"[^>]*>([\s\S]{1,160}?)<\/(?:a|span)>/g;
     let m;
     while ((m = re.exec(html || "")) !== null) {
       const slug = m[1];
