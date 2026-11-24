@@ -205,6 +205,15 @@ function pageUrlOf(raw) {
   return BASE + (u.charAt(0) === "/" ? u : "/" + u);
 }
 
+
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
+}
+
 export default class XxCosplay extends Spider {
   init() { }
 
@@ -494,7 +503,10 @@ export default class XxCosplay extends Spider {
       const pg = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
 
       const all = await this.allArtists();
-      const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.id.toLowerCase().indexOf(kw) >= 0) : all;
+      const letterX = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letterX
+        ? all.filter((x) => headLetter(x.name) === letterX)
+        : (kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.id.toLowerCase().indexOf(kw) >= 0) : all);
       const from = (pg - 1) * FACET_PAGE;
       return { items: hit.slice(from, from + FACET_PAGE).map((x) => ({ id: x.id, name: x.name, count: "" })) };
     }
@@ -507,7 +519,10 @@ export default class XxCosplay extends Spider {
       const pg = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
 
       const all = await this.allTags();
-      const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.id.toLowerCase().indexOf(kw) >= 0) : all;
+      const letterX = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letterX
+        ? all.filter((x) => headLetter(x.name) === letterX)
+        : (kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.id.toLowerCase().indexOf(kw) >= 0) : all);
       const from = (pg - 1) * FACET_PAGE;
       return { items: hit.slice(from, from + FACET_PAGE).map((x) => ({ id: x.id, name: x.name, count: "" })) };
     }

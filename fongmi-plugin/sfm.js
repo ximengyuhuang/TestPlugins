@@ -160,6 +160,22 @@ function prettySlug(slug) {
     .trim();
 }
 
+
+/** 处理「parentSlug · Name」这种带前缀的显示名 */
+function headLetterOf(name) {
+  const s = String(name || "");
+  const bar = s.lastIndexOf(" · ");
+  return headLetter(bar >= 0 ? s.substring(bar + 3) : s);
+}
+
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
+}
+
 export default class Sfm extends Spider {
   init() {
     this.cache = {};
@@ -645,9 +661,12 @@ export default class Sfm extends Spider {
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
       const all = await this.loadTags();
-      const hit = kw
-        ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.toLowerCase().indexOf(kw) >= 0)
-        : all;
+      const letterT = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letterT
+        ? all.filter((x) => headLetter(x.name) === letterT)
+        : (kw
+          ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.toLowerCase().indexOf(kw) >= 0)
+          : all);
       const PAGE = 100;
       const from = (page - 1) * PAGE;
       return {
@@ -669,9 +688,13 @@ export default class Sfm extends Spider {
 
       // 有搜索词 → 全量（含子类，方便直接找 Tifa/Kiriko）；没搜索词 → 只列顶层
       const all = await this.loadCats();
-      const hit = kw
-        ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.path.toLowerCase().indexOf(kw) >= 0)
-        : (this.tops || []);
+      // "^A" = 按首字母筛选（App 面板顶部的字母条）
+      const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letter
+        ? all.filter((x) => headLetterOf(x.name) === letter)
+        : (kw
+          ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.path.toLowerCase().indexOf(kw) >= 0)
+          : (this.tops || []));
       const PAGE = 100;
       const from = (page - 1) * PAGE;
       return {

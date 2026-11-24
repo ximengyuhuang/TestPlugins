@@ -171,6 +171,15 @@ function playLines(html, pageUrl) {
   return list.map((u, i) => "第" + (i + 1) + "集$" + u).join("#");
 }
 
+
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
+}
+
 export default class Kanliao extends Spider {
   init() {
     this.tagCache = null;
@@ -481,7 +490,10 @@ export default class Kanliao extends Spider {
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
       const all = await this.loadTags();
-      const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
+      const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letter
+        ? all.filter((x) => headLetter(x.name) === letter)
+        : (kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all);
       const PAGE = 100;
       const from = (page - 1) * PAGE;
       return {
