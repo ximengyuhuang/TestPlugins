@@ -193,15 +193,25 @@ export default class Kanliao extends Spider {
   async homeContent() {
     return {
       class: [
-        { type_id: "video", type_name: "视频" },
+        // 13 个分类直接做成 tab（站点没有排序，所以不需要 media chips）
+        { type_id: "c_latest", type_name: "最新" },
+        { type_id: "c_top", type_name: "排行榜" },
+        { type_id: "c_rdgz", type_name: "热点关注" },
+        { type_id: "c_dy", type_name: "抖音" },
+        { type_id: "c_ks", type_name: "快手" },
+        { type_id: "c_douyu", type_name: "斗鱼" },
+        { type_id: "c_hy", type_name: "虎牙" },
+        { type_id: "c_hj", type_name: "花椒" },
+        { type_id: "c_tt", type_name: "推特" },
+        { type_id: "c_wh", type_name: "网红" },
+        { type_id: "c_asmr", type_name: "ASMR" },
+        { type_id: "c_xb", type_name: "X播" },
+        { type_id: "c_xsp", type_name: "小视频" },
+        // 标签入口在侧边栏（side|），App 会自动隐藏这个 tab
         { type_id: "tagsearch", type_name: "标签" },
         { type_id: "web", type_name: "网页" },
       ],
-      filters: {
-        video: [
-          { key: "media", name: "分类", value: CHIPS },
-        ],
-      },
+      filters: {},
     };
   }
 
@@ -219,6 +229,15 @@ export default class Kanliao extends Spider {
     if (t === "web") {
       try { openWeb({ url: BASE + "/" }); } catch (e) { }
       return this.page([], p, PAGE_SIZE, 0);
+    }
+
+    // 分类 tab（c_<chip>）→ 映射回原来的 chips 值
+    if (t === "video" || t === "tagsearch" || t.indexOf("c_") === 0) {
+      const key = t === "video" ? "" : (t === "tagsearch" ? "" : t.substring(2));
+      if (t === "video" || t.indexOf("c_") === 0) {
+        t = "video";
+        if (key) ext.media = key === "latest" ? "" : key;
+      }
     }
 
     // 标签面板选中 → /tag/<slug>/
