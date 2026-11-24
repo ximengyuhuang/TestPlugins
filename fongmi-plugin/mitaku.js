@@ -750,12 +750,8 @@ export default class Mitaku extends Spider {
       const groups = [];
       // ⚠ 不能调 loadTags()/loadAuthors()：它们会抓 12 个 sitemap + 36 个索引页（实测 184 秒）
       // 侧栏只做「热门预览」，各 1 次请求，剩下的靠「查看全部」进面板搜
-      // 两次请求并发，别串行等
-      const cat0 = (CATS || []).find((c) => c.path);
-      const [xmlPre, htmlPre] = await Promise.all([
-        this.getHtml(SITE + "/post_tag-sitemap1.xml").catch(() => ""),
-        cat0 ? this.getHtml(SITE + cat0.path).catch(() => "") : Promise.resolve(""),
-      ]);
+      // 侧栏只发 1 个请求（标签 sitemap 第 1 页）；作者走 loadAz 的缓存
+      const xmlPre = await this.getHtml(SITE + "/post_tag-sitemap1.xml").catch(() => "");
 
       try {
         const xml = xmlPre;
@@ -780,8 +776,14 @@ export default class Mitaku extends Spider {
       } catch (e) { }
 
       try {
-        const html = htmlPre;
+        // 热门作者用「只做视频」那页（182KB），全量 1238 那页留给「查看全部」
+        const vids = await this.loadAz(true);
         const names = [];
+        for (const v of vids) {
+          if (names.length >= 24) break;
+          names.push(v.name);
+        }
+        const html = "";
         const seen2 = {};
         const re2 = /<h2 class="entry-title">\s*<a [^>]*title="([^"]{1,120})"/g;
         let m2;
@@ -811,7 +813,9 @@ export default class Mitaku extends Spider {
       const bar = rest.lastIndexOf("|");
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
-      const all = await this.loadAuthors();
+      // 用 A-Z 索引页（1238 个角色，1 次请求）代替爬 36 个索引页的 loadAuthors()
+      let all = await this.loadAz(false);
+      if (!all.length) all = await this.loadAuthors();
       const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
       const PAGE = 100;
       const from = (page - 1) * PAGE;
@@ -854,6 +858,36 @@ export default class Mitaku extends Spider {
   }
 
   /** 作者：站点无作者页，从标题「作者 - 作品」提取（抓 4 个分类页，缓存） */
+  /**
+   * A-Z 角色索引页（站点的「全量角色」入口）
+   *   /a-z-cosplayers/                → 1238 个角色（含图集+视频）
+   *   /a-z-cosplayers-only-videos/    → 182 个（只做视频的角色）
+   * 页面上就是一堆 <a href="/tag/<slug>/">Name</a>，一次请求拿全，比爬 36 个索引页快得多。
+   */
+  async loadAz(onlyVideos) {
+    this.azCache = this.azCache || {};
+    const key = onlyVideos ? "v" : "all";
+    if (this.azCache[key] && this.azCache[key].length) return this.azCache[key];
+
+    const url = SITE + (onlyVideos ? "/a-z-cosplayers-only-videos/" : "/a-z-cosplayers/");
+    const html = await this.getHtml(url);
+    const out = [];
+    const seen = {};
+    const re = /<a[^>]+href="https:\/\/mitaku\.net\/tag\/([^"\/]+)\/"[^>]*>([\s\S]{0,120}?)<\/a>/g;
+    let m;
+    while ((m = re.exec(html || "")) !== null) {
+      const slug = m[1];
+      if (seen[slug]) continue;
+      seen[slug] = 1;
+      const nm = pretty(slug);
+      if (!nm) continue;
+      out.push({ slug: slug, name: nm });
+    }
+    out.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+    if (out.length) this.azCache[key] = out;
+    return out;
+  }
+
   async loadAuthors() {
     if (this.authors && this.authors.length) return this.authors;
     const urls = [];
