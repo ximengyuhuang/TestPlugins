@@ -92,7 +92,13 @@ function isRealPic(u) {
 
 /** 列表卡片：<article class="… post-N … format-video … category-x …"> */
 function parseCards(html) {
-  const text = String(html || "");
+  const full = String(html || "");
+  // ⚠ 站点每页侧栏都有「Trending Now」组件（aside 内，entry-tpl-grid-xxs 模板），
+  // 扫全页会把它的卡片混进分类列表 → 内容不准且重复。
+  // 主列表在 first <aside> 之前，且用 entry-tpl-grid-m / entry-tpl-stream 模板。
+  const cut = full.indexOf("<aside");
+  const text = cut > 0 ? full.substring(0, cut) : full;
+
   const out = [];
   const seen = {};
   const marks = [];
@@ -102,6 +108,11 @@ function parseCards(html) {
 
   for (let i = 0; i < marks.length; i++) {
     const seg = text.substring(marks[i], i + 1 < marks.length ? marks[i + 1] : marks[i] + 6000);
+
+    // 双保险：排除侧栏/widget 用的小卡片模板
+    const cls = (seg.match(/<article[^>]*class="([^"]*)"/) || [])[1] || "";
+    if (/entry-tpl-grid-xxs/.test(cls)) continue;
+    if (/widget_bimber_widget_posts|g1-widget-posts/.test(cls)) continue;
 
     const link = seg.match(/<a[^>]*title="([^"]{2,160})"[^>]*class="g1-frame"[^>]*href="([^"]+)"/) ||
       seg.match(/<a[^>]*href="(https:\/\/nudecosplaygirls\.com\/[^"\/]+\/)"[^>]*title="([^"]{2,160})"/);
