@@ -681,6 +681,11 @@ export default class Mitaku extends Spider {
 
     // 相关推荐：站点自带的 Trending Posts
     // 角标（NP / 1V / NP·MV）也要算，否则推荐的卡片不会出现「播放 / 图集」双按钮
+    // 同一页面缓存一次结果，避免反复进入时推荐的顺序/内容变来变去
+    this.relCache = this.relCache || {};
+    const cachedRel = this.relCache[url];
+    if (cachedRel && cachedRel.length) return { list: [item].concat(cachedRel) };
+
     const relRaw = parseTrending(html).filter((x) => x.url !== url);
     const rel = await Promise.all(relRaw.map(async (x) => {
       const rd = await this.getHtml(x.url, url);
@@ -693,6 +698,7 @@ export default class Mitaku extends Spider {
       };
     }));
 
+    if (rel.length) this.relCache[url] = rel;
     return { list: [item].concat(rel) };
   }
 
