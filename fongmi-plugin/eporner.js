@@ -218,10 +218,10 @@ export default class Eporner extends Spider {
           { key: "cat", name: "分类", type: "facet", multi: true },
           { key: "catx", name: "排除", type: "facet", multi: true },
           { key: "sort", name: "排序", value: SORTS },
-          // panel:true → 不占界面，和排序一起收进「⇅」面板（等于站点那个 Sort & Filters）
-          { key: "prod", name: "制作", value: PRODS, panel: true },
-          { key: "quality", name: "画质", value: QUALS, panel: true },
-          { key: "dur", name: "时长", value: DURS, panel: true },
+          // 这些组各占一个 ▾ 按钮（和 ⇅ 排序同时生效），不再塞进 ⇅ 面板
+          { key: "prod", name: "制作", value: PRODS },
+          { key: "quality", name: "画质", value: QUALS },
+          { key: "dur", name: "时长", value: DURS },
         ],
       },
     };
