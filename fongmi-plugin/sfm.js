@@ -80,13 +80,18 @@ function strip(s) {
 }
 
 /** 视频 tab 的入口 → URL（p 为页码） */
-function feedUrl(chip, p) {
+function feedUrl(chip, p, sort) {
   const pg = p > 1 ? "/page/" + p + "/" : "/";
-  if (chip === "top") return BASE + "/tag/sound/" + (p > 1 ? "page/" + p + "/" : "") + "?order=most_views";
-  if (chip === "trending") return BASE + pg + "?filter-by=trending";
-  if (chip === "sound") return BASE + "/tag/sound/" + (p > 1 ? "page/" + p + "/" : "");
-  if (chip === "long") return BASE + "/tag/" + LONG_TAG + "/" + (p > 1 ? "page/" + p + "/" : "");
-  return BASE + pg;                       // 最新
+  const mk = (tagPath, defSort) => {
+    const base = BASE + tagPath + (p > 1 ? "page/" + p + "/" : "");
+    const o = sort || defSort || "";
+    return o ? base + "?order=" + o : base;
+  };
+  if (chip === "top") return mk("/tag/sound/", "most_views");
+  if (chip === "trending") return BASE + pg + "?filter-by=trending";     // 该页不支持排序
+  if (chip === "sound") return mk("/tag/sound/", "");
+  if (chip === "long") return mk("/tag/" + LONG_TAG + "/", "");
+  return BASE + pg;                                                       // 最新（不支持排序）
 }
 
 /** 分类 tab 的 URL：父类 或 父类/子类，可带排序（?order=most_views） */
@@ -122,6 +127,8 @@ function parseCards(html) {
     // 另一批卡片没有视频标记，只有普通 <img src="…uploads/xxx.jpg">
     const poster = seg.match(/data-poster-image="([^"]+)"/) ||
       seg.match(/data-poster-webp="([^"]+)"/) ||
+      // 老帖（2019~2020 那批）用普通 poster 属性
+      seg.match(/<video[^>]*\sposter="([^"]+\.(?:jpg|jpeg|png|webp))"/i) ||
       seg.match(/<img[^>]*src="(https:\/\/sfmcompile\.club\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i);
     const cat = seg.match(/class="entry-category[^"]*"[^>]*>([^<]{1,24})</);
 
@@ -138,7 +145,9 @@ function parseCards(html) {
 /** 详情页里的 mp4 */
 function parsePlay(html) {
   const t = String(html || "");
-  const m = t.match(/<source[^>]*src="([^"]+\.mp4[^"]*)"/) || t.match(/<video[^>]*\ssrc="([^"]+\.mp4[^"]*)"/);
+  // 新帖是 .mp4，老帖（2019~2020）是 .m4v —— 两种都要认
+  const m = t.match(/<source[^>]*src="([^"]+\.(?:mp4|m4v|webm)[^"]*)"/) ||
+    t.match(/<video[^>]*\ssrc="([^"]+\.(?:mp4|m4v|webm)[^"]*)"/);
   return m ? decode(m[1]) : "";
 }
 
@@ -172,7 +181,19 @@ export default class Sfm extends Spider {
         { type_id: "web", type_name: "网页" },
       ],
       filters: {
-        video: [{ key: "media", name: "入口", value: CHIPS }],
+        video: [
+          { key: "media", name: "入口", value: CHIPS },
+          // 声音 / 长视频 本质是 tag 页，支持 ?order=；最新/热门不支持，切到它们时排序会被忽略
+          {
+            key: "order",
+            name: "排序",
+            value: [
+              { n: "最新", v: "" },
+              { n: "最旧", v: "oldest" },
+              { n: "最多播放", v: "most_views" },
+            ],
+          },
+        ],
         // 标签页支持 ?order=most_views（首页/搜索页不支持，所以只给标签加）
         tagsearch: [
           {
@@ -219,7 +240,7 @@ export default class Sfm extends Spider {
       const chip = String(ext.media || "");
       if (chip === "random") return this.randomCards();
 
-      const html = await this.getHtml(feedUrl(chip, p));
+      const html = await this.getHtml(feedUrl(chip, p, String(ext.order || "")));
       return this.fromHtml(html, p);
     }
 
@@ -537,7 +558,8 @@ export default class Sfm extends Spider {
   async playerContent(flag, id) {
     const raw = String(id);
     const header = { "User-Agent": UA, "Referer": BASE + "/" };
-    if (raw.indexOf(".mp4") > 0) return { parse: 0, url: raw, header: header };
+    // 直链（新帖 .mp4 / 老帖 .m4v / 少量 .webm）
+    if (/\.(?:mp4|m4v|webm)(?:$|\?)/i.test(raw)) return { parse: 0, url: raw, header: header };
 
     const html = await this.getHtml(raw);
     const play = html ? parsePlay(html) : "";
