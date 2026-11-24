@@ -583,6 +583,16 @@ export default class Mitaku extends Spider {
     const ext = extend || {};
     const sub = String(ext.sub || "");
 
+    // 标签面板选中 → 走站点的标签页 /tag/<slug>/（分页同分类页）
+    if (tid === "tagsearch") {
+      if (sub.indexOf("tag:") !== 0) {
+        return this.page([{ vod_id: "", vod_name: "在上方选一个标签", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
+      }
+      const slug = sub.substring(4);
+      const tagUrl = SITE + "/tag/" + slug + "/" + (p > 1 ? "page/" + p + "/" : "");
+      return this.listFromUrl(tagUrl, p);
+    }
+
     // 作者面板选中 → 用站内搜索按作者名找，再按标题前缀过滤
     if (tid === "authorsearch") {
       if (sub.indexOf("author:") !== 0) {
@@ -595,12 +605,15 @@ export default class Mitaku extends Spider {
     const cat = CATS.find((c) => c.tid === tid) || CATS[0];
     let url = listPath(cat, p);
     if (String(ext.order || "") === "asc") url += (url.indexOf("?") >= 0 ? "&" : "?") + "orderby=date&order=asc";
+    return this.listFromUrl(url, p);
+  }
 
+  /** 通用列表：抓页面 → 解析卡片 → 并发探详情算角标 → 判有没有下一页 */
+  async listFromUrl(url, p) {
     const html = await this.getHtml(url);
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
     const raw = parseCards(html);
-    // 角标需要知道每帖的张数/有没有视频 → 并发抓详情（9 个以内）
     const cards = await Promise.all(raw.map(async (c) => {
       const d = await this.getHtml(c.url, url);
       const info = probePost(d);
