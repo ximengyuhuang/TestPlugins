@@ -173,6 +173,17 @@ export default class Sfm extends Spider {
       ],
       filters: {
         video: [{ key: "media", name: "入口", value: CHIPS }],
+        // 标签页支持 ?order=most_views（首页/搜索页不支持，所以只给标签加）
+        tagsearch: [
+          {
+            key: "order",
+            name: "排序",
+            value: [
+              { n: "最新", v: "" },
+              { n: "最多播放", v: "most_views" },
+            ],
+          },
+        ],
         // 分类 tab：一排父类 chips + 排序（站点支持 ?order=most_views）
         category: [
           { key: "media", name: "分类", value: [{ n: "全部", v: "" }].concat(PARENTS) },
@@ -215,7 +226,9 @@ export default class Sfm extends Spider {
         return this.page([{ vod_id: "", vod_name: "在上方选一个标签（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
       }
       const tslug = subRaw.substring(4);
-      const turl = BASE + "/tag/" + tslug + "/" + (p > 1 ? "page/" + p + "/" : "");
+      const sort = String(ext.order || "");
+      const tbase = BASE + "/tag/" + tslug + "/" + (p > 1 ? "page/" + p + "/" : "");
+      const turl = sort ? tbase + "?order=" + sort : tbase;
       return this.fromHtml(await this.getHtml(turl), p);
     }
 
