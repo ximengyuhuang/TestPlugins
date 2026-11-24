@@ -204,6 +204,8 @@ export default class Eporner extends Spider {
 
   async homeContent() {
     return {
+      // 筛选组放进左侧抽屉（排序/分类/排除/制作/画质/时长），页内不再占 ▾ 行
+      sideFilters: true,
       class: [
         { type_id: "latest", type_name: "最新" },
         { type_id: "categorysearch", type_name: "分类" },
