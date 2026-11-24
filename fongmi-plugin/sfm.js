@@ -433,18 +433,39 @@ export default class Sfm extends Spider {
     const poster = html.match(/data-poster-image="([^"]+)"/) ||
       html.match(/property="og:image"[^>]*content="([^"]+)"/);
 
-    // 分类做成可点 chips（子类在前，父类在后）
-    const cats = [];
+    // 分类：必须取「正文头部」那一处 entry-categories，
+    // 否则会读到站点导航菜单里的 Overwatch/Kiriko/Ana…（全是错的）
+    let cats = [];
     const seenCat = {};
-    const reCat = /href="https:\/\/sfmcompile\.club\/category\/([^"]+)\/"[^>]*>([^<]{1,24})</g;
-    let cm;
-    while ((cm = reCat.exec(html)) !== null) {
-      const slug = cm[1];
-      if (seenCat[slug]) continue;
-      seenCat[slug] = 1;
-      cats.push({ slug: slug, name: strip(cm[2]) });
-      if (cats.length >= 5) break;
+    const ci = html.indexOf("entry-categories-inner");
+    if (ci > 0) {
+      const seg = html.substring(ci, ci + 1500);
+      const reCat = /<a[^>]*href="https:\/\/sfmcompile\.club\/category\/([^"]+)\/"[^>]*>([\s\S]{0,90}?)<\/a>/g;
+      let cm;
+      while ((cm = reCat.exec(seg)) !== null) {
+        const slug = cm[1];
+        if (seenCat[slug]) continue;
+        seenCat[slug] = 1;
+        const nm = strip(cm[2]);
+        if (nm) cats.push({ slug: slug, name: nm });
+        if (cats.length >= 4) break;
+      }
     }
+    // 兜底：用 article class 里的 category-xxx
+    if (!cats.length) {
+      const art = html.match(/<article[^>]*class="([^"]*)"/);
+      if (art) {
+        const reC = /\scategory-([a-z0-9\-]+)/g;
+        let x;
+        while ((x = reC.exec(" " + art[1])) !== null) {
+          if (seenCat[x[1]]) continue;
+          seenCat[x[1]] = 1;
+          cats.push({ slug: x[1], name: prettySlug(x[1]) });
+          if (cats.length >= 4) break;
+        }
+      }
+    }
+
     const lines = [];
     if (cats.length) {
       lines.push(cats.map((x) => '[a=cr:{"id":"cat:' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
@@ -456,7 +477,7 @@ export default class Sfm extends Spider {
       vod_name: title || url,
       vod_pic: poster ? decode(poster[1]) : "",
       vod_content: lines.join("\n"),
-      vod_remarks: cats.length ? cats[cats.length - 1].name + "|" : "",
+      vod_remarks: cats.length ? cats[0].name + "|" : "",
       gallery: false,
       vod_play_from: "SFM",
       vod_play_url: play ? "正片$" + play : "网页查看$web://" + url,
