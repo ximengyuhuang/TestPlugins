@@ -517,6 +517,12 @@ function parseTrending(html) {
   return out;
 }
 
+/** slug → 可读名（kobayashi-san-chi-no → Kobayashi San Chi No） */
+function pretty(slug) {
+  const s = String(slug || "").replace(/-/g, " ").trim();
+  return s.replace(/\b([a-z])/g, (m, c) => c.toUpperCase());
+}
+
 export default class Mitaku extends Spider {
   init(extend) {
     this.htmlCache = {};
@@ -551,6 +557,7 @@ export default class Mitaku extends Spider {
     const classes = [];
     for (const c of CATS) classes.push({ type_id: c.tid, type_name: c.name });
     classes.push({ type_id: "tagsearch", type_name: "标签" });
+    classes.push({ type_id: "authorsearch", type_name: "作者" });
     classes.push({ type_id: "web", type_name: "网页" });
 
     // 排序走 ⇅ 面板（WordPress: ?orderby=）
@@ -571,6 +578,17 @@ export default class Mitaku extends Spider {
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     const ext = extend || {};
+    const sub = String(ext.sub || "");
+
+    // 作者面板选中 → 用站内搜索按作者名找，再按标题前缀过滤
+    if (tid === "authorsearch") {
+      if (sub.indexOf("author:") !== 0) {
+        return this.page([{ vod_id: "", vod_name: "在上方选一个作者", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
+      }
+      const name = sub.substring(7);
+      return this.searchList(name, p, name);
+    }
+
     const cat = CATS.find((c) => c.tid === tid) || CATS[0];
     let url = listPath(cat, p);
     if (String(ext.order || "") === "asc") url += (url.indexOf("?") >= 0 ? "&" : "?") + "orderby=date&order=asc";
@@ -640,6 +658,8 @@ export default class Mitaku extends Spider {
 
     if (info.hasVideo) {
       item.vod_play_from = "Mitaku";
+      // 站点返回的 480p/720p/1080p 其实是**同一个自适应 master.m3u8**（实测 URL 完全相同），
+      // 所以不做画质切换，交给播放器自适应；取流延迟到点播时（详情页保持秒开）
       item.vod_play_url = "正片$" + url;
     }
 
@@ -684,34 +704,47 @@ export default class Mitaku extends Spider {
       };
     }
 
+    // 作者搜索面板
+    if (op.indexOf("facet|authors|") === 0) {
+      const rest = op.substring("facet|authors|".length);
+      const bar = rest.lastIndexOf("|");
+      const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
+      const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
+      const all = await this.loadAuthors();
+      const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
+      const PAGE = 100;
+      const from = (page - 1) * PAGE;
+      return {
+        items: hit.slice(from, from + PAGE).map((x) => ({ id: "author:" + x.name, name: x.name, count: x.count + " 部" })),
+      };
+    }
+
     // 标签下的帖子列表（作为 tid 打开）
     if (op.indexOf("tag|") === 0) return [];
 
     return [];
   }
 
-  /** 汇总标签：站点没有索引页，从几个分类页的侧栏收集 */
+  /**
+   * 标签全量：站点有 sitemap，post_tag-sitemap1..12.xml 共 2265 个标签
+   * （比从分类页侧栏刮快 10 倍且完整；sitemap 只有 slug，名字由 slug 还原）
+   */
   async loadTags() {
     if (this.tagCache && this.tagCache.length) return this.tagCache;
+    const urls = [];
+    for (let i = 1; i <= 12; i++) urls.push(SITE + "/post_tag-sitemap" + i + ".xml");
+    const pages = await Promise.all(urls.map((u) => this.getHtml(u).catch(() => "")));
+
     const out = [];
     const seen = {};
-    const urls = [
-      SITE + "/category/ero-cosplay/",
-      SITE + "/category/nude/",
-      SITE + "/category/online-video/",
-      SITE + "/category/sexy-set/",
-    ];
-    // 并行抓（串行会拖到 40 秒以上，超过插件 15 秒看门狗）
-    const pages = await Promise.all(urls.map((u) => this.getHtml(u).catch(() => "")));
-    for (const html of pages) {
-      const re = /href="https:\/\/mitaku\.net\/tag\/([^"\/]+)\/"[^>]*>([^<]{1,30})</g;
+    for (const xml of pages) {
+      const re = /<loc>https:\/\/mitaku\.net\/tag\/([^<]+)\/<\/loc>/g;
       let m;
-      while ((m = re.exec(html || "")) !== null) {
+      while ((m = re.exec(xml || "")) !== null) {
         const slug = m[1];
         if (seen[slug]) continue;
         seen[slug] = 1;
-        const nm = strip(m[2]);
-        if (nm) out.push({ slug: slug, name: nm });
+        out.push({ slug: slug, name: pretty(slug) });
       }
     }
     out.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
@@ -719,14 +752,47 @@ export default class Mitaku extends Spider {
     return out;
   }
 
-  /** 搜索：WordPress ?s=，分页靠 /page/N/ */
-  async searchContent(key, quick, pg) {
-    const p = Number(pg) || 1;
+  /** 作者：站点无作者页，从标题「作者 - 作品」提取（抓 4 个分类页，缓存） */
+  async loadAuthors() {
+    if (this.authors && this.authors.length) return this.authors;
+    const urls = [];
+    for (const c of CATS) {
+      if (!c.path) continue;
+      for (let pg = 1; pg <= 3; pg++) {
+        urls.push(SITE + c.path + (pg > 1 ? "page/" + pg + "/" : ""));
+      }
+    }
+    const pages = await Promise.all(urls.map((u) => this.getHtml(u).catch(() => "")));
+    const count = {};
+    for (const html of pages) {
+      const re = /<h2 class="entry-title">\s*<a [^>]*title="([^"]{1,120})"/g;
+      let m;
+      while ((m = re.exec(html || "")) !== null) {
+        const t = decode(m[1]).replace(/\s*[-–—]\s+.*$/, "").trim();
+        if (!t || t.length < 2 || t.length > 40) continue;
+        count[t] = (count[t] || 0) + 1;
+      }
+    }
+    const out = Object.keys(count)
+      .map((k) => ({ name: k, count: count[k] }))
+      .sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+    if (out.length) this.authors = out;
+    return out;
+  }
+
+  /** 搜索：WordPress ?s=，分页靠 /page/N/；authorFilter 用于「作者」维度按标题前缀过滤 */
+  async searchList(key, p, authorFilter) {
     const url = SITE + (p > 1 ? "/page/" + p + "/" : "/") + "?s=" + encodeURIComponent(key);
     const html = await this.getHtml(url);
     if (!html) return this.page([], p, PAGE_SIZE, 0);
 
-    const raw = parseCards(html);
+    let raw = parseCards(html);
+    if (authorFilter) {
+      const want = String(authorFilter).toLowerCase();
+      const hit = raw.filter((c) => c.title.toLowerCase().indexOf(want) === 0);
+      if (hit.length) raw = hit;
+    }
+
     const cards = await Promise.all(raw.map(async (c) => {
       const d = await this.getHtml(c.url, url);
       const info = probePost(d);
@@ -734,11 +800,14 @@ export default class Mitaku extends Spider {
     }));
 
     const m = html.match(/Page\s+(\d+)\s+of\s+(\d+)/i);
-    let total;
-    if (m) total = Number(m[2]) * PAGE_SIZE;
-    else total = /class="pagination"/.test(html) ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    const total = m ? Number(m[2]) * PAGE_SIZE
+      : (/class="pagination"/.test(html) ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length);
 
     return this.page(cards.filter((c) => c.vod_name), p, PAGE_SIZE, total);
+  }
+
+  async searchContent(key, quick, pg) {
+    return this.searchList(key, Number(pg) || 1, "");
   }
 
   /** iframe 里的 slug */
@@ -821,19 +890,17 @@ export default class Mitaku extends Spider {
   }
 
   async playerContent(flag, id) {
-    const pageUrl = String(id).indexOf("http") === 0 ? String(id) : SITE + String(id);
+    const raw = String(id);
+    const header = { "User-Agent": UA, "Referer": API + "/", "Accept": "*/*" };
+
+    // 详情页已经把 m3u8 解析好（多画质选集）→ 直接用，不再跑一遍 PoW
+    if (raw.indexOf(".m3u8") > 0) return { parse: 1, url: raw, header: header };
+
+    const pageUrl = raw.indexOf("http") === 0 ? raw : SITE + raw;
     const slug = await this.resolveSlug(pageUrl);
     if (!slug) throw new Error("该帖没有视频");
     const list = await this.resolveStreams(slug);
-    return {
-      parse: 1,
-      url: list[0].v,
-      header: {
-        "User-Agent": UA,
-        "Referer": API + "/",
-        "Accept": "*/*",
-      },
-    };
+    return { parse: 1, url: list[0].v, header: header };
   }
 }
 
