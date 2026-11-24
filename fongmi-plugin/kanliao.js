@@ -67,11 +67,16 @@ function strip(s) {
   return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-/** 列表 URL */
+/**
+ * 列表 URL。分页格式三处不同，实测：
+ *   最新   /page/N/
+ *   分类   /category/<slug>/N/     ← 不带 page
+ *   标签   /tag/<slug>/N/          ← 不带 page
+ */
 function listUrl(chip, p) {
   if (chip === "top") return BASE + "/top.html";
   if (!chip) return BASE + "/" + (p > 1 ? "page/" + p + "/" : "");
-  return BASE + "/category/" + chip + "/" + (p > 1 ? "page/" + p + "/" : "");
+  return BASE + "/category/" + chip + "/" + (p > 1 ? p + "/" : "");
 }
 
 /** 解析卡片（Typecho post-card） */
@@ -120,7 +125,10 @@ function parseCards(html) {
 function hasNext(html, p) {
   const t = String(html || "");
   const n = p + 1;
-  return t.indexOf("page/" + n + "/") >= 0 || t.indexOf("page=" + n) >= 0 || /rel="next"/.test(t);
+  if (t.indexOf("page/" + n + "/") >= 0) return true;     // 首页 /page/N/
+  if (t.indexOf("/" + n + "/") >= 0) return true;          // 分类、标签 /<N>/
+  if (t.indexOf("page=" + n) >= 0) return true;
+  return /class="page-navigator"/.test(t) && t.indexOf("next") >= 0;
 }
 
 /**
@@ -214,7 +222,7 @@ export default class Kanliao extends Spider {
         return this.page([{ vod_id: "", vod_name: "在上方选一个标签", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
       }
       const slug = sub.substring(4);
-      return this.listFromUrl(BASE + "/tag/" + slug + "/" + (p > 1 ? "page/" + p + "/" : ""), p);
+      return this.listFromUrl(BASE + "/tag/" + slug + "/" + (p > 1 ? p + "/" : ""), p);
     }
 
     return this.listFromUrl(listUrl(String(ext.media || ""), p), p);
