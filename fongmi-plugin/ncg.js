@@ -345,6 +345,25 @@ export default class Ncg extends Spider {
       const need = cards.map((c) => slugOf(c.vod_id));
       const counts = need.length ? await this.bulkCounts(need) : {};
 
+      // 少数帖子的图集不在 REST 的 content 里（正文只有几百字节，走 [gallery] 短代码/附件），
+      // 批量计数会得到 0 或 1 → 这类补抓一次详情页兜底（最多 5 条，6 秒预算）
+      const suspects = cards.filter((c) => {
+        const k = counts[slugOf(c.vod_id)];
+        return !k || (k.np + k.nv) <= 1;
+      }).slice(0, 5);
+      if (suspects.length) {
+        const deadline2 = Date.now() + 6000;
+        await Promise.all(suspects.map(async (c) => {
+          if (Date.now() > deadline2) return;
+          const det = await this.getHtml(c.vod_id);
+          if (!det) return;
+          const dd = parseDetail(det);
+          if (dd.videos.length || dd.images.length) {
+            counts[slugOf(c.vod_id)] = { np: dd.images.length, nv: dd.videos.length };
+          }
+        }));
+      }
+
       const alive = [];
       for (const c of cards) {
         const slug = slugOf(c.vod_id);
