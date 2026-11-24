@@ -168,6 +168,7 @@ export default class Sfm extends Spider {
         { type_id: "video", type_name: "视频" },
         { type_id: "category", type_name: "分类" },
         { type_id: "categorysearch", type_name: "全部分类" },
+        { type_id: "tagsearch", type_name: "标签" },
         { type_id: "web", type_name: "网页" },
       ],
       filters: {
@@ -205,6 +206,17 @@ export default class Sfm extends Spider {
 
       const html = await this.getHtml(feedUrl(chip, p));
       return this.fromHtml(html, p);
+    }
+
+    // 标签面板：选中值 tag:<slug> → /tag/<slug>/
+    const subRaw = String(ext.sub || "");
+    if (t === "tagsearch") {
+      if (subRaw.indexOf("tag:") !== 0) {
+        return this.page([{ vod_id: "", vod_name: "在上方选一个标签（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
+      }
+      const tslug = subRaw.substring(4);
+      const turl = BASE + "/tag/" + tslug + "/" + (p > 1 ? "page/" + p + "/" : "");
+      return this.fromHtml(await this.getHtml(turl), p);
     }
 
     // 「全部分类」面板：选中值在 extend.sub，形如 cat:<父类/子类>
@@ -318,6 +330,31 @@ export default class Sfm extends Spider {
     return out;
   }
 
+  /** 全量标签：WP REST API（700 个，按文章数排序） */
+  async loadTags() {
+    if (this.tags && this.tags.length) return this.tags;
+    const out = [];
+    try {
+      for (let page = 1; page <= 8; page++) {
+        const r = await this.net.req(BASE + "/wp-json/wp/v2/tags?per_page=100&page=" + page, {
+          headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
+        });
+        if (!r || r.code !== 200) break;
+        let arr = null;
+        try { arr = JSON.parse(r.content); } catch (e) { arr = null; }
+        if (!arr || !arr.length) break;
+        for (const t of arr) {
+          if (!t || !t.slug) continue;
+          out.push({ slug: t.slug, name: t.name || t.slug, count: t.count || 0 });
+        }
+        if (arr.length < 100) break;
+      }
+    } catch (e) { }
+    out.sort((a, b) => (b.count || 0) - (a.count || 0));
+    if (out.length) this.tags = out;
+    return out;
+  }
+
   /** 顶层分类（面板只列顶层，子类在选中后作为二级 chips 出现） */
   async loadTops() {
     await this.loadCats();
@@ -408,6 +445,27 @@ export default class Sfm extends Spider {
   async action(op) {
     if (!op) return [];
     if (op.indexOf("gal|") === 0) return { list: [] };
+
+    // 标签面板：WP REST API（实测 700 个标签，带文章数）
+    if (op.indexOf("facet|tags|") === 0) {
+      const rest = op.substring("facet|tags|".length);
+      const bar = rest.lastIndexOf("|");
+      const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
+      const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
+      const all = await this.loadTags();
+      const hit = kw
+        ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.toLowerCase().indexOf(kw) >= 0)
+        : all;
+      const PAGE = 100;
+      const from = (page - 1) * PAGE;
+      return {
+        items: hit.slice(from, from + PAGE).map((x) => ({
+          id: "tag:" + x.slug,
+          name: x.name,
+          count: x.count ? x.count + " 部" : "",
+        })),
+      };
+    }
 
     // 分类面板：WP REST API 一次拿全（顶层 41 + 子类 59），带文章数
     if (op.indexOf("facet|category|") === 0 || op.indexOf("facet|categories|") === 0) {
