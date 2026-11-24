@@ -467,8 +467,37 @@ export default class Sfm extends Spider {
     }
 
     const lines = [];
+
+    // Artist / Source：站点放在 og:description 里（"Artist: Waos Source: X (Twitter)"）
+    const ogd = html.match(/property="og:description"\s+content="([^"]*)"/);
+    if (ogd && ogd[1]) {
+      const txt = decode(ogd[1]).replace(/\s+/g, " ").trim();
+      // 只保留真信息（老帖的 og:description 是站点标语 "SFM 3D Porn Clips"，属于噪音）
+      if (/Artist:|Source:/i.test(txt)) lines.push(txt);
+    }
+
     if (cats.length) {
       lines.push(cats.map((x) => '[a=cr:{"id":"cat:' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
+    }
+
+    // 标签：#20secs+ #sound #waos —— 站点用 entry-tags 区块
+    const tags = [];
+    const seenTag = {};
+    const ti = html.indexOf("entry-tags-inner");
+    if (ti > 0) {
+      const tseg = html.substring(ti, ti + 2000);
+      const reTag = /<a[^>]*href="https:\/\/sfmcompile\.club\/tag\/([^"]+)\/"[^>]*>([^<]{1,40})<\/a>/g;
+      let tm;
+      while ((tm = reTag.exec(tseg)) !== null) {
+        const slug = tm[1];
+        if (seenTag[slug]) continue;
+        seenTag[slug] = 1;
+        tags.push({ slug: slug, name: strip(tm[2]) });
+        if (tags.length >= 12) break;
+      }
+    }
+    if (tags.length) {
+      lines.push(tags.map((x) => '[a=cr:{"id":"tag:' + x.slug + '"}/]#' + x.name + "[/a]").join(" "));
     }
 
     const play = parsePlay(html);
@@ -530,7 +559,7 @@ export default class Sfm extends Spider {
         vod_id: u,
         vod_name: tAttr ? decode(tAttr[1]) : u,
         vod_pic: cov ? decode(cov[1]) : "",
-        vod_remarks: cat ? prettySlug(cat[1]) + "|" : "",
+        vod_remarks: cat ? prettySlug(cat[1]) : "",
       });
     }
 
