@@ -562,6 +562,37 @@ export default class Ncg extends Spider {
     const s = String(op || "");
     if (!s) return [];
 
+    // 侧边栏抽屉：App 会调 action("side|") 取 {groups:[{name,items:[{name,id}]}]}
+    // 点条目直接 ListActivity(query = id) → 我们已兼容 tid = cat:/tag:
+    if (s === "side|") {
+      const groups = [];
+      groups.push({
+        name: "主分类",
+        items: MAIN_CATS.map((c) => ({ name: c.name, id: "cat:" + c.slug })),
+      });
+      try {
+        const cats = await this.loadCats(1);
+        const models = cats.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0).slice(0, 25);
+        if (models.length) {
+          groups.push({
+            name: "热门模特",
+            items: models.map((c) => ({ name: c.name + "  " + (c.count || 0), id: "cat:" + c.slug })),
+          });
+        }
+      } catch (e) { }
+      try {
+        const tags = await this.loadTags(1);
+        const top = tags.slice(0, 25);
+        if (top.length) {
+          groups.push({
+            name: "热门标签",
+            items: top.map((t) => ({ name: t.name + "  " + (t.count || 0), id: "tag:" + t.slug })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
+    }
+
     // 图集：App 点「查看图集」时调 action("gal|<页面URL>")
     if (s.indexOf("gal|") === 0) {
       const u = s.substring(4).trim();
