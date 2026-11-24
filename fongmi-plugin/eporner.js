@@ -1,447 +1,509 @@
-// EPorner —— FongMi / TVBox QuickJS 源
+// EPORNER（www.eporner.com）—— BiliTV / catvod QuickJS 插件
 //
-// 取流：视频地址里的 vid → /embed/<vid>/ 拿 EP.video.player.hash（md5）
-//       → 每 8 个十六进制字符转 36 进制拼接
-//       → GET /xhr/video/<vid>?hash=<转换后>… (XHR 头) → JSON sources
-//       → sources.mp4 里有 480p/720p/1080p… 直链
+// 侦查结论（2026-11-24）
+//   首页/列表   /  、/2/ 或 ?p=N        每页 ~36 张卡片
+//   分类       /cat/<slug>/            /cat/all/ 里共 85 个
+//   排序       ?sort=newest|longest|top-rated   默认 = best
+//              分页要写 /cat/x/?sort=newest&p=2（/2/?sort= 无效）
+//   搜索       /search/?q=<kw>&p=N
+//   模特       /pornstar-list/<N>/     每页 76 个，/pornstar/<slug>/ 是单人页
+//   详情       /video-<id>/<slug>/     播放器 data-vid="<id>/<id>.mp4"
+//              → https://gvideo.eporner.com/<data-vid>
+//   卡片       <div class="mb" data-id="…"><img …><div class="mvhdico"><span>1080p</span>
+//              <p class="mbtit"><a href="/video-…/">标题</a></p>
+//              <p class="mbstats"><span class="mbtim">16:04</span><span class="mbrate">93%</span>…
+//   相关       详情页里另外还有 ~19 个 class="mb" 卡片
+//   ⚠ 详情页没有「本片演员」链接（只有站点推荐位），所以详情页不做演员 chips
 
 import { Spider, openWeb } from "catvod";
 
 const BASE = "https://www.eporner.com";
-const UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const PAGE_SIZE = 36;
 
-// [tid, 路径, 名称]
-const CATS = [
-  ["recent", "/", "最新"],
-  ["viewed", "/most-viewed/", "最多观看"],
-  ["rated", "/top-rated/", "评分最高"],
-  ["longest", "/longest/", "最长"],
-  ["cowgirl", "/tag/cowgirl/", "Cowgirl"],
-  ["riding", "/tag/riding/", "Riding"],
-  ["housewives", "/cat/housewives/", "Housewives"],
-  ["turkish", "/tag/turkish/", "Turkish"],
+// 最新页的分类 chips（站点 /cat/ 前若干热门）
+const CHIPS = [
+  { n: "全部", v: "" },
+  { n: "720p", v: "hd-720p" },
+  { n: "1080p", v: "hd-1080p" },
+  { n: "60FPS", v: "60fps" },
+  { n: "VR", v: "vr-porn" },
+  { n: "日本", v: "japanese" },
+  { n: "Anal", v: "anal" },
+  { n: "POV", v: "pov-porn" },
+  { n: "MILF", v: "milf" },
+  { n: "Hentai", v: "hentai" },
+  { n: "BBW", v: "bbw" },
 ];
 
-// PornHub 标准分类（28 个通用的），EPorner 全都有对应标签
-const GENRES = [
-  ["asian", "Asian"], ["japanese", "Japanese"], ["uncensored", "Uncensored"], ["korean", "Korean"],
-  ["amateur", "Amateur"], ["anal", "Anal"], ["big-ass", "Big Ass"],
-  ["big-tits", "Big Tits"], ["blonde", "Blonde"], ["blowjob", "Blowjob"],
-  ["brunette", "Brunette"], ["cosplay", "Cosplay"], ["creampie", "Creampie"],
-  ["cuckold", "Cuckold"], ["ebony", "Ebony"], ["fetish", "Fetish"],
-  ["handjob", "Handjob"], ["hardcore", "Hardcore"], ["latina", "Latina"],
-  ["lesbian", "Lesbian"], ["massage", "Massage"], ["mature", "Mature"],
-  ["milf", "MILF"], ["masturbation", "Masturbation"], ["pov", "POV"],
-  ["public", "Public"], ["squirt", "Squirt"], ["threesome", "Threesome"],
-  ["toys", "Toys"],
+const ORDERS = [
+  { n: "最佳", v: "" },
+  { n: "最新", v: "newest" },
+  { n: "最长", v: "longest" },
+  { n: "最高分", v: "top-rated" },
 ];
 
-function headers(ref) {
+function hdrs(ref) {
   return {
     "User-Agent": UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
     "Referer": ref || BASE + "/",
   };
 }
 
 function decode(s) {
-  if (!s) return "";
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ");
+  return String(s || "")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, d) => String.fromCharCode(parseInt(d, 16)))
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ");
 }
 
 function strip(s) {
-  return decode((s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+  return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-function absolute(u) {
-  if (!u) return "";
-  if (u.indexOf("//") === 0) return "https:" + u;
-  if (u.indexOf("/") === 0) return BASE + u;
-  return u;
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
 }
 
-// 列表：<div class="mb"> … <p class="mbtit"><a href="…">标题</a>
+/**
+ * 列表页 URL
+ *   首页：p>1 → /?p=N
+ *   分类：/cat/<slug>/ 或 /cat/<slug>/?p=N
+ *   带排序时统一用 ?sort=…&p=N（/2/?sort= 在站点上无效）
+ */
+function listUrl(cat, p, sort) {
+  let path = cat ? "/cat/" + cat + "/" : "/";
+  const qs = [];
+  if (sort) qs.push("sort=" + sort);
+  if (p > 1) qs.push("p=" + p);
+  return BASE + path + (qs.length ? "?" + qs.join("&") : "");
+}
+
+/** 解析列表卡片 */
 function parseCards(html) {
+  const text = String(html || "");
   const out = [];
   const seen = {};
-  const parts = html.split(/<div class="mb"[^>]*>/);
-  for (let i = 1; i < parts.length; i++) {
-    const block = parts[i].substring(0, 2500);
+  const marks = [];
+  const re = /<div class="mb"/g;
+  let m;
+  while ((m = re.exec(text)) !== null) marks.push(m.index);
 
-    const a = block.match(/<p class="mbtit"><a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-    if (!a) continue;
-    const url = absolute(a[1]);
-    if (!url || seen[url]) continue;
+  for (let i = 0; i < marks.length; i++) {
+    const seg = text.substring(marks[i], i + 1 < marks.length ? marks[i + 1] : marks[i] + 4000);
+    const link = seg.match(/<p class="mbtit"><a href="(\/video-[^"]+)">([\s\S]{0,200}?)<\/a>/);
+    if (!link) continue;
+    const url = BASE + decode(link[1]);
+    if (seen[url]) continue;
     seen[url] = 1;
 
-    const img = block.match(/data-src="([^"]+)"/) || block.match(/<img[^>]*src="([^"]+)"/);
-
-    // 清晰度角标：<div class="mvhdico" title="Quality"><span>720p</span></div>
-    let q = "";
-    const qm = block.match(/mvhdico"[^>]*>\s*<span>([^<]+)<\/span>/);
-    if (qm) {
-      q = qm[1].trim();
-      const four = q.match(/4K/i);
-      if (four) q = "4K";
-      else {
-        const num = q.match(/(\d{3,4})p?/);
-        if (num) q = num[1] + "p";
-      }
-    }
+    const pic = seg.match(/<img[^>]*\ssrc="(https?:\/\/[^"]+)"[^>]*alt="([^"]*)"/) ||
+      seg.match(/<img[^>]*\ssrc="(https?:\/\/[^"]+)"/);
+    const hd = seg.match(/class="mvhdico"[^>]*>\s*<span>([^<]+)<\/span>/);
+    const dur = seg.match(/class="mbtim"[^>]*>([^<]{1,12})</);
 
     out.push({
       vod_id: url,
-      vod_name: strip(a[2]),
-      vod_pic: img ? decode(img[1]) : "",
-      vod_remarks: q,
+      vod_name: strip(link[2]) || url,
+      vod_pic: pic ? decode(pic[1]) : "",
+      // 角标：画质|时长（画质来自 mvhdico，时长来自 mbtim）
+      vod_remarks: (hd ? strip(hd[1]) + "|" : "") + (dur ? strip(dur[1]) : ""),
     });
   }
   return out;
 }
 
-export default class EPorner extends Spider {
-  init(extend) {
-    this.log("eporner ready");
+/**
+ * 详情页画质列表。
+ * ⚠ gvideo.eporner.com/<id>/<id>.mp4 对第三方请求一律 403，
+ *    真正能用的是 /dload/<vid>/<height>/<id>-<height>p.mp4 → 302 到签名 CDN。
+ */
+function parseQualities(html) {
+  const t = String(html || "");
+  const out = [];
+  const seen = {};
+  const re = /href="(\/dload\/[^"]+?\/(\d+)\/[^"]+?-(\d+)p\.mp4)"/g;
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const path = m[1];
+    const h = Number(m[3]) || 0;
+    // av1 / hevc 变体剔除：兼容性差，优先 h264
+    if (!h || /-av1|-hevc/i.test(path) || seen[h]) continue;
+    seen[h] = 1;
+    out.push({ h: h, url: BASE + decode(path) });
+  }
+  out.sort((a, b) => a.h - b.h);
+  return out;
+}
+
+/** 兜底：播放器 data-vid（多数情况下 403，只在拿不到 /dload/ 时用） */
+function parsePlay(html) {
+  const t = String(html || "");
+  let m = t.match(/data-vid="([^"]+\.mp4)"/);
+  if (m) return "https://gvideo.eporner.com/" + decode(m[1]);
+  m = t.match(/"contentUrl"\s*:\s*"([^"]+\.mp4)"/);
+  return m ? decode(m[1]) : "";
+}
+
+export default class Eporner extends Spider {
+  init() {
+    this.cache = {};
   }
 
-  async homeContent(filter) {
-    const classes = [{ type_id: CATS[0][0], type_name: CATS[0][2] }];
-    classes.push({ type_id: "web", type_name: "网页" });
-    for (let i = 1; i < CATS.length; i++) classes.push({ type_id: CATS[i][0], type_name: CATS[i][2] });
-
-    // 动态补全标签：/tag/N/ 分页（每页约 50 个）
-    if (!this.tags) {
-      const list = [];
-      const seen = {};
-      try {
-        for (let p = 1; p <= 6; p++) {
-          const url = BASE + "/tag/" + (p > 1 ? p + "/" : "");
-          const r = await this.net.req(url, { headers: headers() });
-          if (!r || r.code !== 200) break;
-          const re = /href="\/tag\/([a-z0-9\-]+)\/"/g;
-          let m;
-          let added = 0;
-          while ((m = re.exec(r.content)) !== null) {
-            if (seen[m[1]]) continue;
-            seen[m[1]] = 1;
-            list.push(m[1]);
-            added++;
-            if (list.length >= 200) break;
-          }
-          if (added === 0 || list.length >= 200) break;
-        }
-        this.tags = list;
-      } catch (e) {
-        this.log("tags failed: " + e);
+  async getHtml(url) {
+    const c = this.cache[url];
+    if (c && Date.now() - c.ts < 180000) return c.html;
+    try {
+      const r = await this.net.req(url, { headers: hdrs(url) });
+      if (r && r.code === 200) {
+        this.cache[url] = { html: r.content, ts: Date.now() };
+        return r.content;
       }
-    }
-
-    // 二级结构：分类 / 标签 各收成一个文件夹入口（type_flag=1 → 列表样式）
-    classes.push({
-      type_id: "cat",
-      type_name: "分类 (" + GENRES.length + ")",
-      type_flag: "1",
-    });
-    classes.push({
-      type_id: "tagf",
-      type_name: "标签 (" + (this.tags ? this.tags.length : 0) + ")",
-      type_flag: "1",
-    });
-
-    // 排序筛选器（右下角漏斗）：只给视频列表层
-    const sorts = [
-      { n: "最新", v: "recent" },
-      { n: "最多观看", v: "views" },
-      { n: "评分最高", v: "rate" },
-      { n: "最长", v: "long" },
-    ];
-    const filters = {};
-    for (const c of classes) filters[c.type_id] = [{ key: "sort", name: "排序", value: sorts }];
-    for (const [slug] of GENRES) filters["g:" + slug] = [{ key: "sort", name: "排序", value: sorts }];
-
-    return { class: classes, filters: filters };
+    } catch (e) { }
+    return "";
   }
 
-  buildSegments() {
-    if (this.segs) return this.segs;
-    const groups = {};
-    for (const t of this.tags || []) {
-      const ch = String(t).charAt(0).toUpperCase();
-      const key = ch >= "A" && ch <= "Z" ? ch : "#";
-      groups[key] = groups[key] || [];
-      groups[key].push(t);
-    }
-    this.segs = Object.keys(groups)
-      .sort()
-      .map((k) => ({ key: k, items: groups[k] }));
-    return this.segs;
-  }
-
-  // 分类文件夹：28 个标准分类
-  genreFolders() {
-    const out = [];
-    for (const [slug, name] of GENRES) {
-      out.push({
-        vod_id: "g:" + slug,
-        vod_name: name,
-        vod_pic: "",
-        vod_remarks: "分类",
-        vod_tag: "folder",
-      });
-    }
-    return out;
-  }
-
-  // 标签文件夹第一层：字母
-  letterFolders() {
-    const out = [];
-    for (const g of this.buildSegments()) {
-      out.push({
-        vod_id: "seg:" + g.key,
-        vod_name: g.key,
-        vod_pic: "",
-        vod_remarks: g.items.length + " 个标签",
-        vod_tag: "folder",
-      });
-    }
-    return out;
-  }
-
-  // 标签文件夹第二层：该字母下的标签
-  tagFolders(seg) {
-    const g = this.buildSegments().find((x) => x.key === seg);
-    if (!g) return [];
-    return g.items.map((t) => ({
-      vod_id: "tg:" + t,
-      vod_name: t,
-      vod_pic: "",
-      vod_remarks: "标签",
-      vod_tag: "folder",
-    }));
+  async homeContent() {
+    return {
+      class: [
+        { type_id: "latest", type_name: "最新" },
+        { type_id: "categorysearch", type_name: "分类" },
+        { type_id: "pornstarssearch", type_name: "模特" },
+        { type_id: "web", type_name: "网页" },
+      ],
+      filters: {
+        latest: [
+          { key: "media", name: "分类", value: CHIPS },
+          { key: "order", name: "排序", value: ORDERS },
+        ],
+      },
+    };
   }
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
+    let t = String(tid || "latest");
+    const ext = extend || {};
 
-    // ---- 文件夹导航层 ----
-    if (tid === "cat") {
-      const list = this.genreFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid === "tagf") {
-      const list = this.letterFolders();
-      return this.page(list, 1, list.length, list.length);
-    }
-    if (tid.indexOf("seg:") === 0) {
-      const list = this.tagFolders(tid.substring(4));
-      return this.page(list, 1, list.length, list.length);
+    // 详情页 chips 点进来：tid 就是 id
+    if (t.indexOf("tag:") === 0) {
+      ext.sub = t;
+      t = "tagsearch";
+    } else if (t.indexOf("cat:") === 0) {
+      ext.sub = t;
+      t = "categorysearch";
+    } else if (t.indexOf("star:") === 0) {
+      ext.sub = t;
+      t = "pornstarssearch";
     }
 
-    if (tid === "web") {
-      try {
-        openWeb({ url: BASE });
-      } catch (e) {
-        this.log("openWeb failed: " + e);
+    if (t === "web") {
+      try { openWeb({ url: BASE + "/" }); } catch (e) { }
+      return this.page([], p, PAGE_SIZE, 0);
+    }
+
+    const order = String(ext.order || "");
+    const sub = String(ext.sub || "");
+
+    // 分类面板
+    if (t === "categorysearch") {
+      if (sub.indexOf("cat:") !== 0) {
+        return this.page([{ vod_id: "", vod_name: "在上方选一个分类（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
       }
-      return this.page([], 1, 30, 0);
+      const url = listUrl(sub.substring(4), p, order);
+      return this.fromHtml(await this.getHtml(url), p);
     }
 
-    // ---- 视频列表层 ----
-    let path = CATS[0][1];
-    if (tid.indexOf("g:") === 0) {
-      path = "/tag/" + tid.substring(2) + "/";
-    } else if (tid.indexOf("tg:") === 0) {
-      path = "/tag/" + tid.substring(3) + "/";
-    } else if (tid.indexOf("tag:") === 0) {
-      path = "/tag/" + tid.substring(4) + "/";
-    } else {
-      for (const c of CATS) {
-        if (c[0] === tid) {
-          path = c[1];
-          break;
-        }
+    // 模特面板：选中模特 → 单人页
+    if (t === "pornstarssearch" || t === "tagsearch") {
+      if (sub.indexOf("star:") !== 0) {
+        return this.page([{ vod_id: "", vod_name: "在上方选一个模特（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
       }
+      const slug = sub.substring(5);
+      const url = BASE + "/pornstar/" + slug + "/" + (p > 1 ? "?p=" + p : "");
+      return this.fromHtml(await this.getHtml(url), p);
     }
 
-    const sort = (extend && extend.sort) || "recent";
-    let url;
-    if (p <= 1) {
-      url = BASE + path;
-    } else {
-      const base = path.replace(/\/$/, "");
-      url = BASE + (base === "" ? "/" + p + "/" : base + "/" + p + "/");
-    }
-    url += (url.indexOf("?") >= 0 ? "&" : "?") + "sort=" + sort;
+    // 最新 / 分类 chips
+    const media = String(ext.media || "");
+    const url = listUrl(media, p, order);
+    return this.fromHtml(await this.getHtml(url), p);
+  }
 
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 30, 0);
-
-    const cards = parseCards(r.content);
-    if (cards.length === 0) return this.page([], p, 30, (p - 1) * 30);
-    return this.page(cards, p, 30, (p + 1) * 30);
+  fromHtml(html, p) {
+    if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
+    const cards = parseCards(html);
+    const n = p + 1;
+    const more = html.indexOf("p=" + n) >= 0 || html.indexOf("/" + n + "/") >= 0;
+    const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
   }
 
   async detailContent(ids) {
-    const list = [];
-    for (const id of ids) {
-      const pageUrl = String(id).indexOf("http") === 0 ? String(id) : absolute(String(id));
-      let title = "";
-      let pic = "";
-      let content = "";
-      let duration = "";
+    const url = String(ids[0] || "");
+    const html = await this.getHtml(url);
+    if (!html) return { list: [] };
 
-      try {
-        const r = await this.net.req(pageUrl, { headers: headers() });
-        if (r && r.code === 200) {
-          const html = r.content;
+    let title = "";
+    const og = html.match(/property="og:title"\s+content="([^"]+)"/);
+    if (og) title = strip(og[1]).replace(/\s*-\s*EPORNER\s*$/i, "").trim();
+    if (!title) {
+      const t = html.match(/<title>([^<]*)<\/title>/);
+      if (t) title = strip(t[1]).replace(/\s*-\s*EPORNER.*$/i, "").trim();
+    }
+    const poster = html.match(/property="og:image"\s*content="([^"]+)"/);
 
-          const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
-          const ogt = html.match(/property="og:title"[^>]*content="([^"]+)"/);
-          title = h1 ? strip(h1[1]) : ogt ? decode(ogt[1]) : "";
+    // 分类 + 标签：只从 #video-info-tags 里取（页面别处全是导航菜单）
+    let info = "";
+    const ii = html.indexOf("video-info-tags");
+    if (ii > 0) info = html.substring(ii, ii + 12000);
 
-          const ogi = html.match(/property="og:image"[^>]*content="([^"]+)"/);
-          if (ogi) pic = decode(ogi[1]);
+    const cats = [];
+    const seenCat = {};
+    const reCat = /class="vit-category"><a href="\/cat\/([a-z0-9\-]+)\/"[^>]*>([^<]{1,30})</g;
+    let cm;
+    while ((cm = reCat.exec(info)) !== null) {
+      if (seenCat[cm[1]]) continue;
+      seenCat[cm[1]] = 1;
+      const nm = strip(cm[2]);
+      if (nm) cats.push({ slug: cm[1], name: nm });
+      if (cats.length >= 8) break;
+    }
+    const tags = [];
+    const seenTag = {};
+    const reTag = /class="vit-tag"><a href="\/tag\/([^"\/]+)\/"[^>]*>([^<]{1,30})</g;
+    let tm;
+    while ((tm = reTag.exec(info)) !== null) {
+      if (seenTag[tm[1]]) continue;
+      seenTag[tm[1]] = 1;
+      const nm = strip(tm[2]);
+      if (nm) tags.push({ slug: tm[1], name: nm });
+      if (tags.length >= 12) break;
+    }
+    const upl = info.match(/class="vit-uploader"><a[^>]*>([^<]{1,30})</);
 
-          const dur = html.match(/<span class="vid-length">\s*([0-9]+)\s*min/i);
-          if (dur) duration = dur[1];
+    const lines = [];
+    if (upl) lines.push("上传者：" + strip(upl[1]));
+    if (cats.length) {
+      lines.push(cats.map((x) => '[a=cr:{"id":"cat:' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
+    }
+    if (tags.length) {
+      lines.push(tags.map((x) => '[a=cr:{"id":"tag:' + x.slug + '"}/]#' + x.name + "[/a]").join(" "));
+    }
 
-          const lines = [];
-          if (duration) lines.push("时长: " + duration + " 分钟");
+    const quals = parseQualities(html);
+    const play = quals.length ? quals[quals.length - 1].url : parsePlay(html);
+    const playUrl = quals.length
+      ? quals.map((q) => q.h + "p$" + q.url).join("#")
+      : (play ? "正片$" + play : "网页查看$web://" + url);
+    const item = {
+      vod_id: url,
+      vod_name: title || url,
+      vod_pic: poster ? decode(poster[1]) : "",
+      vod_content: lines.join("\n"),
+      vod_remarks: (cats.length ? cats[0].name + "|" : "")
+        + (() => {
+          const len = html.match(/class="vid-length">([^<]{1,10})</);
+          return len ? strip(len[1]) : "";
+        })(),
+      gallery: false,
+      vod_play_from: "EPORNER",
+      vod_play_url: playUrl,
+    };
 
-          const tags = [];
-          const reT = /<li class="vit-category"[^>]*>\s*<a[^>]*>([^<]*)<\/a>/g;
-          let m;
-          while ((m = reT.exec(html)) !== null) {
-            const t = strip(m[1]);
-            if (t && tags.indexOf(t) < 0) tags.push(t);
-          }
-          if (tags.length) lines.push("分类: " + tags.slice(0, 10).join(" / "));
-
-          const desc = html.match(/property="og:description"[^>]*content="([^"]+)"/);
-          if (desc) lines.push(decode(desc[1]).substring(0, 120));
-
-          content = lines.filter(Boolean).join("\n");
-        }
-      } catch (e) {
-        this.log("detail failed: " + e);
-      }
-
-      list.push({
-        vod_id: pageUrl,
-        vod_name: title || String(id),
-        vod_pic: pic,
-        vod_content: content,
-        vod_remarks: duration ? duration + " 分钟" : "",
-        vod_play_from: "EPorner",
-        vod_play_url: "正片$" + pageUrl,
+    // 相关推荐：详情页里的其它 mb 卡片
+    const rel = [];
+    const seen = {};
+    seen[url] = 1;
+    for (const c of parseCards(html)) {
+      if (rel.length >= 8) break;
+      if (seen[c.vod_id]) continue;
+      seen[c.vod_id] = 1;
+      rel.push({
+        vod_id: c.vod_id,
+        vod_name: c.vod_name,
+        vod_pic: c.vod_pic,
+        vod_remarks: (c.vod_remarks || "").split("|").pop(),
       });
     }
-    return { list: list };
+
+    return { list: [item].concat(rel) };
   }
 
-  async playerContent(flag, id, vipFlags) {
-    const pageUrl = String(id).indexOf("http") === 0 ? String(id) : absolute(String(id));
+  async action(op) {
+    const s = String(op || "");
+    if (!s) return [];
+    if (s.indexOf("gal|") === 0) return { list: [] };
 
-    const mv = pageUrl.match(/\/(?:embed|video)-([A-Za-z0-9]+)/);
-    if (!mv) throw new Error("无法识别视频 id");
-    const vid = mv[1];
-
-    // 1. embed 页拿 md5
-    const embedUrl = BASE + "/embed/" + vid + "/";
-    const r1 = await this.net.req(embedUrl, { headers: headers(pageUrl) });
-    if (!r1 || r1.code !== 200) throw new Error("无法打开 embed 页");
-
-    const hm = r1.content.match(/EP\.video\.player\.hash\s*=\s*'([^']+)'/);
-    if (!hm) throw new Error("找不到 hash");
-
-    // 2. md5 → 每 8 位十六进制转 36 进制后拼接
-    const md5 = hm[1];
-    const chunks = md5.match(/.{1,8}/g) || [];
-    let converted = "";
-    for (const c of chunks) converted += parseInt(c, 16).toString(36);
-
-    // 3. 取 sources
-    const xhr = BASE + "/xhr/video/" + vid + "?hash=" + converted +
-      "&domain=www.eporner.com&pixelRatio=1&playerWidth=0&playerHeight=0" +
-      "&fallback=false&embed=true&supportedFormats=hls,dash,h265,vp9,av1,mp4&_=" + Date.now();
-
-    const r2 = await this.net.req(xhr, {
-      headers: {
-        "User-Agent": UA,
-        "Accept": "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": embedUrl,
-      },
-    });
-    if (!r2 || r2.code !== 200) throw new Error("换源失败");
-
-    let data;
-    try {
-      data = JSON.parse(r2.content);
-    } catch (e) {
-      throw new Error("换源返回解析失败");
-    }
-
-    const sources = data.sources || {};
-    const mp4 = sources.mp4 || {};
-
-    // 收集所有 mp4 画质（多画质交给播放器切）
-    const values = [];
-    const seenSrc = {};
-    for (const key in mp4) {
-      const item = mp4[key] || {};
-      const src = item.src || "";
-      if (!src || src.indexOf("/dload/") >= 0 || seenSrc[src]) continue;
-      seenSrc[src] = 1;
-      const label = String(item.labelShort || key || "");
-      const q = parseInt(label.replace(/[^0-9]/g, ""), 10) || 0;
-      values.push({ n: label || q + "P", v: absolute(src), q: q });
-    }
-    values.sort((a, b) => b.q - a.q);
-
-    // 没有 mp4 就用 hls
-    if (values.length === 0) {
-      const hls = sources.hls || {};
-      let hlsUrl = "";
-      for (const key in hls) {
-        const src = (hls[key] || {}).src || "";
-        if (src) {
-          hlsUrl = absolute(src);
-          break;
+    // 侧边栏
+    if (s === "side|") {
+      const groups = [];
+      try {
+        const cats = await this.loadCats();
+        const hot = cats.slice(0, 24);
+        if (hot.length) {
+          groups.push({
+            name: "热门分类",
+            facet: "categorysearch",
+            items: hot.map((c) => ({ name: c.name, count: "", id: "cat:" + c.slug })),
+          });
         }
-      }
-      if (!hlsUrl) throw new Error("没有可用播放源");
-      values.push({ n: "HLS", v: hlsUrl, q: 0 });
+      } catch (e) { }
+      try {
+        const stars = await this.loadStars(1);
+        const top = stars.slice(0, 24);
+        if (top.length) {
+          groups.push({
+            name: "热门模特",
+            facet: "pornstarssearch",
+            items: top.map((x) => ({ name: x.name, count: x.count || "", id: "star:" + x.slug })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
     }
 
-    // 多画质：App 目前只接受字符串 URL，先取最高画质的直链（多画质切换等 App 支持后再放开）
-    const chosen = values[0];
-    const isHls = /\.m3u8(\?|$)/i.test(chosen.v);
+    // 分类面板
+    if (s.indexOf("facet|category|") === 0 || s.indexOf("facet|categories|") === 0) {
+      const prefix = s.indexOf("facet|categories|") === 0 ? "facet|categories|" : "facet|category|";
+      const rest = s.substring(prefix.length);
+      const bar = rest.lastIndexOf("|");
+      const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
+      const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
 
-    return {
-      parse: isHls ? 1 : 0,
-      url: chosen.v,
-      header: { "User-Agent": UA, "Referer": BASE + "/" },
-    };
+      const all = await this.loadCats();
+      const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letter
+        ? all.filter((x) => headLetter(x.name) === letter)
+        : (kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.indexOf(kw) >= 0) : all);
+      const PAGE = 100;
+      const from = (page - 1) * PAGE;
+      return {
+        items: hit.slice(from, from + PAGE).map((x) => ({
+          id: "cat:" + x.slug, name: x.name, count: "",
+        })),
+      };
+    }
+
+    // 模特面板（分页从站点的 pornstar-list 拉）
+    if (s.indexOf("facet|pornstar") === 0) {
+      const rest = s.substring(s.indexOf("|", 6) + 1);   // 跳过 "facet|<kind>|"
+      const bar = rest.lastIndexOf("|");
+      const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
+      const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
+
+      // 无关键词 → 直接取站点的第 page 页；有关键词/字母 → 扫前若干页过滤
+      if (!kw) {
+        const stars = await this.loadStars(page);
+        return {
+          items: stars.slice(0, 100).map((x) => ({
+            id: "star:" + x.slug, name: x.name, count: x.count || "",
+          })),
+        };
+      }
+      const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = [];
+      for (let pg = 1; pg <= 4; pg++) {
+        const stars = await this.loadStars(pg);
+        if (!stars.length) break;
+        for (const x of stars) {
+          if (letter ? headLetter(x.name) === letter : x.name.toLowerCase().indexOf(kw) >= 0) hit.push(x);
+        }
+        if (hit.length >= 100) break;
+      }
+      return {
+        items: hit.slice(0, 100).map((x) => ({ id: "star:" + x.slug, name: x.name, count: x.count || "" })),
+      };
+    }
+
+    return [];
   }
 
-  async searchContent(key, quick, pg = "1") {
+  /** 分类清单（/cat/all/，85 个） */
+  async loadCats() {
+    if (this.cats && this.cats.length) return this.cats;
+    const html = await this.getHtml(BASE + "/cat/all/");
+    const out = [];
+    const seen = {};
+    const re = /href="\/cat\/([a-z0-9\-]+)\/"[^>]*>([^<]{1,30})</g;
+    let m;
+    while ((m = re.exec(html || "")) !== null) {
+      const slug = m[1];
+      if (slug === "all" || seen[slug]) continue;
+      seen[slug] = 1;
+      const nm = strip(m[2]);
+      if (nm) out.push({ slug: slug, name: nm });
+    }
+    if (out.length) this.cats = out;
+    return out;
+  }
+
+  /** 模特清单（/pornstar-list/<page>/，每页 ~76） */
+  async loadStars(page) {
+    this.starPages = this.starPages || {};
+    const pg = Math.max(1, Number(page) || 1);
+    if (this.starPages[pg]) return this.starPages[pg];
+    const url = BASE + "/pornstar-list/" + (pg > 1 ? pg + "/" : "");
+    const html = await this.getHtml(url);
+    const out = [];
+    const seen = {};
+    // 站点结构：<div class="mbprofile"><a href="/pornstar/<slug>/" title="名字"><p class="mbtit">名字</p>
+    //          计数在同一块的 <div class="mbtim"><span>Videos: </span>691</div>
+    const re = /class="mbprofile"><a href="\/pornstar\/([^"\/]+)\/" title="([^"]{1,48})"([\s\S]{0,600}?)(?=<div class="mbprofile"|$)/g;
+    let m;
+    while ((m = re.exec(html || "")) !== null) {
+      const slug = m[1];
+      if (seen[slug]) continue;
+      seen[slug] = 1;
+      const nm = strip(m[2]);
+      const vids = m[3].match(/Videos:\s*<\/span>\s*([\d,]+)/);
+      const cnt = vids ? vids[1].replace(/,/g, "") : "";
+      if (nm) out.push({ slug: slug, name: nm, count: cnt });
+    }
+    if (out.length) this.starPages[pg] = out;
+    return out;
+  }
+
+  async playerContent(flag, id) {
+    const raw = String(id);
+    const header = { "User-Agent": UA, "Referer": BASE + "/" };
+
+    // /dload/ 会 302 到签名 CDN：自己解一次，避免播放器不跟跳转
+    if (raw.indexOf("/dload/") > 0) {
+      try {
+        const r = await this.net.req(raw, { headers: hdrs(raw), redirect: 0 });
+        const h = (r && r.headers) || {};
+        for (const k of Object.keys(h)) {
+          if (String(k).toLowerCase() === "location") {
+            // 签名地址里的 ?dload=… 带空格和方括号，不编码播放器会报 bad range
+            const loc = String(h[k] || "")
+              .replace(/ /g, "%20").replace(/\[/g, "%5B").replace(/\]/g, "%5D");
+            if (loc) return { parse: 0, url: loc, header: header };
+          }
+        }
+      } catch (e) { }
+      return { parse: 0, url: raw, header: header };   // 解不出就让播放器自己跟
+    }
+
+    if (/\.(?:mp4|m3u8)(?:$|\?)/i.test(raw)) return { parse: 0, url: raw, header: header };
+
+    const html = await this.getHtml(raw);
+    const play = html ? parsePlay(html) : "";
+    if (!play) throw new Error("没找到播放地址");
+    return { parse: 0, url: play, header: header };
+  }
+
+  async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
-    const q = String(key).trim().replace(/\s+/g, "-");
-    const url = BASE + "/search/" + encodeURIComponent(q) + (p > 1 ? "/" + p + "/" : "/");
-
-    const r = await this.net.req(url, { headers: headers() });
-    if (!r || r.code !== 200) return this.page([], p, 30, 0);
-
-    const cards = parseCards(r.content);
-    if (cards.length === 0) return this.page([], p, 30, (p - 1) * 30);
-    return this.page(cards, p, 30, (p + 1) * 30);
+    const kw = encodeURIComponent(key);
+    const url = BASE + "/search/?q=" + kw + (p > 1 ? "&p=" + p : "");
+    return this.fromHtml(await this.getHtml(url), p);
   }
 }
