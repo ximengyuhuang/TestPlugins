@@ -221,12 +221,21 @@ export default class Kanliao extends Spider {
 
     // 列表页的卡片没有封面（只有渐变底色），封面只在详情页的 itemprop="image"
     // → 并行为本页每个条目取一次详情（结果进 180 秒缓存，点开详情时复用）
+    let alive = cards;
     if (cards.length) {
-      const deadline = Date.now() + 10000;   // 总预算 6 秒：超时就用已拿到的封面，不让整页卡住
+      const deadline = Date.now() + 10000;   // 总预算 10 秒：超时就用已拿到的封面，不让整页卡住
+      const dead = {};
       await Promise.all(cards.map(async (c) => {
         if (Date.now() > deadline) return;
         const det = await this.getHtml(c.vod_id);
-        if (!det) return;
+
+        // 站点列表里混着一批「死帖/落地页」：详情页要么是 3KB 空壳，
+        // 要么是 hex2bin 混淆的广告页 —— 既没有 post-title 也没有 itemprop=image
+        if (!det || (!/class="post-title/.test(det) && !/itemprop="image"/.test(det))) {
+          dead[c.vod_id] = 1;
+          return;
+        }
+
         const cov = det.match(/itemprop="image"\s+content="([^"]+)"/);
         if (cov) c.vod_pic = cov[1].indexOf("http") === 0 ? cov[1] : BASE + cov[1];
         // 顺手用详情页的分类修正角标（列表页偶尔给「无分类」）
@@ -235,10 +244,12 @@ export default class Kanliao extends Spider {
           if (catM) c.vod_remarks = strip(catM[2]) + "|";
         }
       }));
+      // 只过滤「确认是死帖」的；预算内没来得及判定的保留，避免慢网下误删正常内容
+      alive = cards.filter((c) => !dead[c.vod_id]);
     }
 
-    const total = hasNext(html, p) ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
-    return this.page(cards, p, PAGE_SIZE, total);
+    const total = hasNext(html, p) ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + alive.length;
+    return this.page(alive, p, PAGE_SIZE, total);
   }
 
   async detailContent(ids) {
