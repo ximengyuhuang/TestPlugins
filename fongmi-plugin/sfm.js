@@ -37,16 +37,24 @@ const CHIPS = [
   { n: "随机", v: "random" },
 ];
 
-// 旧版硬编码父类（现在分类走 REST API 全量，仅保留做兜底）
+// 常看父类（按站点文章数排序的前 16 个，用来做 chips；其余走「全部分类」面板）
 const PARENTS = [
   { n: "Overwatch", v: "overwatch" },
-  { n: "英雄联盟", v: "league-of-legend" },
+  { n: "Final Fantasy", v: "final-fantasy" },
+  { n: "Fortnite", v: "fortnite" },
+  { n: "Resident Evil", v: "resident-evil" },
   { n: "Marvel", v: "marvel" },
-  { n: "DC", v: "dc" },
+  { n: "英雄联盟", v: "league-of-legend" },
+  { n: "Dead Or Alive", v: "dead-or-alive" },
+  { n: "Genshin Impact", v: "genshin-impact" },
+  { n: "Cyberpunk", v: "cyberpunk-2077" },
+  { n: "Apex Legends", v: "apex-legends" },
+  { n: "Witcher", v: "witcher" },
+  { n: "Zelda", v: "zelda" },
+  { n: "Nier", v: "nier" },
+  { n: "DC Comics", v: "dc" },
+  { n: "Street Fighter", v: "street-fighter" },
   { n: "绝区零", v: "zenless-zone-zero" },
-  { n: "街霸", v: "street-fighter" },
-  { n: "GTA", v: "grand-theft-auto" },
-  { n: "生化危机", v: "resident-evil" },
 ];
 
 function hdrs(ref) {
@@ -152,11 +160,14 @@ export default class Sfm extends Spider {
       subFromTab: true,
       class: [
         { type_id: "video", type_name: "视频" },
-        { type_id: "categorysearch", type_name: "分类" },
+        { type_id: "category", type_name: "分类" },
+        { type_id: "categorysearch", type_name: "全部分类" },
         { type_id: "web", type_name: "网页" },
       ],
       filters: {
         video: [{ key: "media", name: "入口", value: CHIPS }],
+        // 分类 tab：一排父类 chips；选中父类后 App 用 action("sub|<父类>") 取角色 chips
+        category: [{ key: "media", name: "分类", value: [{ n: "全部", v: "" }].concat(PARENTS) }],
       },
     };
   }
@@ -180,13 +191,20 @@ export default class Sfm extends Spider {
       return this.fromHtml(html, p);
     }
 
-    // 分类 tab（搜索面板）：选中值在 extend.sub，形如 cat:<slug>
+    // 「全部分类」面板：选中值在 extend.sub，形如 cat:<父类/子类>
     const sub = String(ext.sub || "");
-    if (sub.indexOf("cat:") !== 0) {
-      return this.page([{ vod_id: "", vod_name: "在上方选一个分类（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
+    if (t === "categorysearch") {
+      if (sub.indexOf("cat:") !== 0) {
+        return this.page([{ vod_id: "", vod_name: "在上方选一个分类（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
+      }
+      const html = await this.getHtml(catUrl(sub.substring(4), p));
+      return this.fromHtml(html, p);
     }
-    const slug = sub.substring(4);
-    this.lastCat = slug;                       // 记住当前分类，二级 chips 要用
+
+    // 分类 tab：media = 父类；选了角色时 sub = cat:<父类>/<角色>
+    let slug = String(ext.media || "");
+    if (sub.indexOf("cat:") === 0) slug = sub.substring(4);
+
     const html = await this.getHtml(catUrl(slug, p));
     return this.fromHtml(html, p);
   }
@@ -401,14 +419,6 @@ export default class Sfm extends Spider {
           };
         }),
       };
-    }
-
-    // 选中某个顶层分类后，把它的子类作为二级 chips 返回
-    if (op === "sub|categorysearch" || op.indexOf("sub|categorysearch|") === 0) {
-      const cur = this.lastCat || "";
-      if (!cur || cur.indexOf("/") >= 0) return [];      // 已经在子类里了，不再往下钻
-      const kids = await this.kidsOf(cur);
-      return kids.map((k) => ({ name: k.name, value: "cat:" + k.path }));
     }
 
     if (op.indexOf("sub|") === 0) {
