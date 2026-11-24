@@ -335,29 +335,67 @@ export default class Kanliao extends Spider {
     return { list: [item].concat(rel) };
   }
 
-  /** 相关推荐：站点只给上一篇/下一篇，不足 8 条就用同分类补齐 */
+  /**
+   * 相关推荐：站点只给上一篇/下一篇，不足 8 条用同分类补齐。
+   * ⚠ 必须校验候选页：站点里混着大量「死帖 / hex2bin 广告落地页」，
+   * 不校验的话推荐区会全是广告（用户反馈过一次）。
+   */
   async relatedOf(html, selfUrl) {
-    const out = [];
+    const cands = [];
     const seen = {};
     seen[selfUrl] = 1;
 
-    const push = (url, name, cat) => {
-      if (!url || seen[url] || out.length >= 8) return;
+    const addCand = (url, name, cat) => {
+      if (!url || seen[url]) return;
       seen[url] = 1;
-      out.push({ vod_id: url, vod_name: name || url, vod_pic: "", vod_remarks: cat ? cat + "|" : "" });
+      cands.push({ url: url, name: name, cat: cat });
     };
 
-    // 1) 详情页里其它 archives 链接（上一篇/下一篇/推荐位）
-    for (const c of parseCards(html)) push(c.vod_id, c.vod_name, (c.vod_remarks || "").replace("|", ""));
+    // 1) 详情页里其它 archives 链接（上一篇/下一篇）
+    for (const c of parseCards(html)) addCand(c.vod_id, c.vod_name, (c.vod_remarks || "").replace("|", ""));
 
-    // 2) 不足 8 条 → 同分类第一页补齐
-    if (out.length < 8) {
-      const cat = String((html.match(/\/category\/([a-z]+)\//) || [])[1] || "");
-      const listUrl2 = cat ? BASE + "/category/" + cat + "/" : BASE + "/";
-      const page = await this.getHtml(listUrl2);
-      if (page) for (const c of parseCards(page)) push(c.vod_id, c.vod_name, CAT_NAME[cat] || "");
+    // 2) 同分类第一页补齐（多取一些，校验后还能剩够 8 条）
+    const cat = String((html.match(/\/category\/([a-z]+)\//) || [])[1] || "");
+    const listUrl2 = cat ? BASE + "/category/" + cat + "/" : BASE + "/";
+    const page = await this.getHtml(listUrl2);
+    if (page) for (const c of parseCards(page)) addCand(c.vod_id, c.vod_name, CAT_NAME[cat] || "");
+
+    // 3) 候选不够就再补一页（同分类第 2 页 + 首页），保证校验后还能剩几条
+    if (cands.length < 12) {
+      const more = await Promise.all([
+        this.getHtml(cat ? BASE + "/category/" + cat + "/page/2/" : BASE + "/page/2/"),
+        this.getHtml(BASE + "/"),
+      ]);
+      for (const page2 of more) {
+        if (!page2) continue;
+        for (const c of parseCards(page2)) addCand(c.vod_id, c.vod_name, CAT_NAME[cat] || "");
+      }
     }
-    return out;
+
+    // 4) 校验：只留「真有播放器」的页（死帖/广告页没有 dplayer）
+    const checked = await Promise.all(cands.slice(0, 20).map(async (c) => {
+      const det = await this.getHtml(c.url);
+      if (!det) return null;
+      const hasPlayer = /class="dplayer"/.test(det);
+      const hasTitle = /class="post-title/.test(det);
+      const hasImg = /itemprop="image"/.test(det);
+      if (!hasPlayer) return null;                 // 没有播放器 → 死帖或广告
+      if (!hasTitle && !hasImg) return null;        // 连标题封面都没有 → 垃圾页
+      const cov = det.match(/itemprop="image"\s+content="([^"]+)"/);
+      let name = c.name;
+      if (!name || /^无标题 · /.test(name)) {
+        const t = det.match(/class="post-title[^"]*"[^>]*>([^<]{1,60})</);
+        if (t) name = strip(t[1]);
+      }
+      return {
+        vod_id: c.url,
+        vod_name: name || c.url,
+        vod_pic: cov ? (cov[1].indexOf("http") === 0 ? cov[1] : BASE + cov[1]) : "",
+        vod_remarks: c.cat ? c.cat + "|" : "",
+      };
+    }));
+
+    return checked.filter(Boolean).slice(0, 8);
   }
 
   /** 标签全量：/tags.html（766 个） */
