@@ -37,7 +37,7 @@ const CHIPS = [
   { n: "随机", v: "random" },
 ];
 
-// 分类 tab：8 个父类
+// 旧版硬编码父类（现在分类走 REST API 全量，仅保留做兜底）
 const PARENTS = [
   { n: "Overwatch", v: "overwatch" },
   { n: "英雄联盟", v: "league-of-legend" },
@@ -152,12 +152,11 @@ export default class Sfm extends Spider {
       subFromTab: true,
       class: [
         { type_id: "video", type_name: "视频" },
-        { type_id: "category", type_name: "分类" },
+        { type_id: "categorysearch", type_name: "分类" },
         { type_id: "web", type_name: "网页" },
       ],
       filters: {
         video: [{ key: "media", name: "入口", value: CHIPS }],
-        category: [{ key: "media", name: "分类", value: [{ n: "全部", v: "" }].concat(PARENTS) }],
       },
     };
   }
@@ -181,11 +180,12 @@ export default class Sfm extends Spider {
       return this.fromHtml(html, p);
     }
 
-    // 分类 tab：media = 父类；sub = cat:<父类>/<子类>
-    let slug = String(ext.media || "");
+    // 分类 tab（搜索面板）：选中值在 extend.sub，形如 cat:<slug>
     const sub = String(ext.sub || "");
-    if (sub.indexOf("cat:") === 0) slug = sub.substring(4);
-
+    if (sub.indexOf("cat:") !== 0) {
+      return this.page([{ vod_id: "", vod_name: "在上方选一个分类（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
+    }
+    const slug = sub.substring(4);
     const html = await this.getHtml(catUrl(slug, p));
     return this.fromHtml(html, p);
   }
@@ -234,6 +234,32 @@ export default class Sfm extends Spider {
       }
     }
     return this.page(cards, 1, PAGE_SIZE, cards.length);
+  }
+
+  /** 全量分类：WP REST API（顶层 41 + 子类 59，按文章数排序） */
+  async loadCats() {
+    if (this.cats && this.cats.length) return this.cats;
+    const out = [];
+    try {
+      for (let page = 1; page <= 4; page++) {
+        const r = await this.net.req(BASE + "/wp-json/wp/v2/categories?per_page=100&page=" + page, {
+          headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
+        });
+        if (!r || r.code !== 200) break;
+        let arr = null;
+        try { arr = JSON.parse(r.content); } catch (e) { arr = null; }
+        if (!arr || !arr.length) break;
+        for (const c of arr) {
+          if (!c || !c.slug) continue;
+          out.push({ slug: c.slug, name: c.name || c.slug, count: c.count || 0, parent: c.parent || 0 });
+        }
+        if (arr.length < 100) break;
+      }
+    } catch (e) { }
+    // 文章多的排前面，更符合「找得到」的直觉
+    out.sort((a, b) => (b.count || 0) - (a.count || 0));
+    if (out.length) this.cats = out;
+    return out;
   }
 
   async detailContent(ids) {
@@ -312,6 +338,29 @@ export default class Sfm extends Spider {
   async action(op) {
     if (!op) return [];
     if (op.indexOf("gal|") === 0) return { list: [] };
+
+    // 分类面板：WP REST API 一次拿全（顶层 41 + 子类 59），带文章数
+    if (op.indexOf("facet|category|") === 0 || op.indexOf("facet|categories|") === 0) {
+      const prefix = op.indexOf("facet|categories|") === 0 ? "facet|categories|" : "facet|category|";
+      const rest = op.substring(prefix.length);
+      const bar = rest.lastIndexOf("|");
+      const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
+      const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
+
+      const all = await this.loadCats();
+      const hit = kw
+        ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.toLowerCase().indexOf(kw) >= 0)
+        : all;
+      const PAGE = 100;
+      const from = (page - 1) * PAGE;
+      return {
+        items: hit.slice(from, from + PAGE).map((x) => ({
+          id: "cat:" + x.slug,
+          name: x.name,
+          count: x.count ? x.count + " 部" : "",
+        })),
+      };
+    }
 
     if (op.indexOf("sub|") === 0) {
       const parent = op.substring(4).trim();
