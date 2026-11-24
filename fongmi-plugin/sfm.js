@@ -117,7 +117,11 @@ function parseCards(html) {
     seen[url] = 1;
 
     const title = seg.match(/<a href="[^"]+" rel="bookmark"[^>]*>([\s\S]{0,200}?)<\/a>/);
-    const poster = seg.match(/data-poster-image="([^"]+)"/) || seg.match(/data-poster-webp="([^"]+)"/);
+    // 封面有两种：带视频的卡片用 data-poster-image / data-poster-webp；
+    // 另一批卡片没有视频标记，只有普通 <img src="…uploads/xxx.jpg">
+    const poster = seg.match(/data-poster-image="([^"]+)"/) ||
+      seg.match(/data-poster-webp="([^"]+)"/) ||
+      seg.match(/<img[^>]*src="(https:\/\/sfmcompile\.club\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i);
     const cat = seg.match(/class="entry-category[^"]*"[^>]*>([^<]{1,24})</);
 
     out.push({
