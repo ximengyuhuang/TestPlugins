@@ -203,6 +203,12 @@ export default class HentaiClub extends Spider {
   }
 
   async categoryContent(tid, pg, filter, extend) {
+    // 详情页的标签 chips 点进来时，App 会把 "tag:<slug>" 直接当 tid 传
+    // → 改成 tagsearch tab + extend.sub，否则会退回默认列表
+    if (String(tid || "").indexOf("tag:") === 0) {
+      if (extend) extend.sub = String(tid);
+      tid = "tagsearch";
+    }
     const p = Number(pg) || 1;
     const t = String(tid || "all");
 
@@ -419,7 +425,9 @@ export default class HentaiClub extends Spider {
       const hit = [];
       for (const t of tags) {
         if (!kw || t.name.toLowerCase().indexOf(low) >= 0 || t.id.toLowerCase().indexOf(low) >= 0) {
-          hit.push({ id: t.id, name: t.name, count: "" });
+          // id 必须带 "tag:" 前缀：App 选中后把它放进 extend.sub，
+          // categoryContent 只认 "tag:<slug>" —— 不带前缀会退回默认列表
+          hit.push({ id: "tag:" + t.id, name: t.name, count: "" });
           if (hit.length >= 60) break;
         }
       }

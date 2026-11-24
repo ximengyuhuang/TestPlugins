@@ -207,8 +207,14 @@ export default class Kanliao extends Spider {
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
-    const t = String(tid || "video");
+    let t = String(tid || "video");
     const ext = extend || {};
+
+    // 详情页的标签 chips 点进来时，App 会把 "tag:<slug>" 直接当 tid 传
+    if (t.indexOf("tag:") === 0) {
+      ext.sub = t;
+      t = "tagsearch";
+    }
 
     if (t === "web") {
       try { openWeb({ url: BASE + "/" }); } catch (e) { }

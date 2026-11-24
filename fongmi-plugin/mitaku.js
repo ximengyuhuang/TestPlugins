@@ -581,6 +581,16 @@ export default class Mitaku extends Spider {
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
     const ext = extend || {};
+    // 详情页的标签/作者 chips 点进来时，App 会把 "tag:<slug>" / "author:<x>" 直接当 tid 传
+    let t0 = String(tid || "");
+    if (t0.indexOf("tag:") === 0) {
+      ext.sub = t0;
+      t0 = "tagsearch";
+    } else if (t0.indexOf("author:") === 0) {
+      ext.sub = t0;
+      t0 = "authorsearch";
+    }
+    tid = t0;
     const sub = String(ext.sub || "");
 
     // 标签面板选中 → 走站点的标签页 /tag/<slug>/（分页同分类页）

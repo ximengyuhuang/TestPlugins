@@ -238,7 +238,11 @@ export default class XxCosplay extends Spider {
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
-    const t = String(tid || "all");
+    let t = String(tid || "all");
+    if (t.indexOf("tag:") === 0) {
+      if (extend) extend.sub = t;
+      t = "tagsearch";
+    }
     const sub = (extend && extend.sub) ? String(extend.sub) : "";
 
     if (t === "web") {

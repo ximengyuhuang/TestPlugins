@@ -223,6 +223,12 @@ export default class Xiaocong extends Spider {
   }
 
   async categoryContent(tid, pg, filter, extend) {
+    // 详情页的标签 chips 点进来时，App 会把 "tag:<slug>" 直接当 tid 传
+    // → 改成 tagsearch tab + extend.sub，否则会退回默认列表
+    if (String(tid || "").indexOf("tag:") === 0) {
+      if (extend) extend.sub = String(tid);
+      tid = "tagsearch";
+    }
     const p = Number(pg) || 1;
     const t = String(tid || "all");
 
@@ -421,7 +427,7 @@ export default class Xiaocong extends Spider {
       }
       const from = (pg - 1) * FACET_PAGE_SIZE;
       const items = hit.slice(from, from + FACET_PAGE_SIZE)
-        .map((t) => ({ id: t.name, name: t.count > 0 ? t.name + " " + t.count : t.name, count: String(t.count) }));
+        .map((t) => ({ id: "tag:" + t.name, name: t.count > 0 ? t.name + " " + t.count : t.name, count: String(t.count) }));
       return { items: items };
     }
 
