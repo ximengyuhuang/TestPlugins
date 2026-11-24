@@ -1,256 +1,269 @@
 // 91porn —— BiliTV / catvod QuickJS 插件
 //
-// 列表  /v.php?page=N[&category=rf|hot|top|topf|mf|tf|md|mr|ori|long]
-// 搜索  /v.php?search_id=<关键字>&page=N
-// 详情  /view_video.php?viewkey=<id>
-// 取流  详情页 <source src="https://ccm.91p52.com/xxx.mp4?st=...">（带 Referer 才放行）
+// 站点结构（2026-11-24 侦查）
+//   最新   /v.php?next=watch                       24/页，&page=N
+//   分类   /v.php?category=<code>&page=N           ori/hot/top/long/longer/tf/rf/hd/md/mf
+//   搜索   /search_result.php?search_id=<kw>&page=N
+//   详情   /view_video.php?viewkey=<key>&c=<c>&viewtype=basic&category=<code>
+//   播放   详情页里是编码过的源：strencode2("%3c%73%6f%75%72%63%65…")
+//          URL 解码一次 → <source src='https://…/mp43/1262056.mp4?st=…&e=…'>
+//          直链带过期时间 e=，必须点播时现取；裸拉 206 video/mp4，不需要 Referer
+//   相关   详情页自带 4 条（同样的卡片结构）
 //
-// 站点是英文界面：Duration / Views / Comments / Favorites / Added
+// 卡片：
+//   <div class="well well-sm videos-text-align">
+//     <a href="https://91porn.com/view_video.php?viewkey=XXX&c=…">
+//       <img class="img-responsive" src="https://xxx.rsc.cdn77.org/thumb/1261811.jpg">
+//       <div class="hd-text-icon">HD</div>
+//       <div class="original-text-icon">91</div>
+//       <span class="duration">00:05:38</span>
+//     </a>
+//     <span class="video-title title-truncate m-t-5">标题</span>
+//   </div>
 
 import { Spider, openWeb } from "catvod";
 
 const BASE = "https://91porn.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 24;
 
-// 分类：value 直接拼到 category=
+// 11 个 chips：最新 + 站点 10 个分类（分类本质是排序维度）
 const CATS = [
-  ["rf", "最新"],
-  ["hot", "当前最热"],
-  ["top", "本月最热"],
-  ["ori", "91原创"],
-  ["mf", "收藏最多"],
-  ["tf", "本月收藏"],
-  ["md", "本月讨论"],
-  ["mr", "本月评价"],
-  ["long", "10分钟以上"],
-  ["longer", "20分钟以上"],
+  { n: "最新", v: "" },
+  { n: "91原创", v: "ori" },
+  { n: "当前最热", v: "hot" },
+  { n: "本月最热", v: "top" },
+  { n: "本月收藏", v: "tf" },
+  { n: "最近加精", v: "rf" },
+  { n: "本月讨论", v: "md" },
+  { n: "收藏最多", v: "mf" },
+  { n: "高清", v: "hd" },
+  { n: "10分钟以上", v: "long" },
+  { n: "20分钟以上", v: "longer" },
 ];
 
-function headers(ref) {
+function hdrs(ref) {
   return {
     "User-Agent": UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Referer": ref || BASE + "/",
+    "Referer": ref || BASE + "/v.php?next=watch",
   };
 }
 
-// 去掉零宽字符（站点用来干扰抓取）
-function clean(s) {
-  if (!s) return "";
-  return String(s)
-    .replace(/[\u200b-\u200f\u2060\ufeff\ufe00-\ufe0f]/g, "")
+function decode(s) {
+  return String(s || "")
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
-    .replace(/&amp;/g, "&")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, d) => String.fromCharCode(parseInt(d, 16)))
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ");
 }
 
-function absolute(u) {
-  if (!u) return "";
-  if (u.indexOf("http") === 0) return u;
-  if (u.indexOf("//") === 0) return "https:" + u;
-  return BASE + (u.charAt(0) === "/" ? u : "/" + u);
+function strip(s) {
+  return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-// 列表卡片：<article class="vitem well-sm well"> … 封面 / duration / <bdi>标题</bdi>
+/** 列表 URL */
+function listUrl(catCode, p) {
+  if (!catCode) return BASE + "/v.php?next=watch" + (p > 1 ? "&page=" + p : "");
+  return BASE + "/v.php?category=" + catCode + (p > 1 ? "&page=" + p : "");
+}
+
+/** 有没有下一页：优先看分页链接，其次看是否满页 */
+function hasNext(html, p) {
+  const t = String(html || "");
+  return t.indexOf("page=" + (p + 1)) >= 0 || t.indexOf("page-" + (p + 1)) >= 0;
+}
+
+/**
+ * 从一段 HTML 里解析卡片。站点有两套标记，都要认：
+ *   A) 列表页/搜索页： <article class="vitem well-sm well">
+ *        <a href="…viewkey=…"><div class="thumb-overlay"><img class="img-responsive" src="…">
+ *        <span class="duration">00:06:07</span></div>
+ *        <div class="tXXXX"><bdi>标题</bdi></div></a></article>
+ *   B) 首页排行：     <div class="well well-sm videos-text-align"> … <span class="video-title">标题</span>
+ * 里面那个 tXXXX 是随机 hash，不能写死 —— 统一用 <bdi> / video-title 兜底。
+ */
 function parseCards(html) {
+  const text = String(html || "");
   const out = [];
   const seen = {};
-  const parts = String(html).split(/<article class="vitem/);
-  for (let i = 1; i < parts.length; i++) {
-    const block = parts[i].substring(0, 2600);
-    const vk = block.match(/view_video\.php\?viewkey=([a-f0-9]+)/);
-    if (!vk) continue;
-    const id = vk[1];
-    if (seen[id]) continue;
-    seen[id] = 1;
+  const re = /view_video[a-z_]*\.php\?[^"\s]{0,80}?viewkey=([A-Za-z0-9]+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const from = Math.max(0, m.index - 400);
+    const b = text.substring(from, m.index + 1600);
 
-    const img = block.match(/<img[^>]*class="img-responsive"[^>]*src="([^"]+)"/);
-    const dur = block.match(/<span class="duration">\s*([^<]*?)\s*<\/span>/);
-    const t1 = block.match(/<bdi>([\s\S]*?)<\/bdi>/);
-    const t2 = block.match(/<span class="video-title[^"]*"[^>]*>([\s\S]*?)<\/span>/);
-    const views = block.match(/Views:\s*<\/span>\s*([0-9,]+)/i);
+    const link = b.match(/href="((?:https?:\/\/91porn\.com\/)?view_video[a-z_]*\.php\?[^"]*viewkey=[A-Za-z0-9]+[^"]*)"/);
+    if (!link) continue;
+    const rawUrl = decode(link[1]);
+    const url = rawUrl.indexOf("http") === 0 ? rawUrl : BASE + "/" + rawUrl.replace(/^\/+/, "");
 
-    const title = clean(t1 ? t1[1] : (t2 ? t2[1] : ""));
-    const remarks = clean(dur ? dur[1] : "") || (views ? clean(views[1]) + " 次播放" : "");
+    // 同一个卡片会被扫到多次（link / thumb id / js），用「viewkey + 标题」去重
+    const img = b.match(/<img[^>]*class="img-responsive"[^>]*src="([^"]+)"/) ||
+      b.match(/<img[^>]*src="([^"]+\.(?:jpg|jpeg|png|webp))"/);
+    const title =
+      (b.match(/<bdi>([\s\S]{0,200}?)<\/bdi>/) ||
+        b.match(/class="video-title[^"]*"[^>]*>([\s\S]{0,200}?)<\/span>/) ||
+        b.match(/<h6[^>]*>([\s\S]{0,200}?)<\/h6>/));
+    const dur = b.match(/class="duration"[^>]*>\s*([0-9:]{4,10})\s*</);
+    const hd = /hd-text-icon|>\s*HD\s*</.test(b);
+
+    const name = strip(title ? title[1] : "");
+    const key = m[1];                 // 只按 viewkey 去重：页面里同一卡片会出现多次
+    if (seen[key]) continue;
+    seen[key] = 1;
+    if (!name && !img) continue;
+
+    // 角标：「HD|时长」→ App 拆成左上 HD + 右下时长
+    const durText = dur ? dur[1] : "";
+    const remarks = hd && durText ? "HD|" + durText : (durText || (hd ? "HD" : ""));
 
     out.push({
-      vod_id: BASE + "/view_video.php?viewkey=" + id,
-      vod_name: title || id,
-      vod_pic: img ? absolute(img[1]) : "",
+      vod_id: url,
+      vod_name: name || url,
+      vod_pic: img ? decode(img[1]) : "",
       vod_remarks: remarks,
     });
   }
   return out;
 }
 
-function meta(html, label) {
-  const re = new RegExp(label + "\\s*:\\s*<[^>]*>\\s*([^<]{1,40})", "i");
-  const m = String(html).match(re);
-  return m ? clean(m[1]) : "";
+/** 从详情页里解出播放直链 */
+function parsePlayUrl(html) {
+  const m = String(html || "").match(/strencode2\("([^"]+)"\)/);
+  if (!m) return "";
+  let dec = m[1];
+  try { dec = decodeURIComponent(dec); } catch (e) { }
+  const src = dec.match(/src='([^']+)'/) || dec.match(/src="([^"]+)"/);
+  return src ? decode(src[1]) : "";
 }
 
 export default class P91 extends Spider {
-  init() {}
+  init() { }
 
   async homeContent() {
-    // 一级 tab 只放「内容类型」，其余参数全部进排序按钮，避免和排序重复
     const classes = [
-      { type_id: "c:rf", type_name: "最新" },
-      { type_id: "c:hot", type_name: "当前最热" },
-      { type_id: "c:top", type_name: "本月最热" },
-      { type_id: "c:ori", type_name: "91原创" },
+      { type_id: "video", type_name: "视频" },
       { type_id: "web", type_name: "网页" },
     ];
-
-    // order 组 → App 的「排序」按钮（10 个参数全放这里）
-    const sorts = CATS.map(([code, name]) => ({ n: name, v: code }));
-    const filters = {};
-    for (const c of classes) {
-      if (c.type_id === "web") continue;
-      filters[c.type_id] = [{ key: "order", name: "排序", value: sorts }];
-    }
+    const filters = {
+      video: [
+        { key: "media", name: "分类", value: CATS },
+      ],
+    };
     return { class: classes, filters: filters };
   }
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
-
-    if (tid === "web") {
-      try {
-        openWeb({ url: BASE + "/" });
-      } catch (e) {
-      }
+    const t = String(tid || "video");
+    if (t === "web") {
+      try { openWeb({ url: BASE + "/index.php" }); } catch (e) { }
       return this.page([], p, PAGE_SIZE, 0);
     }
+    const ext = extend || {};
+    const cat = String(ext.media || "");
+    return this.listFromUrl(listUrl(cat, p), p);
+  }
 
-    const code = (extend && extend.order) || (tid.indexOf("c:") === 0 ? tid.substring(2) : "rf");
-    const url = BASE + "/v.php?page=" + p + "&category=" + encodeURIComponent(code);
-
+  async listFromUrl(url, p) {
     let html = "";
     try {
-      const r = await this.net.req(url, { headers: headers(BASE + "/v.php?page=1") });
+      const r = await this.net.req(url, { headers: hdrs(url) });
       if (r && r.code === 200) html = r.content;
-    } catch (e) {
-      html = "";
-    }
+    } catch (e) { html = ""; }
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
     const cards = parseCards(html);
-    const total = cards.length < PAGE_SIZE ? (p - 1) * PAGE_SIZE + cards.length : p * PAGE_SIZE + PAGE_SIZE;
+    const total = hasNext(html, p)
+      ? (p + 1) * PAGE_SIZE
+      : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
 
   async detailContent(ids) {
-    const pageUrl = absolute(ids[0]);
-    let title = "";
-    let pic = "";
-    let duration = "";
-    const lines = [];
-
+    const url = String(ids[0] || "");
+    let html = "";
     try {
-      const r = await this.net.req(pageUrl, { headers: headers(BASE + "/v.php?page=1") });
-      if (r && r.code == 200) {
-        const html = r.content;
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
+    if (!html) return { list: [] };
 
-        const t = html.match(/<title>([^<]+)<\/title>/);
-        if (t) title = clean(t[1]).replace(/\s*[-|]\s*91porn.*$/i, "");
+    let title = "";
+    const t = html.match(/class="video-title[^"]*"[^>]*>([\s\S]{0,200}?)<\/h1>/) ||
+      html.match(/class="video-title[^"]*"[^>]*>([\s\S]{0,200}?)<\/span>/) ||
+      html.match(/<title>([^<]*)<\/title>/);
+    if (t) title = strip(t[1]).replace(/\s*-\s*91porn\s*$/, "").trim();
 
-        const og = html.match(/property="og:image"[^>]*content="([^"]+)"/);
-        if (og) pic = absolute(og[1]);
+    const cover = html.match(/poster="([^"]+)"/) || html.match(/<img[^>]*class="img-responsive"[^>]*src="([^"]+)"/);
 
-        const durSpan = html.match(/(\d{2}:\d{2}:\d{2})/);
-        duration = durSpan ? durSpan[1] : meta(html, "Duration");
-        const added = meta(html, "Added");
-        const views = meta(html, "Views");
-        const comments = meta(html, "Comments");
-        const favs = meta(html, "Favorites");
+    // 文本区：时长 / 热度 / 留言 / 作者
+    const lines = [];
+    const dur = html.match(/时长:[\s\S]{0,80}?video-info-span">([^<]+)</);
+    const hot = html.match(/热度:[\s\S]{0,80}?video-info-span">([^<]+)</);
+    const cmt = html.match(/留言:[\s\S]{0,80}?video-info-span">([^<]+)</);
+    const author = html.match(/<a[^>]*href="[^"]*?[?&]user=([^"&]+)[^"]*"[^>]*>([^<]{1,30})</);
+    if (author) lines.push("作者：" + strip(author[2]));
+    const meta = [];
+    if (dur) meta.push("时长 " + strip(dur[1]));
+    if (hot) meta.push("热度 " + strip(hot[1]));
+    if (cmt) meta.push("留言 " + strip(cmt[1]));
+    if (meta.length) lines.push(meta.join(" · "));
 
-        if (added) lines.push("添加：" + added);
-        if (duration) lines.push("时长：" + duration);
-        if (views) lines.push("播放：" + views);
-        if (comments) lines.push("评论：" + comments);
-        if (favs) lines.push("收藏：" + favs);
-      }
-    } catch (e) {
-    }
+    // 相关推荐：站点详情页自带（同样的卡片结构），排除自己
+    const rel = parseCards(html)
+      .filter((x) => x.vod_id !== url)
+      .slice(0, 8);
+
+    const durText = dur ? strip(dur[1]) : "";
+    const hd = /hd-text-icon/.test(html);
+    const remarks = hd && durText ? "HD|" + durText : durText;
 
     return {
       list: [{
-        vod_id: pageUrl,
-        vod_name: title || pageUrl,
-        vod_pic: pic,
+        vod_id: url,
+        vod_name: title || url,
+        vod_pic: cover ? decode(cover[1]) : "",
         vod_content: lines.join("\n"),
-        vod_remarks: duration,
+        vod_remarks: remarks,
         gallery: false,
         vod_play_from: "91porn",
-        // 正片走直链（需要能连上的 CDN）；连不上时点「网页播放」用内置浏览器
-        vod_play_url: "正片$" + pageUrl + "#网页播放$web://" + pageUrl,
-      }],
+        vod_play_url: "正片$" + url,
+      }].concat(rel),
     };
   }
 
+  /** 播放：解码 strencode2 拿 mp4 直链（带过期时间，必须现取） */
   async playerContent(flag, id) {
-    const pageUrl = absolute(id);
+    const url = String(id);
     let html = "";
     try {
-      const r = await this.net.req(pageUrl, { headers: headers(BASE + "/v.php?page=1") });
-      if (r && r.code == 200) html = r.content;
-    } catch (e) {
-      html = "";
-    }
+      const r = await this.net.req(url, { headers: hdrs() });
+      if (r && r.code === 200) html = r.content;
+    } catch (e) { html = ""; }
     if (!html) throw new Error("详情页打不开");
 
-    let src = "";
-    const s1 = html.match(/<source[^>]+src="([^"]+)"/);
-    if (s1) src = clean(s1[1]);
-    if (!src) {
-      const s2 = html.match(/(https?:\/\/[^"'\s]+\.mp4[^"'\s]*)/);
-      if (s2) src = clean(s2[1]);
-    }
-    if (!src) throw new Error("没有找到视频地址（可能是 VIP 内容）");
+    const play = parsePlayUrl(html);
+    if (!play) throw new Error("没找到播放地址");
 
-    // 带上站点 Cookie / Origin：91porn 的直链签名会校验会话
-    let cookie = "";
-    try {
-      cookie = await this.net.getCookie(pageUrl);
-    } catch (e) {
-      cookie = "";
-    }
-    const h = {
-      "User-Agent": UA,
-      "Referer": pageUrl,
-      "Origin": BASE,
-      "Accept": "*/*",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    return {
+      parse: 0,
+      url: play,
+      header: { "User-Agent": UA, "Referer": BASE + "/" },
     };
-    if (cookie) h["Cookie"] = cookie;
+  }
 
-    return { parse: 0, url: src, header: h };
+  async action(op) {
+    if (!op) return [];
+    if (op.indexOf("gal|") === 0) return { list: [] };
+    return [];
   }
 
   async searchContent(key, quick, pg) {
     const p = Number(pg) || 1;
-    const url = BASE + "/v.php?search_id=" + encodeURIComponent(key) + "&page=" + p;
-
-    let html = "";
-    try {
-      const r = await this.net.req(url, { headers: headers(BASE + "/v.php?page=1") });
-      if (r && r.code == 200) html = r.content;
-    } catch (e) {
-      html = "";
-    }
-    if (!html) return this.page([], p, PAGE_SIZE, 0);
-
-    const cards = parseCards(html);
-    const total = cards.length < PAGE_SIZE ? (p - 1) * PAGE_SIZE + cards.length : p * PAGE_SIZE + PAGE_SIZE;
-    return this.page(cards, p, PAGE_SIZE, total);
+    const url = BASE + "/search_result.php?search_id=" + encodeURIComponent(key) + (p > 1 ? "&page=" + p : "");
+    return this.listFromUrl(url, p);
   }
 }
