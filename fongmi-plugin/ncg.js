@@ -535,10 +535,14 @@ export default class Ncg extends Spider {
     seen[url] = 1;
     let region = "";
     let moreFromCat = "";
-    const mi = html.indexOf("g1-more-from");
+    // 站点的相关区标题是「You May Also Like」，容器 class = g1-related-entries
+    // （SFM 那套叫 g1-more-from，两个都认）
+    let mi = html.indexOf("g1-related-entries");
+    if (mi < 0) mi = html.indexOf("g1-more-from");
     if (mi > 0) {
+      const start = Math.max(0, html.lastIndexOf("<aside", mi));
       const ei = html.indexOf("</aside>", mi);
-      region = html.substring(mi, ei > mi ? ei : mi + 12000);
+      region = html.substring(start, ei > start ? ei : mi + 12000);
       const c = region.match(/href="https:\/\/nudecosplaygirls\.com\/category\/([^"]+)\/"/);
       if (c) moreFromCat = c[1];
     }
