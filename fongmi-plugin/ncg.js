@@ -121,13 +121,15 @@ function parseCards(html) {
     const cat = seg.match(/class="entry-category[^"]*"[^>]*>([^<]{1,40})</);
     const isVideo = /\sformat-video\s/.test(seg.substring(0, 400));
 
+    const isBlog = /\scategory-blog(\s|")/.test(seg.substring(0, 400));
+
     out.push({
       vod_id: url,
       vod_name: strip(title) || url,
       vod_pic: pic ? decode(pic[1]) : "",
-      // 先给个粗角标，后面再用详情页的 P/V 数量覆盖
-      vod_remarks: (cat ? strip(cat[1]) + "|" : "") + (isVideo ? "1V" : ""),
+      vod_remarks: (cat && !isBlog ? strip(cat[1]) + "|" : "") + (isVideo ? "1V" : ""),
       kindVideo: isVideo,
+      isBlog: isBlog,
     });
   }
   return out;
@@ -190,6 +192,39 @@ function parseDetail(html) {
     imgs = Object.keys(best).map((k) => best[k]);
   }
   return { videos: vids, images: imgs };
+}
+
+/** URL → slug */
+function slugOf(url) {
+  const m = String(url || "").match(/\/([a-z0-9\-]+)\/?$/);
+  return m ? m[1] : "";
+}
+
+/** 内容 HTML 里的图片数（按前缀归并，一张图多个尺寸只算一张） */
+function countPics(html) {
+  const seen = {};
+  const re = /<img\b[^>]*>/gi;
+  let m;
+  while ((m = re.exec(String(html || ""))) !== null) {
+    const sm = m[0].match(/\ssrc="([^"]+)"/);
+    if (!sm) continue;
+    const u = decode(sm[1]);
+    if (!isRealPic(u)) continue;
+    seen[baseKey(u)] = 1;
+  }
+  return Object.keys(seen).length;
+}
+
+/** 内容 HTML 里的视频数 */
+function countVids(html) {
+  const seen = {};
+  const re = /<video[^>]*?\ssrc="([^"]+\.(?:mp4|m4v|webm)[^"]*)"|<source[^>]*src="([^"]+\.(?:mp4|m4v|webm)[^"]*)"/gi;
+  let m;
+  while ((m = re.exec(String(html || ""))) !== null) {
+    const u = decode(m[1] || m[2] || "");
+    if (u) seen[u] = 1;
+  }
+  return Object.keys(seen).length;
 }
 
 export default class Ncg extends Spider {
@@ -283,49 +318,76 @@ export default class Ncg extends Spider {
     return order ? base + "?order=" + order : base;
   }
 
-  /** 出列表 + 用详情页的真实 P/V 数量补角标（并发 + 8 秒总预算） */
+  /**
+   * 出列表 + 角标。
+   * ⚠ 不要逐条抓详情页（每篇 130~160 KB × 15 条会把 App 的 15 秒看门狗顶爆）：
+   *   先按 article class 的 format-video 给「1V」，
+   *   其余的一次 REST 批量查（_fields=slug,content），本地数图片/视频。
+   *   另外过滤掉 category-blog 的软文广告。
+   */
   async withBadges(html, p) {
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
-    const cards = parseCards(html);
+    let cards = parseCards(html).filter((c) => !c.isBlog);
 
-    let alive = cards;
     if (cards.length) {
-      const deadline = Date.now() + 9000;
-      const dead = {};
-      await Promise.all(cards.map(async (c) => {
-        if (Date.now() > deadline) return;
-        const det = await this.getHtml(c.vod_id);
-        if (!det) return;
-        const d = parseDetail(det);
+      // 全部 slug 都过一遍批量计数（视频帖也可能带图，角标写 xP·yV 更准）
+      const need = cards.map((c) => slugOf(c.vod_id));
+      const counts = need.length ? await this.bulkCounts(need) : {};
 
-        // 既没有视频也没有图 → 站外广告文章（category-blog 那批），从列表里剔掉
-        if (!d.videos.length && !d.images.length) {
-          dead[c.vod_id] = 1;
-          return;
-        }
-        const nv = d.videos.length;
-        const np = d.images.length;
-        let badge = "";
-        if (np && nv) badge = np + "P·" + nv + "V";
-        else if (nv) badge = (nv > 1 ? nv + "V" : "1V");
-        else if (np) badge = np + "P";
-        if (badge) {
-          const left = c.vod_remarks ? c.vod_remarks.split("|")[0] : "";
+      const alive = [];
+      for (const c of cards) {
+        const slug = slugOf(c.vod_id);
+        const k = counts[slug];
+        if (k && (k.np || k.nv)) {
+          const badge = k.np && k.nv ? k.np + "P·" + k.nv + "V"
+            : k.nv ? (k.nv > 1 ? k.nv + "V" : "1V")
+              : k.np + "P";
+          const left = (c.vod_remarks || "").split("|")[0];
           c.vod_remarks = (left ? left + "|" : "") + badge;
         }
-        // 顺手补封面（列表卡片的图是缩略图，够用；没图时用详情封面）
-        if (!c.vod_pic) {
-          const pic = det.match(/property="og:image"[^>]*content="([^"]+)"/);
-          if (pic) c.vod_pic = decode(pic[1]);
+        alive.push({ vod_id: c.vod_id, vod_name: c.vod_name, vod_pic: c.vod_pic, vod_remarks: c.vod_remarks });
+      }
+      cards = alive;
+    }
+
+    // 剔掉 blog 后可能只剩几条 → 继续抓后面几页补到 10 条以上（最多 2 页）
+    if (cards.length < 10) {
+      for (let extra = 1; extra <= 2 && cards.length < 10; extra++) {
+        const nxt = this.nextPageUrl(html, p + extra);
+        if (!nxt) break;
+        const h2 = await this.getHtml(nxt);
+        if (!h2) break;
+        const more = parseCards(h2).filter((c) => !c.isBlog);
+        if (!more.length) continue;
+        const need = more.filter((c) => !c.kindVideo).map((c) => slugOf(c.vod_id));
+        const counts2 = need.length ? await this.bulkCounts(need) : {};
+        for (const c of more) {
+          if (cards.length >= PAGE_SIZE) break;
+          const k = counts2[slugOf(c.vod_id)];
+          if (k && (k.np || k.nv)) {
+            const badge = k.np && k.nv ? k.np + "P·" + k.nv + "V"
+              : k.nv ? (k.nv > 1 ? k.nv + "V" : "1V") : k.np + "P";
+            const left = (c.vod_remarks || "").split("|")[0];
+            c.vod_remarks = (left ? left + "|" : "") + badge;
+          }
+          cards.push({ vod_id: c.vod_id, vod_name: c.vod_name, vod_pic: c.vod_pic, vod_remarks: c.vod_remarks });
         }
-      }));
-      alive = cards.filter((c) => !dead[c.vod_id]);
+      }
     }
 
     const n = p + 1;
     const more = html.indexOf("/page/" + n + "/") >= 0 || html.indexOf("page/" + n) >= 0;
-    const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + alive.length;
-    return this.page(alive, p, PAGE_SIZE, total);
+    const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
+    return this.page(cards, p, PAGE_SIZE, total);
+  }
+
+  /** 由当前列表 HTML 推出第 n 页地址（保留 ?order= 之类的查询串） */
+  nextPageUrl(html, n) {
+    const m = String(html || "").match(/href="([^"]*\/page\/\d+\/[^"]*)"/);
+    if (!m) return "";
+    let u = m[1].replace(/\/page\/\d+\//, "/page/" + n + "/");
+    if (u.indexOf("http") !== 0) u = BASE + (u.charAt(0) === "/" ? u : "/" + u);
+    return u;
   }
 
   async detailContent(ids) {
@@ -477,15 +539,24 @@ export default class Ncg extends Spider {
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
 
-      const all = await this.loadCats();
-      const models = all.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0);
-      const hit = kw
-        ? models.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.toLowerCase().indexOf(kw) >= 0)
-        : models;
-      const PAGE = 100;
-      const from = (page - 1) * PAGE;
+      // 无搜索词 → 直接取 REST 的第 page 页（一请求）；有搜索词 → 逐页扫到命中为止
+      let models = [];
+      if (!kw) {
+        const pageItems = await this.loadCats(page);
+        models = pageItems.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0);
+      } else {
+        for (let pg = 1; pg <= 4; pg++) {
+          const pageItems = await this.loadCats(pg);
+          if (!pageItems.length) break;
+          for (const c of pageItems) {
+            if (MAIN_SLUGS.indexOf(c.slug) >= 0) continue;
+            if (c.name.toLowerCase().indexOf(kw) >= 0 || c.slug.toLowerCase().indexOf(kw) >= 0) models.push(c);
+          }
+          if (models.length >= 100) break;
+        }
+      }
       return {
-        items: hit.slice(from, from + PAGE).map((x) => ({
+        items: models.slice(0, 100).map((x) => ({
           id: "cat:" + x.slug,
           name: x.name,
           count: x.count ? x.count + " 部" : "",
@@ -499,14 +570,21 @@ export default class Ncg extends Spider {
       const bar = rest.lastIndexOf("|");
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
-      const all = await this.loadTags();
-      const hit = kw
-        ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.slug.toLowerCase().indexOf(kw) >= 0)
-        : all;
-      const PAGE = 100;
-      const from = (page - 1) * PAGE;
+      let hit = [];
+      if (!kw) {
+        hit = await this.loadTags(page);
+      } else {
+        for (let pg = 1; pg <= 6; pg++) {
+          const pageItems = await this.loadTags(pg);
+          if (!pageItems.length) break;
+          for (const t of pageItems) {
+            if (t.name.toLowerCase().indexOf(kw) >= 0 || t.slug.toLowerCase().indexOf(kw) >= 0) hit.push(t);
+          }
+          if (hit.length >= 100) break;
+        }
+      }
       return {
-        items: hit.slice(from, from + PAGE).map((x) => ({
+        items: hit.slice(0, 100).map((x) => ({
           id: "tag:" + x.slug,
           name: x.name,
           count: x.count ? x.count + " 部" : "",
@@ -517,52 +595,84 @@ export default class Ncg extends Spider {
     return [];
   }
 
-  /** REST：全部分类（含 4 个主分类） */
-  async loadCats() {
-    if (this.cats && this.cats.length) return this.cats;
-    const out = [];
+  /** REST：分类（一页一个请求，orderby=count 让热门在前） */
+  async loadCats(page) {
+    const pg = Math.max(1, Number(page) || 1);
+    this.catPages = this.catPages || {};
+    if (this.catPages[pg]) return this.catPages[pg];
+    let arr = [];
     try {
-      for (let page = 1; page <= 6; page++) {
-        const r = await this.net.req(BASE + "/wp-json/wp/v2/categories?per_page=100&page=" + page, {
-          headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
-        });
-        if (!r || r.code !== 200) break;
-        let arr = null;
-        try { arr = JSON.parse(r.content); } catch (e) { arr = null; }
-        if (!arr || !arr.length) break;
-        for (const c of arr) {
-          if (!c || !c.slug) continue;
-          out.push({ slug: c.slug, name: c.name || c.slug, count: c.count || 0 });
-        }
-        if (arr.length < 100) break;
+      const r = await this.net.req(BASE + "/wp-json/wp/v2/categories?per_page=100&page=" + pg +
+        "&orderby=count&order=desc&_fields=slug,name,count,parent", {
+        headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
+      });
+      if (r && r.code === 200) {
+        try { arr = JSON.parse(r.content) || []; } catch (e) { arr = []; }
       }
     } catch (e) { }
-    out.sort((a, b) => (b.count || 0) - (a.count || 0));
-    if (out.length) this.cats = out;
+    const out = [];
+    for (const c of arr) {
+      if (!c || !c.slug) continue;
+      out.push({ slug: c.slug, name: c.name || c.slug, count: c.count || 0, parent: c.parent || 0 });
+    }
+    if (out.length) this.catPages[pg] = out;
     return out;
   }
 
-  async loadTags() {
-    if (this.tags && this.tags.length) return this.tags;
-    const out = [];
+  /** REST：标签（一页一个请求） */
+  async loadTags(page) {
+    const pg = Math.max(1, Number(page) || 1);
+    this.tagPages = this.tagPages || {};
+    if (this.tagPages[pg]) return this.tagPages[pg];
+    let arr = [];
     try {
-      for (let page = 1; page <= 8; page++) {
-        const r = await this.net.req(BASE + "/wp-json/wp/v2/tags?per_page=100&page=" + page, {
-          headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
-        });
-        if (!r || r.code !== 200) break;
-        let arr = null;
-        try { arr = JSON.parse(r.content); } catch (e) { arr = null; }
-        if (!arr || !arr.length) break;
-        for (const t of arr) {
-          if (!t || !t.slug) continue;
-          out.push({ slug: t.slug, name: t.name || t.slug, count: t.count || 0 });
-        }
-        if (arr.length < 100) break;
+      const r = await this.net.req(BASE + "/wp-json/wp/v2/tags?per_page=100&page=" + pg +
+        "&orderby=count&order=desc&_fields=slug,name,count", {
+        headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
+      });
+      if (r && r.code === 200) {
+        try { arr = JSON.parse(r.content) || []; } catch (e) { arr = []; }
       }
     } catch (e) { }
-    out.sort((a, b) => (b.count || 0) - (a.count || 0));
-    if (out.length) this.tags = out;
+    const out = [];
+    for (const t of arr) {
+      if (!t || !t.slug) continue;
+      out.push({ slug: t.slug, name: t.name || t.slug, count: t.count || 0 });
+    }
+    if (out.length) this.tagPages[pg] = out;
+    return out;
+  }
+
+  /**
+   * 批量算 P/V 数量：一次 REST 请求查本页所有 slug，
+   * 比逐条抓详情页（每篇 130~160 KB）快一个数量级
+   */
+  async bulkCounts(slugs) {
+    const out = {};
+    const list = (slugs || []).filter(Boolean).slice(0, 20);
+    if (!list.length) return out;
+    this.countCache = this.countCache || {};
+    const need = list.filter((s) => !this.countCache[s]);
+    if (need.length) {
+      try {
+        const r = await this.net.req(BASE + "/wp-json/wp/v2/posts?per_page=20&_fields=slug,content&slug=" +
+          need.map((x) => encodeURIComponent(x)).join(","), {
+          headers: { "User-Agent": UA, "Accept": "application/json,*/*", "Referer": BASE + "/" },
+        });
+        if (r && r.code === 200) {
+          let arr = [];
+          try { arr = JSON.parse(r.content) || []; } catch (e) { arr = []; }
+          for (const post of arr) {
+            const slug = post.slug || "";
+            const html = (post.content && post.content.rendered) || "";
+            const np = countPics(html);
+            const nv = countVids(html);
+            if (slug) this.countCache[slug] = { np: np, nv: nv };
+          }
+        }
+      } catch (e) { }
+    }
+    for (const s of list) if (this.countCache[s]) out[s] = this.countCache[s];
     return out;
   }
 
