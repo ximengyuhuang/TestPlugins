@@ -423,6 +423,23 @@ export default class HentaiClub extends Spider {
   async action(op) {
     if (!op) return {};
 
+    // 侧边栏：热门标签（给了 facet 后 App 会隐藏「标签」tab）
+    if (op === "side|") {
+      const groups = [];
+      try {
+        const tags = await this.allTags();
+        const top = (tags || []).slice(0, 24);
+        if (top.length) {
+          groups.push({
+            name: "热门标签",
+            facet: "tagsearch",
+            items: top.map((x) => ({ name: x.name, count: "", id: "tag:" + (x.id || x.name) })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
+    }
+
     // 标签模糊搜索：App 的「标签」搜索框走这里
     if (op.indexOf("facet|tags|") === 0) {
       const rest = op.substring("facet|tags|".length);

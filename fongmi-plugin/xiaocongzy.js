@@ -410,6 +410,23 @@ export default class Xiaocong extends Spider {
   async action(op) {
     if (!op) return [];
 
+    // 侧边栏：热门博主（给了 facet 后 App 会隐藏「博主」tab）
+    if (op === "side|") {
+      const groups = [];
+      try {
+        const tags = await this.allTags();
+        const top = (tags || []).slice(0, 24);
+        if (top.length) {
+          groups.push({
+            name: "热门博主",
+            facet: "tagsearch",
+            items: top.map((x) => ({ name: x.name, count: String(x.count || ""), id: "tag:" + x.name })),
+          });
+        }
+      } catch (e) { }
+      return { groups: groups };
+    }
+
     // 博主（标签）模糊搜索 + 分页浏览
     if (op.indexOf("facet|tags|") === 0) {
       const rest = op.substring("facet|tags|".length);
