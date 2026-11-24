@@ -123,17 +123,44 @@ function hasNext(html, p) {
   return t.indexOf("page/" + n + "/") >= 0 || t.indexOf("page=" + n) >= 0 || /rel="next"/.test(t);
 }
 
-/** 详情页的播放地址（m3u8） */
-function parsePlay(html) {
-  const m = String(html || "").match(/data-config='([^']+)'/);
-  if (!m) return "";
-  try {
-    const cfg = JSON.parse(m[1].replace(/&quot;/g, '"'));
-    return (cfg.video && cfg.video.url) || "";
-  } catch (e) {
-    const u = m[1].match(/"url"\s*:\s*"([^"]+)"/);
-    return u ? u[1].replace(/\\\//g, "/") : "";
+/**
+ * 详情页的所有播放地址（m3u8）。
+ * ⚠ 一篇可以有多个播放器（合集/短剧），实测单篇最多 26 个 —— 全部按出现顺序取出来当「集」
+ */
+function parsePlays(html) {
+  const text = String(html || "");
+  const out = [];
+  const seen = {};
+  const re = /data-config='([^']+)'/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    let url = "";
+    try {
+      const cfg = JSON.parse(m[1].replace(/&quot;/g, '"'));
+      url = (cfg.video && cfg.video.url) || "";
+    } catch (e) {
+      const u = m[1].match(/"url"\s*:\s*"([^"]+)"/);
+      url = u ? u[1].replace(/\\\//g, "/") : "";
+    }
+    if (!url || seen[url]) continue;
+    seen[url] = 1;
+    out.push(url);
   }
+  return out;
+}
+
+/** 兼容旧调用 */
+function parsePlay(html) {
+  const list = parsePlays(html);
+  return list.length ? list[0] : "";
+}
+
+/** 选集文本：单集叫「正片」，多集叫「第N集」；一集都没有就退回详情页地址 */
+function playLines(html, pageUrl) {
+  const list = parsePlays(html);
+  if (!list.length) return "正片$" + pageUrl;
+  if (list.length === 1) return "正片$" + list[0];
+  return list.map((u, i) => "第" + (i + 1) + "集$" + u).join("#");
 }
 
 export default class Kanliao extends Spider {
@@ -299,7 +326,7 @@ export default class Kanliao extends Spider {
       vod_remarks: (catName || (info ? (strip(info[1]).split(/[•·]/).pop() || "").trim() : "")) + "|",
       gallery: false,
       vod_play_from: "今日看料",
-      vod_play_url: "正片$" + url,
+      vod_play_url: playLines(html, url),
     };
 
     // 相关推荐：上一篇/下一篇 + 同分类兜底
@@ -375,18 +402,18 @@ export default class Kanliao extends Spider {
   }
 
   async playerContent(flag, id) {
-    const url = String(id);
-    const html = await this.getHtml(url);
+    const raw = String(id);
+    const header = { "User-Agent": UA, "Referer": BASE + "/" };
+
+    // 详情页已经把每一集的 m3u8 解出来了，直接用
+    if (raw.indexOf(".m3u8") > 0) return { parse: 1, url: raw, header: header };
+
+    const html = await this.getHtml(raw);
     if (!html) throw new Error("详情页打不开");
 
     const play = parsePlay(html);
     if (!play) throw new Error("没找到播放地址");
-
-    return {
-      parse: 1,
-      url: play,
-      header: { "User-Agent": UA, "Referer": BASE + "/" },
-    };
+    return { parse: 1, url: play, header: header };
   }
 
   /** 搜索：/search/<kw>/，站点无分页 */
