@@ -37,24 +37,25 @@ const CHIPS = [
   { n: "随机", v: "random" },
 ];
 
-// 常看父类（按站点文章数排序的前 16 个，用来做 chips；其余走「全部分类」面板）
+// 分类 chips：严格按站点文章数取前 16（Others 也保留，顺序即排行）
+// 数据来源：/wp-json/wp/v2/categories?per_page=100&page=1..N 里的 count 字段
 const PARENTS = [
-  { n: "Overwatch", v: "overwatch" },
-  { n: "Final Fantasy", v: "final-fantasy" },
-  { n: "Fortnite", v: "fortnite" },
-  { n: "Resident Evil", v: "resident-evil" },
-  { n: "Marvel", v: "marvel" },
-  { n: "英雄联盟", v: "league-of-legend" },
-  { n: "Dead Or Alive", v: "dead-or-alive" },
-  { n: "Genshin Impact", v: "genshin-impact" },
-  { n: "Cyberpunk", v: "cyberpunk-2077" },
-  { n: "Apex Legends", v: "apex-legends" },
-  { n: "Witcher", v: "witcher" },
-  { n: "Zelda", v: "zelda" },
-  { n: "Nier", v: "nier" },
-  { n: "DC Comics", v: "dc" },
-  { n: "Street Fighter", v: "street-fighter" },
-  { n: "绝区零", v: "zenless-zone-zero" },
+  { n: "Overwatch", v: "overwatch" },              // 8144
+  { n: "Final Fantasy", v: "final-fantasy" },      // 3009
+  { n: "Fortnite", v: "fortnite" },                // 2356
+  { n: "Resident Evil", v: "resident-evil" },      // 2326
+  { n: "Marvel", v: "marvel" },                    // 2106
+  { n: "英雄联盟", v: "league-of-legend" },         // 2076
+  { n: "Others", v: "others-2" },                  // 1960
+  { n: "Dead Or Alive", v: "dead-or-alive" },      // 1591
+  { n: "DC Comics", v: "dc" },                     // 1313
+  { n: "Nier", v: "nier" },                        // 1192
+  { n: "Street Fighter", v: "street-fighter" },    // 1188
+  { n: "Genshin Impact", v: "genshin-impact" },    // 960
+  { n: "Cyberpunk 2077", v: "cyberpunk-2077" },    // 738
+  { n: "绝区零", v: "zenless-zone-zero" },          // 624
+  { n: "Witcher", v: "witcher" },                  // 591
+  { n: "Lara Croft", v: "lara-croft" },            // 577
 ];
 
 function hdrs(ref) {
