@@ -236,8 +236,18 @@ export default class Sfm extends Spider {
 
   async categoryContent(tid, pg, filter, extend) {
     const p = Number(pg) || 1;
-    const t = String(tid || "video");
+    let t = String(tid || "video");
     const ext = extend || {};
+
+    // 详情页的分类/标签 chips 点进来时，App 会把 id 直接当 tid 传（"cat:…" / "tag:…"），
+    // 这里统一转成对应 tab + extend.sub，否则会退回首页列表
+    if (t.indexOf("tag:") === 0) {
+      ext.sub = t;
+      t = "tagsearch";
+    } else if (t.indexOf("cat:") === 0) {
+      ext.sub = t;
+      t = "categorysearch";
+    }
 
     if (t === "web") {
       try { openWeb({ url: BASE + "/" }); } catch (e) { }
