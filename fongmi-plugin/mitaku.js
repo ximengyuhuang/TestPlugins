@@ -746,7 +746,11 @@ export default class Mitaku extends Spider {
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
       const all = await this.loadTags();
-      const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
+      // "^A" 表示按首字母筛选（App 面板顶部的字母条）
+      const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letter
+        ? all.filter((x) => headLetter(x.name) === letter)
+        : (kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all);
       const PAGE = 100;
       const from = (page - 1) * PAGE;
       return {
