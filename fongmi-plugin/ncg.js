@@ -572,7 +572,7 @@ export default class Ncg extends Spider {
       });
       try {
         const cats = await this.loadCats(1);
-        const models = cats.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0).slice(0, 25);
+        const models = cats.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0 && c.slug !== "blog").slice(0, 25);
         if (models.length) {
           groups.push({
             name: "热门模特",
@@ -614,13 +614,13 @@ export default class Ncg extends Spider {
       let models = [];
       if (!kw) {
         const pageItems = await this.loadCats(page);
-        models = pageItems.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0);
+        models = pageItems.filter((c) => MAIN_SLUGS.indexOf(c.slug) < 0 && c.slug !== "blog");
       } else {
         for (let pg = 1; pg <= 4; pg++) {
           const pageItems = await this.loadCats(pg);
           if (!pageItems.length) break;
           for (const c of pageItems) {
-            if (MAIN_SLUGS.indexOf(c.slug) >= 0) continue;
+            if (MAIN_SLUGS.indexOf(c.slug) >= 0 || c.slug === "blog") continue;
             if (c.name.toLowerCase().indexOf(kw) >= 0 || c.slug.toLowerCase().indexOf(kw) >= 0) models.push(c);
           }
           if (models.length >= 100) break;
