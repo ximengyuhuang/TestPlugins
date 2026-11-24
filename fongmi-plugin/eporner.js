@@ -116,6 +116,13 @@ function strip(s) {
   return decode(String(s || "").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
+/** slug → 可读名字（hairy-pussy → Hairy Pussy），名字抓不到时兜底用 */
+function prettySlug(slug) {
+  return String(slug || "").split("-").map(function (w) {
+    return w ? w.charAt(0).toUpperCase() + w.substring(1) : w;
+  }).join(" ").trim();
+}
+
 /** 名字首字母（A-Z；非字母归到 #） */
 function headLetter(name) {
   const s = String(name || "").trim();
@@ -491,7 +498,8 @@ export default class Eporner extends Spider {
       if (slug === "all" || seen[slug]) continue;
       seen[slug] = 1;
       const nm = strip(m[2]);
-      if (nm) out.push({ slug: slug, name: nm });
+      // 手机端拿到的 HTML 可能没有 catname，名字为空时用 slug 美化兜底
+      out.push({ slug: slug, name: nm || prettySlug(slug) });
     }
     if (out.length) this.cats = out;
     return out;
