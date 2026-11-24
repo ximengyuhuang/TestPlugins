@@ -517,10 +517,13 @@ function parseTrending(html) {
   return out;
 }
 
-/** slug → 可读名（kobayashi-san-chi-no → Kobayashi San Chi No） */
+/** slug → 可读名：先 URL 解码（中文标签的 slug 是 %E9%98%BF…），再把连字符转空格 */
 function pretty(slug) {
-  const s = String(slug || "").replace(/-/g, " ").trim();
-  return s.replace(/\b([a-z])/g, (m, c) => c.toUpperCase());
+  let s = String(slug || "");
+  try { s = decodeURIComponent(s); } catch (e) { s = s.replace(/%[0-9A-Fa-f]{2}/g, ""); }
+  s = s.replace(/-/g, " ").trim();
+  // 只给英文单词首字母大写；中文不受影响
+  return s.replace(/(^|[\s(])([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
 }
 
 export default class Mitaku extends Spider {
@@ -704,9 +707,11 @@ export default class Mitaku extends Spider {
       };
     }
 
-    // 作者搜索面板
-    if (op.indexOf("facet|authors|") === 0) {
-      const rest = op.substring("facet|authors|".length);
+    // 作者搜索面板（App 把 tab id「authorsearch」去掉 search 得到 kind = author，
+    // 但早期写法是 authors，两种都认，免得面板空白）
+    if (op.indexOf("facet|author|") === 0 || op.indexOf("facet|authors|") === 0) {
+      const prefix = op.indexOf("facet|authors|") === 0 ? "facet|authors|" : "facet|author|";
+      const rest = op.substring(prefix.length);
       const bar = rest.lastIndexOf("|");
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const page = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
