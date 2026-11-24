@@ -526,6 +526,15 @@ function pretty(slug) {
   return s.replace(/(^|[\s(])([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
 }
 
+
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
+}
+
 export default class Mitaku extends Spider {
   init(extend) {
     this.htmlCache = {};
@@ -816,7 +825,11 @@ export default class Mitaku extends Spider {
       // 用 A-Z 索引页（1238 个角色，1 次请求）代替爬 36 个索引页的 loadAuthors()
       let all = await this.loadAz(false);
       if (!all.length) all = await this.loadAuthors();
-      const hit = kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all;
+      // "^A" 表示按首字母筛选（App 面板顶部的字母条）
+      const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
+      const hit = letter
+        ? all.filter((x) => headLetter(x.name) === letter)
+        : (kw ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0) : all);
       const PAGE = 100;
       const from = (page - 1) * PAGE;
       return {

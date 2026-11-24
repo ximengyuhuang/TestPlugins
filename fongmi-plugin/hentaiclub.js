@@ -162,6 +162,15 @@ function pageUrlOf(raw) {
   return BASE + (u.charAt(0) === "/" ? u : "/" + u);
 }
 
+
+/** 名字首字母（A-Z；非字母归到 #） */
+function headLetter(name) {
+  const s = String(name || "").trim();
+  if (!s) return "#";
+  const c = s.charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : "#";
+}
+
 export default class HentaiClub extends Spider {
   init() { }
 
@@ -421,10 +430,12 @@ export default class HentaiClub extends Spider {
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim();
       const tags = await this.allTags();
       if (!tags.length) return { items: [] };
+      const letter = kw.indexOf("^") === 0 ? kw.substring(1).toUpperCase() : "";
       const low = kw.toLowerCase();
       const hit = [];
       for (const t of tags) {
-        if (!kw || t.name.toLowerCase().indexOf(low) >= 0 || t.id.toLowerCase().indexOf(low) >= 0) {
+        if (letter ? headLetter(t.name) === letter
+          : (!kw || t.name.toLowerCase().indexOf(low) >= 0 || t.id.toLowerCase().indexOf(low) >= 0)) {
           // id 必须带 "tag:" 前缀：App 选中后把它放进 extend.sub，
           // categoryContent 只认 "tag:<slug>" —— 不带前缀会退回默认列表
           hit.push({ id: "tag:" + t.id, name: t.name, count: "" });
