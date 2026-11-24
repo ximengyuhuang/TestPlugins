@@ -104,9 +104,11 @@ function parseCards(html) {
 
     // 标题里嵌了 <div class="wrap"><span class="wraps">热搜HOT</span></div>，要去掉
     let name = title ? String(title[1]).replace(/<div class="wrap">[\s\S]*?<\/div>/g, "") : "";
+    const idM = url.match(/\/archives\/(\d+)\//);
     out.push({
       vod_id: url,
-      vod_name: strip(name) || url,
+      // 站里有一批卡片的 h2 是空的（只有「热搜HOT」角标），别拿整条 URL 当标题
+      vod_name: strip(name) || ("无标题 · " + (idM ? idM[1] : "")),
       vod_pic: "",
       vod_remarks: remarks,
     });
@@ -216,6 +218,25 @@ export default class Kanliao extends Spider {
     if (!html) return this.page([], p, PAGE_SIZE, Math.max(0, (p - 1) * PAGE_SIZE));
 
     const cards = url.indexOf("/top.html") >= 0 ? this.parseRank(html) : parseCards(html);
+
+    // 列表页的卡片没有封面（只有渐变底色），封面只在详情页的 itemprop="image"
+    // → 并行为本页每个条目取一次详情（结果进 180 秒缓存，点开详情时复用）
+    if (cards.length) {
+      const deadline = Date.now() + 10000;   // 总预算 6 秒：超时就用已拿到的封面，不让整页卡住
+      await Promise.all(cards.map(async (c) => {
+        if (Date.now() > deadline) return;
+        const det = await this.getHtml(c.vod_id);
+        if (!det) return;
+        const cov = det.match(/itemprop="image"\s+content="([^"]+)"/);
+        if (cov) c.vod_pic = cov[1].indexOf("http") === 0 ? cov[1] : BASE + cov[1];
+        // 顺手用详情页的分类修正角标（列表页偶尔给「无分类」）
+        if (!c.vod_remarks || c.vod_remarks === "|" || c.vod_remarks === "无分类|") {
+          const catM = det.match(/\/category\/([a-z0-9]+)\/"[^>]*>([^<]{1,20})</);
+          if (catM) c.vod_remarks = strip(catM[2]) + "|";
+        }
+      }));
+    }
+
     const total = hasNext(html, p) ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(cards, p, PAGE_SIZE, total);
   }
