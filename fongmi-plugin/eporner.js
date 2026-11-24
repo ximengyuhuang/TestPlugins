@@ -57,19 +57,18 @@ const DURS = [
 ];
 
 /**
- * 列表 URL —— 对齐站点：
- *   排序 / 制作 = 路径段：/cat/<cat>/SORT-top-rated/PROD-home/
- *   画质 / 时长 = 查询串：?quality=1080&duration_min_minutes=15&duration_max_minutes=30
- *   分页        = ?p=N（必须带 query，用 /N/ 会把 SORT 丢掉）
+ * 列表 URL —— 完全对齐站点的多选筛选：
+ *   分类（多选，取交集）= 路径段：/cat/anal/milf/
+ *   排序 / 制作          = 路径段：/cat/anal/milf/SORT-top-rated/PROD-home/
+ *   分页                = 路径段：/cat/anal/milf/2/（写进路径才不会丢掉 SORT/PROD）
+ *   画质 / 时长 / 排除    = 查询串：?quality=1080&duration_min_minutes=15&exclude=hentai,teens
+ * 站点上限：include ≤ 5 个，exclude ≤ 10 个
  */
-function listUrl(cat, p, ext) {
-  // 注意：站点的「全部」要用 /cat/all/，根路径 / 会忽略 quality / duration 参数
-  let path = cat ? "/cat/" + cat + "/" : "/cat/all/";
-  const segs = [];
-  if (ext && ext.sort) segs.push("SORT-" + ext.sort);
-  if (ext && ext.prod) segs.push("PROD-" + ext.prod);
-  if (segs.length) path += segs.join("/") + "/";
-  // 分页必须写进路径（/cat/x/2/）：?p=N 在 /cat/all/ 上无效，且会丢掉 SORT/PROD
+function listUrl(cats, p, ext) {
+  const list = (cats || []).filter(Boolean).slice(0, 5);
+  let path = "/cat/" + (list.length ? list.join("/") + "/" : "all/");
+  if (ext && ext.sort) path += "SORT-" + ext.sort + "/";
+  if (ext && ext.prod) path += "PROD-" + ext.prod + "/";
   if (p > 1) path += p + "/";
 
   const qs = [];
@@ -79,9 +78,17 @@ function listUrl(cat, p, ext) {
     if (parts[0]) qs.push("duration_min_minutes=" + parts[0]);
     if (parts[1]) qs.push("duration_max_minutes=" + parts[1]);
   }
+  const ex = String((ext && (ext.catx || ext.exclude)) || "")
+    .split(",").map((x) => x.trim()).filter(Boolean).slice(0, 10);
+  if (ex.length) qs.push("exclude=" + ex.join(","));
+
   return BASE + path + (qs.length ? "?" + qs.join("&") : "");
 }
 
+/** "a,b,c" → ["a","b","c"] */
+function slugs(v) {
+  return String(v || "").split(",").map((x) => x.trim()).filter(Boolean);
+}
 function hdrs(ref) {
   return {
     "User-Agent": UA,
@@ -207,6 +214,9 @@ export default class Eporner extends Spider {
         // 分类不放在这里：站点有 85 个分类，走 facet 面板（可搜、可按 A-Z）；
         // 这里只留站点那个 Sort & Filters 面板的四维
         latest: [
+          // 站点式多选：分类取交集（≤5），排除（≤10）；两者都与排序/画质/时长同时生效
+          { key: "cat", name: "分类", type: "facet", multi: true },
+          { key: "catx", name: "排除", type: "facet", multi: true },
           { key: "sort", name: "排序", value: SORTS },
           // panel:true → 不占界面，和排序一起收进「⇅」面板（等于站点那个 Sort & Filters）
           { key: "prod", name: "制作", value: PRODS, panel: true },
@@ -246,7 +256,7 @@ export default class Eporner extends Spider {
       if (sub.indexOf("cat:") !== 0) {
         return this.page([{ vod_id: "", vod_name: "在上方选一个分类（可搜索）", vod_pic: "", vod_remarks: "提示" }], 1, PAGE_SIZE, 1);
       }
-      const url = listUrl(sub.substring(4), p, ext);
+      const url = listUrl([sub.substring(4)], p, ext);
       return this.fromHtml(await this.getHtml(url), p);
     }
 
@@ -261,8 +271,9 @@ export default class Eporner extends Spider {
     }
 
     // 最新 / 分类 chips
-    const media = String(ext.media || "");
-    const url = listUrl(media, p, ext);
+    // 多选分类：ext.cat 形如 "anal,milf"
+    const cats = slugs(ext.cat);
+    const url = listUrl(cats, p, ext);
     return this.fromHtml(await this.getHtml(url), p);
   }
 
@@ -400,8 +411,11 @@ export default class Eporner extends Spider {
     }
 
     // 分类面板
-    if (s.indexOf("facet|category|") === 0 || s.indexOf("facet|categories|") === 0) {
-      const prefix = s.indexOf("facet|categories|") === 0 ? "facet|categories|" : "facet|category|";
+    if (s.indexOf("facet|category|") === 0 || s.indexOf("facet|categories|") === 0
+      || s.indexOf("facet|cat|") === 0 || s.indexOf("facet|catx|") === 0) {
+      const prefix = s.indexOf("facet|categories|") === 0 ? "facet|categories|"
+        : s.indexOf("facet|category|") === 0 ? "facet|category|"
+          : s.indexOf("facet|catx|") === 0 ? "facet|catx|" : "facet|cat|";
       const rest = s.substring(prefix.length);
       const bar = rest.lastIndexOf("|");
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
