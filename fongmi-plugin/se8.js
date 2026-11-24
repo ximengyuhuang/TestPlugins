@@ -241,7 +241,8 @@ export default class Se8 extends Spider {
         cats.push({ url: url, name: (c ? c[1] : text).trim(), count: c ? Number(c[2]) : 0 });
       }
       // 标签：/photos/tag/<slug>（首页有 name + count 两块）
-      const re2 = /<a[^>]+href="((?:https:\/\/8se\.me)?\/photos\/tag\/[^"#?]+)"[^>]*class="[^"]*tag-item[\s\S]{0,160}?<div class="name">([^<]{1,40})<\/div>\s*<div class="count">(\d+)<\/div>/g;
+      // 结构：<a href="/photos/tag/<slug>"><div class="tag-item"><div class="name">名字</div><div class="count">2199</div></div></a>
+      const re2 = /href="((?:https:\/\/8se\.me)?\/photos\/tag\/[^"#?]+)"[\s\S]{0,200}?<div class="name">([^<]{1,40})<\/div>\s*<div class="count">(\d+)<\/div>/g;
       while ((m = re2.exec(html)) !== null) {
         const url = abs(m[1]);
         if (seenT[url]) continue;
