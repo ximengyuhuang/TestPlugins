@@ -447,8 +447,14 @@ export default class XxCosplay extends Spider {
     if (!op) return [];
 
     // 页内搜索面板：博主
-    if (op.indexOf("facet|artistsearch|") === 0) {
-      const rest = op.substring("facet|artistsearch|".length);
+    // ⚠ App 会把 tab id「artistsearch」去掉 search 得到 kind = artist（单数），
+    //   历史写法是 artistsearch / artists —— 三种都认，否则面板永远「没有博主」
+    const artistPrefix = op.indexOf("facet|artistsearch|") === 0 ? "facet|artistsearch|"
+      : op.indexOf("facet|artists|") === 0 ? "facet|artists|"
+      : op.indexOf("facet|artist|") === 0 ? "facet|artist|"
+      : "";
+    if (artistPrefix) {
+      const rest = op.substring(artistPrefix.length);
       const bar = rest.lastIndexOf("|");
       const kw = (bar >= 0 ? rest.substring(0, bar) : rest).trim().toLowerCase();
       const pg = Math.max(1, Number(bar >= 0 ? rest.substring(bar + 1) : "1") || 1);
