@@ -553,18 +553,7 @@ export default class Ncg extends Spider {
         vod_remarks: (c.vod_remarks || "").split("|").pop(),
       });
     }
-    if (moreFromCat && rel.length < 8) {
-      const catHtml = await this.getHtml(BASE + "/category/" + moreFromCat + "/");
-      for (const c of parseCards(catHtml)) {
-        if (rel.length >= 8) break;
-        if (seen[c.vod_id]) continue;
-        seen[c.vod_id] = 1;
-        rel.push({
-          vod_id: c.vod_id, vod_name: c.vod_name, vod_pic: c.vod_pic,
-          vod_remarks: (c.vod_remarks || "").split("|").pop(),
-        });
-      }
-    }
+    // 站点给几条就是几条，不补（用户要求：以网站为准）
 
     return { list: [item].concat(rel) };
   }
