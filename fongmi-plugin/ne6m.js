@@ -336,7 +336,8 @@ export default class Ne6m extends Spider {
     if (!html) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
     const cards = parseCards(html, this.cdn || this.pickCdn(html));
     // 只给第 1 页补角标（后续页留空，避免翻页变慢）
-    if (p === 1 && cards.length) await this.enrichBadges(cards, 10, 3000);
+    // 手机直连实测一页 22 条并发补抓约 1.3 秒 → 整页都补，截止放宽到 5 秒
+    if (p === 1 && cards.length) await this.enrichBadges(cards, PAGE_SIZE, 5000);
     // 下一页信号：页面里出现下一页的链接/页码
     const more = html.indexOf("page=" + (p + 1)) >= 0
       || html.indexOf("/page/" + (p + 1)) >= 0
