@@ -143,9 +143,26 @@ function parseCards(html, cdn) {
       if (tags.length >= 3) break;
     }
 
-    out.push({ url: url, title: title, pic: pic, remark: remark, tags: tags });
+    // 标题里写了 nPmV 就直接用（省掉后面抓详情）
+    let badge = "";
+    const pv = titlePV(title);
+    if (pv.p && pv.v) badge = pv.p + "P·" + pv.v + "V";
+    else if (pv.v && !pv.p) badge = pv.v + "V";
+    else if (pv.p && !pv.v) badge = pv.p + "P";
+
+    out.push({ url: url, title: title, pic: pic, remark: remark, tags: tags, badge: badge });
   }
   return out;
+}
+
+/** 从标题里取 P/V 数量（有的帖标题会写 nPmV，有的不写） */
+function titlePV(title) {
+  const t = String(title || "");
+  const both = t.match(/(\d{1,3})\s*[Pp]\s*(\d{1,2})\s*[Vv]/);
+  if (both) return { p: Number(both[1]) || 0, v: Number(both[2]) || 0 };
+  const onlyV = t.match(/(\d{1,2})\s*[Vv]/);
+  const onlyP = t.match(/(\d{1,3})\s*[Pp]/);
+  return { p: onlyP ? Number(onlyP[1]) || 0 : 0, v: onlyV ? Number(onlyV[1]) || 0 : 0 };
 }
 
 /** 详情页媒体：视频（data-config.video.url）+ 图集图片（.image-grid-image 的 data-src） */
@@ -282,6 +299,15 @@ export default class Ne6m extends Spider {
   /** 判断详情页是「视频 / 图集 / 混合」→ 角标 1V / 1P / 1P·1V */
   badgeOf(html) {
     if (!html) return "";
+    // 标题里写了 P/V 就用真实数字（更准，也省得数图）
+    const t = String(html);
+    const ogt = t.match(/property="og:title"\s+content="([^"]{1,200})"/);
+    const h1 = t.match(/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/);
+    const pv = titlePV((ogt && ogt[1]) || (h1 && strip(h1[1])) || "");
+    if (pv.p && pv.v) return pv.p + "P·" + pv.v + "V";
+    if (pv.v && !pv.p) return pv.v + "V";
+    if (pv.p && !pv.v) return pv.p + "P";
+
     const media = parseMedia(html);
     const nv = media.videos.length;
     let np = media.images.length;
@@ -302,6 +328,7 @@ export default class Ne6m extends Spider {
     const jobs = [];
     for (let i = 0; i < n; i++) {
       const c = cards[i];
+      if (c.badge) continue;                 // 标题里已经有 P/V 了，不用抓
       jobs.push((async () => {
         if (Date.now() - t0 > deadlineMs) return;
         try {
@@ -440,9 +467,13 @@ export default class Ne6m extends Spider {
     if (cats.length) lines.push(cats.map((x) => '[a=cr:{"id":"cat:' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
     if (tags.length) lines.push(tags.map((x) => '[a=cr:{"id":"tag:' + x.slug + '"}/]#' + x.name + "[/a]").join(" "));
 
-    // 角标统一为三种固定形态：1V / 1P / 1P·1V（App 靠它决定显示「视频」「图集」按钮）
+    // 角标：标题里写了 nPmV 就用真实数字，否则退回 1V / 1P / 1P·1V（App 靠它决定显示哪些按钮）
+    const tpv = titlePV(title);
     let badge = "";
-    if (np && nv) badge = "1P·1V";
+    if (tpv.p && tpv.v) badge = tpv.p + "P·" + tpv.v + "V";
+    else if (tpv.v && !tpv.p) badge = tpv.v + "V";
+    else if (tpv.p && !tpv.v) badge = tpv.p + "P";
+    else if (np && nv) badge = "1P·1V";
     else if (nv) badge = "1V";
     else if (np) badge = "1P";
 
