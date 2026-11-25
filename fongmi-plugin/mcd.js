@@ -239,7 +239,8 @@ export default class Mcd extends Spider {
     // 分类 / 标签（/vodtype/ 与 /vodlabel/ 之类）
     const cats = [];
     const seenC = {};
-    const reC = /href="\/vodtype\/(\d+)\/"[^>]*>([\s\S]{0,40}?)<\/a>/g;
+    // 同 loadCats：锚点里可能先有 <img>，窗口要给足
+    const reC = /href="\/vodtype\/(\d+)\/"[^>]*>([\s\S]{0,200}?)<\/a>/g;
     let m;
     while ((m = reC.exec(html)) !== null) {
       const nm = strip(m[2]);
