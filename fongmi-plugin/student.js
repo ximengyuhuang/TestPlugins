@@ -1,16 +1,17 @@
 // msdtr2ym.student41.xyz —— BiliTV / catvod QuickJS 插件
 //
-// 侦查结论（2026-11-26）：
-//   站型   **图集站**（详情页是图片网格，无 m3u8 / video / iframe）
-//   列表   /<中文路径>/?fby                                首页 24 条（路径是「力争上游」，须 URL 编码）
-//           /vodtype/<id>.html                             分类，24 条/页
-//           分页 ⚠ **`-页码` 后缀**：/vodtype/55-2.html（?page= 无效）
-//   详情   /voddetail/<id>.html        图片全部在 `<div class="photo-two">` 块里（实测 56 张）
-//          页面上还有 9 张是广告/装饰图（在 photo-two 之外）→ 只取块内的
+// 侦查结论（2026-11-26，修正版）：
+//   站型   **纯视频站**（MacCMS 系，模板 student），不是图集站
+//   列表   /<中文路径>/?fby                          首页 24 条（路径「力争上游」，须 URL 编码）
+//           /vodtype/<id>.html                       分类，24 条/页
+//           分页 **-页码 后缀**：/vodtype/55-2.html（?page= 无效）
+//   详情   /voddetail/<id>.html     ⚠ 详情页本身**没有播放器**，只是封面/标题/分类
+//   播放   /vodplay/<id>-1-1.html   ⚠⚠ **必须带详情页 Referer**，否则站点返回首页
+//          → player_aaaa = {encrypt:1,url:%68%74%74%70%73…}
+//          → encrypt 只是 URL 编码，decodeURIComponent(url) 就是 m3u8
 //   搜索   /vodsearch/-------------.html?wd=<词>
-//   分类   32 个（其中「主播网红」站点重复了两次 61/102，已去重）
+//   分类   32 个（站点把「主播网红」重复成 61/102，已去重）
 //          用户拍板方案 **D（两级）**：8 个出品方 / 24 个题材，分两个 tab，各自二级 chips
-//   卡片   <a name="rdmonclick" href="/voddetail/N.html"> + div.picture > img[data-src]
 
 import { Spider, openWeb } from "catvod";
 
@@ -90,38 +91,6 @@ function parseCards(html) {
     });
   }
   return out;
-}
-
-/** 详情页图片：只取 photo-two 块内的（块外是广告图；块内也混着 alicdn 广告） */
-function galleryImgs(html) {
-  const src = String(html || "");
-  const out = [];
-  const seen = {};
-  // 只排 gif 横幅广告；alicdn 等图床里也有正文图，别整段排掉
-  const isAd = (u) => /\.gif(?:$|\?)/i.test(u);
-  const blocks = src.split(/<div class="photo-two"/).slice(1);
-  for (const b of blocks) {
-    const seg = b.substring(0, 1500);
-    const m = seg.match(/data-src="([^"]+)"/);
-    if (!m) continue;
-    const u = abs(m[1].trim());
-    if (!u || seen[u] || isAd(u)) continue;
-    seen[u] = 1;
-    out.push(u);
-  }
-  if (out.length >= 3) return out;
-  // 兜底：广告太多或结构变了，就全收
-  const all = [];
-  const seen2 = {};
-  for (const b of blocks) {
-    const m = b.substring(0, 1500).match(/data-src="([^"]+)"/);
-    if (!m) continue;
-    const u = abs(m[1].trim());
-    if (!u || seen2[u]) continue;
-    seen2[u] = 1;
-    all.push(u);
-  }
-  return all;
 }
 
 export default class St extends Spider {
@@ -230,24 +199,7 @@ export default class St extends Spider {
       title = (cut.length >= 6 ? cut : title).slice(0, 60).trim();
     }
 
-    const imgs = galleryImgs(html);
 
-    // 封面：取「出现次数最多的图床」的第一张（广告图通常只出现 1~2 次，正文图在同图床反复出现）
-    let cover = listCover || imgs[0] || "";
-    if (imgs.length > 2) {
-      const cnt = {};
-      for (const u of imgs) {
-        const h = u.replace(/^https?:\/\//, "").split("/")[0];
-        cnt[h] = (cnt[h] || 0) + 1;
-      }
-      let best = "", bestN = 0;
-      for (const k of Object.keys(cnt)) {
-        if (cnt[k] > bestN) { bestN = cnt[k]; best = k; }
-      }
-      for (const u of imgs) {
-        if (u.replace(/^https?:\/\//, "").split("/")[0] === best) { cover = u; break; }
-      }
-    }
 
     // 分类 chips（详情页里的 /vodtype/<id>.html）
     const cats = [];
@@ -314,9 +266,12 @@ export default class St extends Spider {
     // ⚠ 别用 `}</script>` 结尾去匹配：player_aaaa 后面还有 MacPlayer.Init() 之类的代码
     let u = "";
     const pi = html.indexOf("player_aaaa");
-    const seg = pi >= 0 ? html.substring(pi, pi + 4000) : html;
-    const um = seg.match(/"url"\s*:\s*"([^"]*)"/);
-    if (um) u = um[1].replace(/\\\//g, "/");
+    // 只有在 player_aaaa 片段里找 "url"，否则会误取 maccms 配置里的站点地址
+    if (pi >= 0) {
+      const seg = html.substring(pi, pi + 4000);
+      const um = seg.match(/"url"\s*:\s*"([^"]*)"/);
+      if (um) u = um[1].replace(/\\\//g, "/");
+    }
     if (!u) {
       const any = html.match(/(%68%74%74%70[^"']{10,400})/);
       if (any) u = any[1];
@@ -340,16 +295,6 @@ export default class St extends Spider {
   async action(op) {
     const s = String(op || "");
     if (!s) return [];
-
-    // 图集
-    if (s.indexOf("gal|") === 0) {
-      const raw = s.substring(4).replace(/^gal:\/\//, "");
-      const pageUrl = raw.indexOf("http") === 0 ? raw : BASE + raw;
-      const html = await this.getHtml(pageUrl);
-      if (!html) return { list: [] };
-      void galleryImgs;
-      return { list: [] };
-    }
 
     // 二级 chips：两个 tab 各自的分类（必须返回数组）
     if (s === "sub|publisher") return PUBLISHERS.map((c) => ({ name: c.name, value: "cat:" + c.id }));
