@@ -171,6 +171,7 @@ export default class Ne6m extends Spider {
     if (c && Date.now() - c.ts < 180000) return c.html;
     try {
       const r = await this.net.req(url, { headers: hdrs(url) });
+      this.log("fetch " + (r ? r.code : "null") + " len=" + (r && r.content ? r.content.length : 0) + " " + url.slice(0, 60));
       if (r && r.code === 200) {
         this.cache[url] = { html: r.content, ts: Date.now() };
         return r.content;
