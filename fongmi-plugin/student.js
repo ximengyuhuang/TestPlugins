@@ -158,7 +158,7 @@ export default class St extends Spider {
 
   cardsToList(cards) {
     return cards.map((c) => ({
-      vod_id: c.url,
+      vod_id: c.pic ? c.url + "|" + c.pic : c.url,
       vod_name: c.title,
       vod_pic: c.pic,
       vod_remarks: c.remark || "图集",
@@ -202,7 +202,10 @@ export default class St extends Spider {
   }
 
   async detailContent(ids) {
-    const url = String((ids && ids[0]) || "");
+    const raw = String((ids && ids[0]) || "");
+    const bar = raw.indexOf("|");
+    const url = bar > 0 ? raw.substring(0, bar) : raw;
+    const listCover = bar > 0 ? raw.substring(bar + 1) : "";
     const pageUrl = url.indexOf("http") === 0 ? url : BASE + url;
     const html = await this.getHtml(pageUrl);
     if (!html) return { list: [] };
@@ -228,7 +231,7 @@ export default class St extends Spider {
     const imgs = galleryImgs(html);
 
     // 封面：取「出现次数最多的图床」的第一张（广告图通常只出现 1~2 次，正文图在同图床反复出现）
-    let cover = imgs[0] || "";
+    let cover = listCover || imgs[0] || "";
     if (imgs.length > 2) {
       const cnt = {};
       for (const u of imgs) {
@@ -274,6 +277,7 @@ export default class St extends Spider {
     const rel = [];
     const seenR = {};
     seenR[pageUrl] = 1;
+    seenR[raw] = 1;
     for (const c of parseCards(html)) {
       if (rel.length >= 8) break;
       if (seenR[c.url]) continue;
