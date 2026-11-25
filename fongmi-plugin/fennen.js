@@ -478,9 +478,9 @@ export default class Fn extends Spider {
     if (!s) return [];
 
     // 二级 chips：分区 tab → 48 个内容分类
+    // ⚠ 必须返回数组 [{name, value}]（App 会自动在行首插「全部」）
     if (s.indexOf("sub|") === 0) {
-      const items = CATS.map((c) => ({ name: c.name, count: "", id: "cat:" + c.id }));
-      return { groups: [], chips: items, list: items };
+      return CATS.map((c) => ({ name: c.name, value: "cat:" + c.id }));
     }
 
     if (s.indexOf("gal|") === 0) return { list: [] };
