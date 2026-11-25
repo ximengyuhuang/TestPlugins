@@ -299,6 +299,17 @@
         "ratio": 0.75
       },
       "ext": {}
+    },
+    {
+      "key": "tb28",
+      "name": "淘宝28套图",
+      "type": 3,
+      "api": "./tb28.js",
+      "style": {
+        "type": "rect",
+        "ratio": 0.75
+      },
+      "ext": {}
     }
   ]
 }
