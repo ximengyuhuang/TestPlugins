@@ -279,12 +279,55 @@ export default class Ne6m extends Spider {
     };
   }
 
+  /** 判断详情页是「视频 / 图集 / 混合」→ 角标 1V / 1P / 1P·1V */
+  badgeOf(html) {
+    if (!html) return "";
+    const media = parseMedia(html);
+    const nv = media.videos.length;
+    let np = media.images.length;
+    if (nv > 0 && np <= 1) np = 0;
+    if (np && nv) return "1P·1V";
+    if (nv) return "1V";
+    if (np) return "1P";
+    return "";
+  }
+
+  /**
+   * 列表角标：站点列表页没有类型信息，只能补抓详情。
+   * 有界：最多补 limit 条，超过 deadline 就放弃（剩下的留空/日期），不影响首屏。
+   */
+  async enrichBadges(cards, limit, deadlineMs) {
+    const t0 = Date.now();
+    const n = Math.min(limit, cards.length);
+    const jobs = [];
+    for (let i = 0; i < n; i++) {
+      const c = cards[i];
+      jobs.push((async () => {
+        if (Date.now() - t0 > deadlineMs) return;
+        try {
+          const html = await this.getHtml(c.url);
+          const b = this.badgeOf(html);
+          if (b) c.badge = b;
+        } catch (e) { }
+      })());
+    }
+    // 硬截止：到点就不等了（否则会拖到 App 的 15 秒看门狗）
+    try {
+      await Promise.race([
+        Promise.all(jobs),
+        new Promise((r) => setTimeout(r, Math.max(800, deadlineMs))),
+      ]);
+    } catch (e) { }
+    return cards;
+  }
+
   cardsToList(cards) {
     return cards.map((c) => ({
       vod_id: c.url,
       vod_name: c.title,
       vod_pic: c.pic,
-      vod_remarks: c.remark || "",
+      // 优先用补抓到的 1V/1P/1P·1V，没有就退回日期
+      vod_remarks: c.badge || c.remark || "",
     }));
   }
 
@@ -292,6 +335,8 @@ export default class Ne6m extends Spider {
     const html = await this.getHtml(url);
     if (!html) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
     const cards = parseCards(html, this.cdn || this.pickCdn(html));
+    // 只给第 1 页补角标（后续页留空，避免翻页变慢）
+    if (p === 1 && cards.length) await this.enrichBadges(cards, 10, 3000);
     // 下一页信号：页面里出现下一页的链接/页码
     const more = html.indexOf("page=" + (p + 1)) >= 0
       || html.indexOf("/page/" + (p + 1)) >= 0
@@ -387,11 +432,11 @@ export default class Ne6m extends Spider {
     if (cats.length) lines.push(cats.map((x) => '[a=cr:{"id":"cat:' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
     if (tags.length) lines.push(tags.map((x) => '[a=cr:{"id":"tag:' + x.slug + '"}/]#' + x.name + "[/a]").join(" "));
 
-    // 角标：xP / xV / xP·yV（App 靠它决定显示「视频」「图集」哪个按钮）
+    // 角标统一为三种固定形态：1V / 1P / 1P·1V（App 靠它决定显示「视频」「图集」按钮）
     let badge = "";
-    if (np && nv) badge = np + "P·" + nv + "V";
-    else if (nv) badge = nv > 1 ? nv + "V" : "1V";
-    else if (np) badge = np + "P";
+    if (np && nv) badge = "1P·1V";
+    else if (nv) badge = "1V";
+    else if (np) badge = "1P";
 
     const item = {
       vod_id: pageUrl,
