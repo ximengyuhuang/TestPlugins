@@ -97,7 +97,8 @@ function galleryImgs(html) {
   const src = String(html || "");
   const out = [];
   const seen = {};
-  const isAd = (u) => /img\.alicdn\.com|\/imgextra\/|\.gif(?:$|\?)/i.test(u);
+  // 只排 gif 横幅广告；alicdn 等图床里也有正文图，别整段排掉
+  const isAd = (u) => /\.gif(?:$|\?)/i.test(u);
   const blocks = src.split(/<div class="photo-two"/).slice(1);
   for (const b of blocks) {
     const seg = b.substring(0, 1500);
@@ -128,12 +129,13 @@ export default class St extends Spider {
     this.cache = {};
   }
 
-  async getHtml(url) {
+  async getHtml(url, ref) {
     const c = this.cache[url];
     if (c && Date.now() - c.ts < CACHE_MS) return c.html;
     for (let i = 0; i < 2; i++) {
       try {
-        const r = await this.net.req(url, { headers: hdrs(url) });
+        // 播放页必须带详情页 Referer，否则站点回首页
+        const r = await this.net.req(url, { headers: hdrs(ref || url) });
         if (r && r.code === 200 && r.content) {
           this.cache[url] = { html: r.content, ts: Date.now() };
           return r.content;
@@ -161,7 +163,7 @@ export default class St extends Spider {
       vod_id: c.pic ? c.url + "|" + c.pic : c.url,
       vod_name: c.title,
       vod_pic: c.pic,
-      vod_remarks: c.remark || "图集",
+      vod_remarks: c.remark || "",
     }));
   }
 
@@ -262,15 +264,19 @@ export default class St extends Spider {
     const lines = [];
     if (cats.length) lines.push(cats.map((x) => '[a=cr:{"id":"cat:' + x.id + '"}/]' + x.name + "[/a]").join(" · "));
 
+    // 这是**视频站**：播放页 /vodplay/<id>-1-1.html，player_aaaa.url 是 URL 编码的 m3u8
+    const vidm = pageUrl.match(/voddetail\/(\d+)\.html/);
+    const vid = vidm ? vidm[1] : "";
+    const playUrl = vid ? BASE + "/vodplay/" + vid + "-1-1.html" : pageUrl;
+
     const item = {
       vod_id: pageUrl,
-      vod_name: title || "图集",
+      vod_name: title || "视频",
       vod_pic: cover,
       vod_content: lines.join("\n"),
-      vod_remarks: imgs.length ? imgs.length + "P" : "图集",
-      gallery: true,
-      vod_play_from: "套图",
-      vod_play_url: "图集$gal://" + pageUrl,
+      vod_remarks: "",
+      vod_play_from: "学生41",
+      vod_play_url: "正片$" + playUrl,
     };
 
     // 相关推荐：详情页里的其它卡片
@@ -289,7 +295,34 @@ export default class St extends Spider {
   }
 
   async playerContent(flag, id) {
-    throw new Error("这是图集站，请在详情页点「图集」查看");
+    const raw = String(id || "");
+    const header = { "User-Agent": UA, "Referer": BASE + "/" };
+    if (/\.(?:m3u8|mp4)(?:$|\?)/i.test(raw)) return { parse: 0, url: raw, header: header };
+
+    const pageUrl = raw.indexOf("http") === 0 ? raw : BASE + raw;
+    const vidm2 = pageUrl.match(/\/vodplay\/(\d+)/);
+    const refUrl = vidm2 ? BASE + "/voddetail/" + vidm2[1] + ".html" : BASE + "/";
+    const html = await this.getHtml(pageUrl, refUrl);
+    if (!html) throw new Error("播放页取不到");
+
+    // player_aaaa={"encrypt":1,"url":"%68%74%74%70%73..."} —— 只是 URL 编码，解密就是 decodeURIComponent
+    // ⚠ 别用 `}</script>` 结尾去匹配：player_aaaa 后面还有 MacPlayer.Init() 之类的代码
+    let u = "";
+    const pi = html.indexOf("player_aaaa");
+    const seg = pi >= 0 ? html.substring(pi, pi + 4000) : html;
+    const um = seg.match(/"url"\s*:\s*"([^"]*)"/);
+    if (um) u = um[1].replace(/\\\//g, "/");
+    if (!u) {
+      const any = html.match(/(%68%74%74%70[^"']{10,400})/);
+      if (any) u = any[1];
+    }
+    if (!u) throw new Error("没找到播放地址");
+
+    if (u.indexOf("%") >= 0) {
+      try { u = decodeURIComponent(u); } catch (e) { }
+    }
+    u = u.replace(/\\\//g, "/");
+    return { parse: 0, url: u, header: header };
   }
 
   async searchContent(key, quick, pg) {
@@ -309,7 +342,8 @@ export default class St extends Spider {
       const pageUrl = raw.indexOf("http") === 0 ? raw : BASE + raw;
       const html = await this.getHtml(pageUrl);
       if (!html) return { list: [] };
-      return { list: galleryImgs(html).map((u) => ({ url: u })) };
+      void galleryImgs;
+      return { list: [] };
     }
 
     // 二级 chips：两个 tab 各自的分类（必须返回数组）
