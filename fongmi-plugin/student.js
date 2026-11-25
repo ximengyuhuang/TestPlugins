@@ -227,6 +227,23 @@ export default class St extends Spider {
 
     const imgs = galleryImgs(html);
 
+    // 封面：取「出现次数最多的图床」的第一张（广告图通常只出现 1~2 次，正文图在同图床反复出现）
+    let cover = imgs[0] || "";
+    if (imgs.length > 2) {
+      const cnt = {};
+      for (const u of imgs) {
+        const h = u.replace(/^https?:\/\//, "").split("/")[0];
+        cnt[h] = (cnt[h] || 0) + 1;
+      }
+      let best = "", bestN = 0;
+      for (const k of Object.keys(cnt)) {
+        if (cnt[k] > bestN) { bestN = cnt[k]; best = k; }
+      }
+      for (const u of imgs) {
+        if (u.replace(/^https?:\/\//, "").split("/")[0] === best) { cover = u; break; }
+      }
+    }
+
     // 分类 chips（详情页里的 /vodtype/<id>.html）
     const cats = [];
     const seenC = {};
@@ -245,7 +262,7 @@ export default class St extends Spider {
     const item = {
       vod_id: pageUrl,
       vod_name: title || "图集",
-      vod_pic: imgs[0] || "",
+      vod_pic: cover,
       vod_content: lines.join("\n"),
       vod_remarks: imgs.length ? imgs.length + "P" : "图集",
       gallery: true,
