@@ -63,7 +63,8 @@ function listUrl(kind, key, p) {
 }
 
 /** 列表卡片 */
-function parseCards(html) {
+function parseCards(html, cdn) {
+  const cdnBase = String(cdn || "");
   const src = String(html || "");
   const parts = src.split("<article").slice(1);
   const out = [];
@@ -110,11 +111,16 @@ function parseCards(html) {
     const p3 = seg.match(/\sdata-cdn\s*=\s*"([^"]+)"/);
     for (const c of [p1 && p1[1], p3 && p3[1], p2 && p2[1]]) if (c) cands.push(c);
     for (const c of cands) {
-      const u = abs(c);
-      if (!u || /^data:/.test(u)) continue;
+      const raw = String(c || "").trim();
+      if (!raw || raw.indexOf("data:") === 0) continue;
       // 站点占位图（/assets/place/...）不是封面
-      if (/\/assets\/place\//.test(u) || /\/assets\/images\//.test(u)) continue;
-      pic = u;
+      if (/\/assets\/place\//.test(raw) || /\/assets\/images\//.test(raw)) continue;
+      // 站点图片是「CDN 线路 + data-src」拼出来的（app.js: img.src = cdnLine + dataset.src）
+      if (raw.charAt(0) === "/" && cdnBase) {
+        pic = cdnBase.replace(/\/+$/, "") + raw;
+      } else {
+        pic = abs(raw);
+      }
       break;
     }
 
@@ -164,6 +170,7 @@ export default class Ne6m extends Spider {
   init() {
     this.cache = {};
     this.menuCache = null;
+    this.cdn = "";
   }
 
   async getHtml(url) {
@@ -171,7 +178,7 @@ export default class Ne6m extends Spider {
     if (c && Date.now() - c.ts < 180000) return c.html;
     try {
       const r = await this.net.req(url, { headers: hdrs(url) });
-      this.log("fetch " + (r ? r.code : "null") + " len=" + (r && r.content ? r.content.length : 0) + " " + url.slice(0, 60));
+      if (!r || r.code !== 200) this.log("fetch fail " + (r ? r.code : "null") + " " + url.slice(0, 60));
       if (r && r.code === 200) {
         this.cache[url] = { html: r.content, ts: Date.now() };
         return r.content;
@@ -180,10 +187,26 @@ export default class Ne6m extends Spider {
     return "";
   }
 
+  /** CDN 线路：页面里的 {"cdnLine":"https://…","cdnName":"…"} 列表（用来拼封面地址） */
+  pickCdn(html) {
+    if (this.cdn) return this.cdn;
+    const list = [];
+    const re = /"cdnLine"\s*:\s*"(https?:[^"]+)"/g;
+    let m;
+    while ((m = re.exec(String(html || ""))) !== null) {
+      const u = m[1].replace(/\\\//g, "/");
+      if (list.indexOf(u) < 0) list.push(u);
+      if (list.length >= 4) break;
+    }
+    if (list.length) this.cdn = list[0];
+    return this.cdn || "";
+  }
+
   /** 首页导航里的分类 / 标签（9 + 3），缓存 15 分钟 */
   async loadMenu() {
     if (this.menuCache) return this.menuCache;
     const html = await this.getHtml(BASE + "/");
+    this.pickCdn(html);
     const cats = [];
     const tags = [];
     const seenC = {};
@@ -245,7 +268,7 @@ export default class Ne6m extends Spider {
   async listFrom(url, p) {
     const html = await this.getHtml(url);
     if (!html) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
-    const cards = parseCards(html);
+    const cards = parseCards(html, this.cdn || this.pickCdn(html));
     // 下一页信号：页面里出现下一页的链接/页码
     const more = html.indexOf("page=" + (p + 1)) >= 0
       || html.indexOf("/page/" + (p + 1)) >= 0
@@ -344,7 +367,7 @@ export default class Ne6m extends Spider {
     const rel = [];
     const seen = {};
     seen[pageUrl] = 1;
-    for (const c of parseCards(html)) {
+    for (const c of parseCards(html, this.cdn || this.pickCdn(html))) {
       if (rel.length >= 8) break;
       if (seen[c.url]) continue;
       seen[c.url] = 1;
