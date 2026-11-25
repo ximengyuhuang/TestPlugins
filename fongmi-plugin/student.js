@@ -92,32 +92,35 @@ function parseCards(html) {
   return out;
 }
 
-/** 详情页图片：只取 photo-two 块内的（块外是广告图） */
+/** 详情页图片：只取 photo-two 块内的（块外是广告图；块内也混着 alicdn 广告） */
 function galleryImgs(html) {
   const src = String(html || "");
   const out = [];
   const seen = {};
+  const isAd = (u) => /img\.alicdn\.com|\/imgextra\//i.test(u);
   const blocks = src.split(/<div class="photo-two"/).slice(1);
   for (const b of blocks) {
     const seg = b.substring(0, 1500);
     const m = seg.match(/data-src="([^"]+)"/);
     if (!m) continue;
     const u = abs(m[1].trim());
-    if (!u || seen[u]) continue;
+    if (!u || seen[u] || isAd(u)) continue;
     seen[u] = 1;
     out.push(u);
   }
-  if (out.length) return out;
-  // 兜底：全文里明显是图集的图（排除站内模板图）
-  const re = /data-src="([^"]+\.(?:jpg|jpeg|png|webp|gif)[^"]*)"/gi;
-  let mm;
-  while ((mm = re.exec(src)) !== null) {
-    const u = abs(mm[1].trim());
-    if (!u || seen[u] || /\/template\//i.test(u)) continue;
-    seen[u] = 1;
-    out.push(u);
+  if (out.length >= 3) return out;
+  // 兜底：广告太多或结构变了，就全收
+  const all = [];
+  const seen2 = {};
+  for (const b of blocks) {
+    const m = b.substring(0, 1500).match(/data-src="([^"]+)"/);
+    if (!m) continue;
+    const u = abs(m[1].trim());
+    if (!u || seen2[u]) continue;
+    seen2[u] = 1;
+    all.push(u);
   }
-  return out;
+  return all;
 }
 
 export default class St extends Spider {
