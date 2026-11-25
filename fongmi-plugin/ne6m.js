@@ -148,6 +148,43 @@ function parseCards(html, cdn) {
   return out;
 }
 
+/** 详情页媒体：视频（data-config.video.url）+ 图集图片（.image-grid-image 的 data-src） */
+function parseMedia(html) {
+  const t = String(html || "");
+  const videos = [];
+  const play = parsePlay(t);
+  if (play.url) videos.push(play.url);
+
+  const imgs = [];
+  const seen = {};
+  // 图集容器：class="image-grid-image"，图片在 data-src（等号后可能有空格）
+  const re = /<img[^>]*class="[^"]*image-grid-image[^"]*"[^>]*>/g;
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const tag = m[0];
+    const ds = tag.match(/\sdata-src\s*=\s*"([^"]+)"/) || tag.match(/\ssrc\s*=\s*"([^"]+)"/);
+    if (!ds) continue;
+    const u = ds[1].trim();
+    if (!u || u.indexOf("data:") === 0) continue;
+    if (/\/assets\/place\//.test(u) || /\/assets\/images\//.test(u)) continue;
+    if (seen[u]) continue;
+    seen[u] = 1;
+    imgs.push(u);
+  }
+  // 兜底：整页 data-src 里指向 /image/ 的
+  if (!imgs.length) {
+    const re2 = /data-src\s*=\s*"(\/image\/[^"]+)"/g;
+    while ((m = re2.exec(t)) !== null) {
+      const u = m[1];
+      if (seen[u]) continue;
+      seen[u] = 1;
+      imgs.push(u);
+    }
+  }
+
+  return { videos: videos, images: imgs, pic: play.pic || "" };
+}
+
 /** 详情页播放配置：<div data-config='{...}'> 里的 video.url */
 function parsePlay(html) {
   const t = String(html || "");
@@ -322,8 +359,15 @@ export default class Ne6m extends Spider {
       if (tt) title = strip(tt[1]).split(/[-|_]/)[0].trim();
     }
 
-    const play = parsePlay(html);
-    let pic = play.pic ? abs(play.pic) : "";
+    const media = parseMedia(html);
+    const nv = media.videos.length;
+    const np = media.images.length;
+    const cdn = this.cdn || this.pickCdn(html);
+    const fullImgs = media.images.map((u) =>
+      (u.charAt(0) === "/" && cdn) ? (cdn.replace(/\/+$/, "") + u) : abs(u));
+
+    const play = { url: nv ? media.videos[0] : "" };
+    let pic = media.pic ? abs(media.pic) : (fullImgs[0] || "");
     if (!pic) {
       const og = html.match(/property="og:image"[^>]*content="([^"]+)"/) ||
         html.match(/content="([^"]+)"[^>]*property="og:image"/);
@@ -354,13 +398,21 @@ export default class Ne6m extends Spider {
     if (cats.length) lines.push(cats.map((x) => '[a=cr:{"id":"cat:' + x.slug + '"}/]' + x.name + "[/a]").join(" · "));
     if (tags.length) lines.push(tags.map((x) => '[a=cr:{"id":"tag:' + x.slug + '"}/]#' + x.name + "[/a]").join(" "));
 
+    // 角标：xP / xV / xP·yV（App 靠它决定显示「视频」「图集」哪个按钮）
+    let badge = "";
+    if (np && nv) badge = np + "P·" + nv + "V";
+    else if (nv) badge = nv > 1 ? nv + "V" : "1V";
+    else if (np) badge = np + "P";
+
     const item = {
       vod_id: pageUrl,
       vod_name: title || "ne6m",
       vod_pic: pic,
       vod_content: lines.join("\n"),
+      vod_remarks: badge,
+      gallery: np > 0,
       vod_play_from: "ne6m",
-      vod_play_url: play.url ? "正片$" + pageUrl : "网页查看$web://" + pageUrl,
+      vod_play_url: nv ? "正片$" + pageUrl : "图集$gal://" + pageUrl,
     };
 
     // 相关推荐：详情页里的其它卡片
@@ -397,7 +449,24 @@ export default class Ne6m extends Spider {
   async action(op) {
     const s = String(op || "");
     if (!s) return [];
-    if (s.indexOf("gal|") === 0) return { list: [] };
+    // 原生图集：gal|<页面URL> → 图片列表（CDN 线路 + data-src 路径）
+    if (s.indexOf("gal|") === 0) {
+      const u = s.substring(4).replace(/^gal:\/\//, "");
+      const pageUrl = u.indexOf("http") === 0 ? u : BASE + u;
+      const html = await this.getHtml(pageUrl);
+      if (!html) return { list: [] };
+      const cdn = this.cdn || this.pickCdn(html);
+      const media = parseMedia(html);
+      const out = [];
+      const seen = {};
+      for (const raw of media.images) {
+        const full = (raw.charAt(0) === "/" && cdn) ? (cdn.replace(/\/+$/, "") + raw) : abs(raw);
+        if (!full || seen[full]) continue;
+        seen[full] = 1;
+        out.push({ url: full });
+      }
+      return { list: out };
+    }
 
     // 侧栏：分类 + 标签（各 9 / 3 个，量少，仅作入口）
     if (s === "side|") {
