@@ -274,7 +274,7 @@
       "api": "./ne6m.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 0.67
       },
       "ext": {}
     }
