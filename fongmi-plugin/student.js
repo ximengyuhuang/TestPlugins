@@ -302,7 +302,12 @@ export default class St extends Spider {
     const pageUrl = raw.indexOf("http") === 0 ? raw : BASE + raw;
     const vidm2 = pageUrl.match(/\/vodplay\/(\d+)/);
     const refUrl = vidm2 ? BASE + "/voddetail/" + vidm2[1] + ".html" : BASE + "/";
-    const html = await this.getHtml(pageUrl, refUrl);
+    let html = await this.getHtml(pageUrl, refUrl);
+    // 站点对 Referer 敏感：拿回来若是首页（长度大且没有 player_aaaa），换根域 Referer 再试一次
+    if (html && html.indexOf("player_aaaa") < 0) {
+      delete this.cache[pageUrl];
+      html = await this.getHtml(pageUrl, BASE + "/");
+    }
     if (!html) throw new Error("播放页取不到");
 
     // player_aaaa={"encrypt":1,"url":"%68%74%74%70%73..."} —— 只是 URL 编码，解密就是 decodeURIComponent
