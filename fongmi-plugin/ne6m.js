@@ -155,31 +155,17 @@ function parseMedia(html) {
   const play = parsePlay(t);
   if (play.url) videos.push(play.url);
 
+  // 真实图集的路径形如 /image/<日期>/…；站内的 /system/…（广告位）和 /assets/… 都不是内容
   const imgs = [];
   const seen = {};
-  // 图集容器：class="image-grid-image"，图片在 data-src（等号后可能有空格）
-  const re = /<img[^>]*class="[^"]*image-grid-image[^"]*"[^>]*>/g;
+  const re = /(?:data-src|src)\s*=\s*"(\/image\/[^"\s]+|https?:\/\/[^"\s]+\/image\/[^"\s]+)"/g;
   let m;
   while ((m = re.exec(t)) !== null) {
-    const tag = m[0];
-    const ds = tag.match(/\sdata-src\s*=\s*"([^"]+)"/) || tag.match(/\ssrc\s*=\s*"([^"]+)"/);
-    if (!ds) continue;
-    const u = ds[1].trim();
-    if (!u || u.indexOf("data:") === 0) continue;
-    if (/\/assets\/place\//.test(u) || /\/assets\/images\//.test(u)) continue;
-    if (seen[u]) continue;
+    const u = m[1];
+    if (!u || seen[u]) continue;
+    if (/\/assets\//.test(u)) continue;
     seen[u] = 1;
     imgs.push(u);
-  }
-  // 兜底：整页 data-src 里指向 /image/ 的
-  if (!imgs.length) {
-    const re2 = /data-src\s*=\s*"(\/image\/[^"]+)"/g;
-    while ((m = re2.exec(t)) !== null) {
-      const u = m[1];
-      if (seen[u]) continue;
-      seen[u] = 1;
-      imgs.push(u);
-    }
   }
 
   return { videos: videos, images: imgs, pic: play.pic || "" };
@@ -361,9 +347,12 @@ export default class Ne6m extends Spider {
 
     const media = parseMedia(html);
     const nv = media.videos.length;
-    const np = media.images.length;
+    // 视频帖里通常只有 1 张 /image/（封面），少于 2 张就不当成图集
+    let np = media.images.length;
+    if (nv > 0 && np <= 1) np = 0;
+    const galleryImgs = np ? media.images.slice(0, np) : [];
     const cdn = this.cdn || this.pickCdn(html);
-    const fullImgs = media.images.map((u) =>
+    const fullImgs = galleryImgs.map((u) =>
       (u.charAt(0) === "/" && cdn) ? (cdn.replace(/\/+$/, "") + u) : abs(u));
 
     const play = { url: nv ? media.videos[0] : "" };
