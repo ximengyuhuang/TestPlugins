@@ -321,6 +321,17 @@
         "ratio": 1.78
       },
       "ext": {}
+    },
+    {
+      "key": "student",
+      "name": "学生41套图",
+      "type": 3,
+      "api": "./student.js",
+      "style": {
+        "type": "rect",
+        "ratio": 0.75
+      },
+      "ext": {}
     }
   ]
 }
