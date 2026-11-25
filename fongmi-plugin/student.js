@@ -97,7 +97,7 @@ function galleryImgs(html) {
   const src = String(html || "");
   const out = [];
   const seen = {};
-  const isAd = (u) => /img\.alicdn\.com|\/imgextra\//i.test(u);
+  const isAd = (u) => /img\.alicdn\.com|\/imgextra\/|\.gif(?:$|\?)/i.test(u);
   const blocks = src.split(/<div class="photo-two"/).slice(1);
   for (const b of blocks) {
     const seg = b.substring(0, 1500);
