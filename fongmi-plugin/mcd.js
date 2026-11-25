@@ -114,7 +114,8 @@ export default class Mcd extends Spider {
     const out = [];
     const seen = {};
     if (html) {
-      const re = /href="\/vodtype\/(\d+)\/"[^>]*>([\s\S]{0,60}?)<\/a>/g;
+      // 锚点里先有 <img src="…">（URL 很长），窗口要给足 200 才够到 </a>
+      const re = /href="\/vodtype\/(\d+)\/"[^>]*>([\s\S]{0,200}?)<\/a>/g;
       let m;
       while ((m = re.exec(html)) !== null) {
         const id = m[1];
