@@ -211,6 +211,8 @@ export default class Ne6m extends Spider {
     this.cache = {};
     this.menuCache = null;
     this.cdn = "";
+    /** url → 角标（"" 表示确认过是广告帖），详情页兜底推荐时用来剔除广告 */
+    this.badgeCache = {};
   }
 
   async getHtml(url) {
@@ -336,6 +338,7 @@ export default class Ne6m extends Spider {
           if (html) {
             c.checked = true;          // 确认过详情（可能是广告帖）
             const b = this.badgeOf(html);
+            this.badgeCache[c.url] = b || "";   // 记住：空串 = 广告帖
             if (b) c.badge = b;
           }
         } catch (e) { }
@@ -488,15 +491,35 @@ export default class Ne6m extends Spider {
       vod_play_url: nv ? "正片$" + pageUrl : "图集$gal://" + pageUrl,
     };
 
-    // 相关推荐：详情页里的其它卡片
+    // 相关推荐：站点详情页没有相关内容（实测 0 条），改用「同分类最新」兜底 6 条
     const rel = [];
-    const seen = {};
-    seen[pageUrl] = 1;
-    for (const c of parseCards(html, this.cdn || this.pickCdn(html))) {
-      if (rel.length >= 8) break;
-      if (seen[c.url]) continue;
-      seen[c.url] = 1;
-      rel.push({ vod_id: c.url, vod_name: c.title, vod_pic: c.pic, vod_remarks: c.remark || "" });
+    if (cats.length) {
+      const catUrl = listUrl("category", cats[0].slug, 1);
+      const catHtml = await this.getHtml(catUrl);
+      if (catHtml) {
+        const cdn2 = this.cdn || this.pickCdn(catHtml);
+        const seen = {};
+        seen[pageUrl] = 1;
+        const picked = [];
+        for (const c of parseCards(catHtml, cdn2)) {
+          if (picked.length >= 6) break;
+          if (seen[c.url]) continue;
+          // 缓存里已知是广告帖（空角标）就跳过；没确认过的保留
+          if (this.badgeCache[c.url] === "") continue;
+          seen[c.url] = 1;
+          picked.push(c);
+        }
+        // 这 6 条也补角标（并发 + 2.5 秒截止），这样它们也有「视频/图集」按钮
+        await this.enrichBadges(picked, 6, 2500);
+        for (const c of picked) {
+          rel.push({
+            vod_id: c.url,
+            vod_name: c.title,
+            vod_pic: c.pic,
+            vod_remarks: c.badge || c.remark || "",
+          });
+        }
+      }
     }
 
     return { list: [item].concat(rel) };
