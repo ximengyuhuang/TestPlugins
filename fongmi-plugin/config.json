@@ -153,7 +153,8 @@
       "api": "./ssimg.js",
       "style": {
         "type": "rect",
-        "ratio": 0.75
+        "ratio": 0.75,
+        "kind": "gallery"
       },
       "ext": {}
     },
@@ -164,7 +165,8 @@
       "api": "./mrds.js",
       "style": {
         "type": "rect",
-        "ratio": 1.5
+        "ratio": 1.5,
+        "kind": "gallery"
       },
       "ext": {}
     },
@@ -209,7 +211,8 @@
       "style": {
         "type": "rect",
         "ratio": 0.7,
-        "masonry": true
+        "masonry": true,
+        "kind": "gallery"
       },
       "ext": {}
     },
@@ -220,7 +223,8 @@
       "api": "./se8.js",
       "style": {
         "type": "rect",
-        "ratio": 0.7
+        "ratio": 0.7,
+        "kind": "gallery"
       },
       "ext": {}
     },
@@ -232,7 +236,8 @@
       "style": {
         "type": "rect",
         "ratio": 0.7,
-        "masonry": true
+        "masonry": true,
+        "kind": "gallery"
       },
       "ext": {}
     },
@@ -300,7 +305,8 @@
       "style": {
         "type": "rect",
         "ratio": 0.75,
-        "masonry": true
+        "masonry": true,
+        "kind": "gallery"
       },
       "ext": {}
     },
@@ -312,7 +318,8 @@
       "style": {
         "type": "rect",
         "ratio": 0.75,
-        "masonry": true
+        "masonry": true,
+        "kind": "gallery"
       },
       "ext": {}
     },
