@@ -199,6 +199,13 @@ export default class St extends Spider {
       title = (cut.length >= 6 ? cut : title).slice(0, 60).trim();
     }
 
+    // 封面：优先用列表经 vod_id 传来的（详情页第一张图常是广告）
+    let cover = listCover || "";
+    if (!cover) {
+      const im = html.match(/<img[^>]+src="([^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i);
+      if (im) cover = abs(im[1]);
+    }
+
 
 
     // 分类 chips（详情页里的 /vodtype/<id>.html）
