@@ -402,7 +402,7 @@ export default class Ne6m extends Spider {
     // 只给第 1 页补角标（后续页留空，避免翻页变慢）
     // 手机直连实测一页 22 条并发补抓约 1.3 秒 → 整页都补，截止放宽到 5 秒
     // 搜索页不补（结果页本身慢，且用户主要在找东西，不值得再多 20 多个请求）
-    if (enrich !== false && p === 1 && cards.length) await this.enrichBadges(cards, 8, 3500);
+    if (enrich !== false && p === 1 && cards.length) await this.enrichBadges(cards, 8, 4500);
     // 站点每页夹着 2 条左右自家广告帖（既无视频也无图集）→ 过滤掉
     // 只删「确认过且没有角标」的，补抓超时没确认的保留（免得误删）
     const content = cards.filter((c) => !(c.checked && !c.badge));
