@@ -174,9 +174,16 @@ function parseDetail(html, pageUrl) {
   if (!dd) dd = t.match(/<meta\s+property="og:description"\s+content="([^"]{0,2000})"/i);
   if (dd) {
     desc = strip(dd[1])
-      .replace(/^DOWNLOAD\s*&\s*STREAM\s*ONLINE[^A-Za-z]{0,8}/i, "")
+      .replace(/&#(\d+);/g, (m, code) => {
+        try { return String.fromCharCode(Number(code)); } catch (e) { return " "; }
+      })
+      .replace(/[\u2B07\u2193\u21E9\u2935]/g, "")   // ⬇ ↓ 这类箭头
+      .replace(/^DOWNLOAD\s*&\s*STREAM\s*ONLINE\s*/i, "")
       .replace(/FREE\s+DOWNLOAD\s*/gi, "")
-      .replace(/^\d+(\.\d+)?\s*GB\s*/gi, "");
+      .replace(/^\s*\d+(\.\d+)?\s*GB\s*/i, "")
+      .replace(/^\s*4K\s*/i, "4K ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
 
   const lines = [];
@@ -201,7 +208,7 @@ function parseDetail(html, pageUrl) {
     vod_name: title || pageUrl,
     vod_pic: pic,
     vod_remarks: dur,
-    vod_content: lines.join("\n") + (desc ? "\n简介：" + desc : ""),
+    vod_content: lines.join("\n") + (desc ? "\n" + desc : ""),
     vod_play_from: playFrom,
     vod_play_url: playUrl,
     gallery: false,
