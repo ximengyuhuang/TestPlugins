@@ -20,6 +20,15 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const PAGE_SIZE = 24;
 
 // 站点自带三种排序：/artshow-<cat>/by/<key>/（实测 by/hits、by/score 首条都不同）
+// 站点导航里没有、但 /artshow-<id>/ 真实存在的分类（2026-11-26 探测）
+// 实测内容量：157 海堂美图 8 条、160 模特儿露出 2 条；149 少女色图 / 159 顶级白虎 当前 0 条
+const EXTRA_CATS = [
+  { id: "149", name: "少女色图" },
+  { id: "157", name: "海堂美图" },
+  { id: "159", name: "顶级白虎" },
+  { id: "160", name: "模特儿露出" },
+];
+
 const SORTS = [
   { key: "time", name: "最新" },
   { key: "hits", name: "最热" },
@@ -212,6 +221,12 @@ export default class Tb28 extends Spider {
       }
       out.push({ id: id, name: finalName });
       if (out.length >= 60) break;
+    }
+    // 追加隐藏分类（若导航以后补上同名，则跳过避免重复）
+    for (const ex of EXTRA_CATS) {
+      if (seen[ex.id]) continue;
+      seen[ex.id] = 1;
+      out.push({ id: ex.id, name: ex.name });
     }
     this.catCache = out;
     return out;
