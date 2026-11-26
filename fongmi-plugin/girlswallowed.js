@@ -103,10 +103,13 @@ function parseCards(html) {
     if (im) pic = abs(im[1]);
 
     // 时长：span.duration / div.duration 里的 mm:ss
+    // 时长元素里带图标：<span class="duration"><i class="fa fa-clock-o"></i>39:00</span>
     let dur = "";
-    const dm = b.match(/<div[^>]*class="[^"]*duration[^"]*"[^>]*>\s*([\d:]{3,10})\s*</i) ||
-               b.match(/<span[^>]*class="[^"]*duration[^"]*"[^>]*>\s*([\d:]{3,10})\s*</i);
-    if (dm) dur = dm[1].trim();
+    const dbox = b.match(/<(?:span|div)[^>]*class="[^"]*duration[^"]*"[^>]*>([\s\S]{0,120}?)<\/(?:span|div)>/i);
+    if (dbox) {
+      const dt = dbox[1].match(/(\d{1,2}:\d{2}(?::\d{2})?)/);
+      if (dt) dur = dt[1];
+    }
 
     // 画质：span.hd-video 的文本（HD / 4K）
     let q = "";
