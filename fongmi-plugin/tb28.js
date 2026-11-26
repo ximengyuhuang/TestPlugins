@@ -286,9 +286,9 @@ export default class Tb28 extends Spider {
     const html = await this.getHtml(url);
     if (!html) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
     const cards = parseCards(html);
-    // 纯图集站：列表没有张数（站点 pic-text 全 0P）→ 首页前 12 条补抓，给出 NP 角标，
+    // 纯图集站：列表没有张数（站点 pic-text 全 0P）→ 首页前 4 条补抓，给出 NP 角标，
     // 这样卡片才有「图集」按钮、点卡片能直达图集
-    if (p === 1 && cards.length) await this.fillCounts(cards, 12, 3500);
+    if (p === 1 && cards.length) await this.fillCounts(cards, 4, 2500);
     const more = html.indexOf("page=" + (p + 1)) >= 0 || html.indexOf("下一页") >= 0;
     const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(this.cardsToList(cards), p, PAGE_SIZE, total);

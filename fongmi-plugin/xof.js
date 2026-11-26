@@ -237,7 +237,7 @@ export default class Xof extends Spider {
     const html = await this.getHtml(url);
     if (!html) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
     const cards = parseCards(html);
-    if (p === 1 && cards.length) await this.fillCounts(cards, 8, 2500);
+    if (p === 1 && cards.length) await this.fillCounts(cards, 4, 2500);
     const more = html.indexOf("page=" + (p + 1)) >= 0 || html.indexOf("下一页") >= 0;
     const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(this.cardsToList(cards), p, PAGE_SIZE, total);
