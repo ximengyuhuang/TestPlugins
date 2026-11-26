@@ -1,4 +1,5 @@
 // pped-gayd-deck.xofulitu-108.com —— BiliTV / catvod QuickJS 插件
+// 发布自检标记 2026-11-26（验证 publish.ps1 全链路）
 //
 // 侦查结论（2026-11-25）：
 //   站型   MacCMS 类「图集站」（album / art 体系，非视频）
