@@ -187,15 +187,23 @@ function parseDetail(html, pageUrl) {
     lines.push(tags.map((x) => "[a=cr:{\"id\":\"tag:" + x.slug + "\"}/]" + x.name + "[/a]").join(" "));
   }
 
+  // 播放器：详情页里是一个 iframe（voe.sx 等），该域名有 DDoS-Guard JS 挑战，
+  // QuickJS 拿不到直链 → 用 web:// 交给 App 的 WebView（能跑 JS，挑战通过后由网页播放）
+  let embed = "";
+  const ib = t.match(/<iframe[^>]+src="([^"]+)"/i);
+  if (ib && /^https?:/i.test(ib[1])) embed = ib[1];
+
+  const playFrom = embed ? "网页播放" : "";
+  const playUrl = embed ? "正片$web://" + embed : "";
+
   return {
     vod_id: pageUrl,
     vod_name: title || pageUrl,
     vod_pic: pic,
     vod_remarks: dur,
     vod_content: lines.join("\n") + (desc ? "\n简介：" + desc : ""),
-    // 播放：voe.sx 需要跑 JS 挑战，用户决定先不做 → 不给选集
-    vod_play_from: "",
-    vod_play_url: "",
+    vod_play_from: playFrom,
+    vod_play_url: playUrl,
     gallery: false,
   };
 }
@@ -292,9 +300,12 @@ export default class GirlSwallowed extends Spider {
     return { list: [parseDetail(html, pageUrl)] };
   }
 
-  /** 播放：本站播放器是 voe.sx 的 iframe，需要 JS 挑战；按用户决定暂不实现 */
+  /** 播放：web:// 交回给 App（PlayerActivity 见到 web:// 就开 WebView） */
   async playerContent(flag, id, flags) {
-    return { parse: 0, url: "", msg: "本站暂不支持播放（播放器在 voe.sx，需要网页环境）" };
+    const u = String(id || "");
+    if (u.indexOf("web://") === 0) return { parse: 0, url: u, header: {} };
+    if (/^https?:/i.test(u)) return { parse: 0, url: "web://" + u, header: {} };
+    return { parse: 0, url: "", msg: "没有找到播放器" };
   }
 
   /** 站点搜索被静态镜像忽略（/?s= 返回首页）→ 不做搜索 */
