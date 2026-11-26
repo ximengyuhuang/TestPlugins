@@ -335,6 +335,10 @@ function parseCards(html) {
       vod_name: t.name,
       vod_pic: img ? absolute(img[1]) : "",
       vod_remarks: t.remark,
+      // bili289：显式类型（角标形如 103P·8V / 12P / 1V）——路由不再依赖字符串
+      vod_type: /\d\s*P\s*[·+*]?\s*\d*\s*V/i.test(t.remark || "")
+        ? "mixed"
+        : (/\d\s*P/i.test(t.remark || "") ? "gallery" : (/\d\s*V/i.test(t.remark || "") ? "video" : "")),
     });
     if (out.length >= 24) break;
   }

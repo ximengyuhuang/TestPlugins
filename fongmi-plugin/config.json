@@ -7,7 +7,8 @@
       "api": "./rule34video.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -29,7 +30,8 @@
       "api": "./hanime1.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -40,7 +42,8 @@
       "api": "./rouvideo.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -51,7 +54,8 @@
       "api": "./missav.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -62,7 +66,8 @@
       "api": "./javtiful.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -73,7 +78,8 @@
       "api": "./eporner.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -84,7 +90,8 @@
       "api": "./asmrone.js",
       "style": {
         "type": "rect",
-        "ratio": 1.33
+        "ratio": 1.33,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -107,7 +114,8 @@
       "api": "./huang.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -130,7 +138,8 @@
       "style": {
         "type": "rect",
         "ratio": 0.56,
-        "masonry": true
+        "masonry": true,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -177,7 +186,8 @@
       "api": "./kanliao.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -188,7 +198,8 @@
       "api": "./sfm.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -248,7 +259,8 @@
       "api": "./rule34videos.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -259,7 +271,8 @@
       "api": "./nsfwr34.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -270,7 +283,8 @@
       "api": "./r34anim.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -293,7 +307,8 @@
       "api": "./mcd.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -330,7 +345,8 @@
       "api": "./fennen.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     },
@@ -341,7 +357,8 @@
       "api": "./student.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 1.78,
+        "kind": "video"
       },
       "ext": {}
     }
