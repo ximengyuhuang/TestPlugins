@@ -342,7 +342,7 @@ export default class GirlSwallowed extends Spider {
           items: (act || []).slice(0, 60),
         });
       } catch (e) { }
-      return JSON.stringify({ groups: groups });
+      return { groups: groups };
     }
 
     if (raw.indexOf("facet|") === 0) {
@@ -357,13 +357,13 @@ export default class GirlSwallowed extends Spider {
           ? all.filter((x) => x.name.toLowerCase().indexOf(kw) >= 0 || x.id.toLowerCase().indexOf(kw) >= 0)
           : all;
         const slice = hit.slice((pg - 1) * 100, pg * 100);
-        return JSON.stringify({ items: slice });
+        return { items: slice };
       }
       if (kind === "actor") {
         const list = await this.facetActors(kw, pg);
-        return JSON.stringify({ items: list });
+        return { items: list };
       }
-      return JSON.stringify({ items: [] });
+      return { items: [] };
     }
     return "";
   }
