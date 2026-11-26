@@ -18,7 +18,7 @@
       "api": "./cosplaytele.js",
       "style": {
         "type": "rect",
-        "ratio": 1.7
+        "ratio": 1.5
       },
       "ext": {}
     },
@@ -95,8 +95,8 @@
       "api": "./xchina.js",
       "style": {
         "type": "rect",
-        "ratio": 0.75,
-        "masonry": true
+        "ratio": 1.78,
+        "masonry": false
       },
       "ext": {}
     },
@@ -129,7 +129,8 @@
       "api": "./p91.js",
       "style": {
         "type": "rect",
-        "ratio": 1.78
+        "ratio": 0.56,
+        "masonry": true
       },
       "ext": {}
     },
@@ -140,7 +141,8 @@
       "api": "./xiaocongzy.js",
       "style": {
         "type": "rect",
-        "ratio": 0.75
+        "ratio": 0.56,
+        "masonry": true
       },
       "ext": {}
     },
@@ -297,7 +299,8 @@
       "api": "./xof.js",
       "style": {
         "type": "rect",
-        "ratio": 0.75
+        "ratio": 0.75,
+        "masonry": true
       },
       "ext": {}
     },
@@ -308,7 +311,8 @@
       "api": "./tb28.js",
       "style": {
         "type": "rect",
-        "ratio": 0.75
+        "ratio": 0.75,
+        "masonry": true
       },
       "ext": {}
     },
@@ -330,7 +334,7 @@
       "api": "./student.js",
       "style": {
         "type": "rect",
-        "ratio": 0.75
+        "ratio": 1.78
       },
       "ext": {}
     }
