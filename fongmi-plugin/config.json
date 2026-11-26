@@ -361,6 +361,18 @@
         "kind": "video"
       },
       "ext": {}
+    },
+    {
+      "key": "girlswallowed",
+      "name": "GirlSwallowed",
+      "type": 3,
+      "api": "./girlswallowed.js",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78,
+        "kind": "video"
+      },
+      "ext": {}
     }
   ]
 }
