@@ -18,6 +18,13 @@ import { Spider, openWeb } from "catvod";
 const BASE = "https://h3lv--8ivi.taobao28setuku.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE_SIZE = 24;
+
+// 站点自带三种排序：/artshow-<cat>/by/<key>/（实测 by/hits、by/score 首条都不同）
+const SORTS = [
+  { key: "time", name: "最新" },
+  { key: "hits", name: "最热" },
+  { key: "score", name: "评分" },
+];
 const CACHE_MS = 180000;
 
 function hdrs(ref) {
@@ -188,12 +195,22 @@ export default class Tb28 extends Spider {
     const seen = {};
     const re = /href="\/arttype\/(\d+)\/"[^>]*>([\s\S]{0,200}?)<\/a>/g;
     let m;
+    const used = {};
     while ((m = re.exec(html || "")) !== null) {
       const id = m[1];
-      const nm = strip(m[2]);
+      // 分类名里带 ✿ ★ 之类的装饰，去掉；「综合色圖」这种异体字保留原样
+      let nm = strip(m[2]).replace(/^[\s✿❀★☆·•*\-]+|[\s✿❀★☆·•*\-]+$/g, "").trim();
       if (!nm || seen[id] || nm.length > 20) continue;
       seen[id] = 1;
-      out.push({ id: id, name: nm });
+      // 站点存在同名分类（如 143 与 154 都叫「日本色图」）→ 后者加序号，便于区分
+      let finalName = nm;
+      if (used[nm]) {
+        used[nm] += 1;
+        finalName = nm + " (" + used[nm] + ")";
+      } else {
+        used[nm] = 1;
+      }
+      out.push({ id: id, name: finalName });
       if (out.length >= 60) break;
     }
     this.catCache = out;
@@ -211,7 +228,10 @@ export default class Tb28 extends Spider {
         { type_id: "web", type_name: "网页" },
       ],
       filters: {
-        latest: [{ key: "media", name: "分类", value: media }],
+        latest: [
+          { key: "media", name: "分类", value: media },
+          { key: "order", name: "排序", value: SORTS.map((x) => ({ n: x.name, v: x.key })) },
+        ],
       },
     };
   }
@@ -251,7 +271,11 @@ export default class Tb28 extends Spider {
     else if (t.indexOf("cat:") === 0) catId = t.substring(4);
 
     const id = catId || "0";
-    const url = BASE + "/arttype/" + id + "/" + (p > 1 ? "?page=" + p : "");
+    // 排序：extend.order（App 的 filters 组）→ /artshow-<id>/by/<key>/
+    const sortKey = String(ext.order || ext.sort || "time");
+    const sort = SORTS.some((x) => x.key === sortKey) ? sortKey : "time";
+    // 分类 0 表示「全部」；实测 /artshow-0/by/hits/ 有效
+    const url = BASE + "/artshow-" + id + "/by/" + sort + "/" + (p > 1 ? "?page=" + p : "");
     return this.listFrom(url, p);
   }
 
