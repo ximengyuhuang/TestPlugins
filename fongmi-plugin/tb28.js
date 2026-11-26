@@ -251,6 +251,28 @@ export default class Tb28 extends Spider {
     };
   }
 
+  /** 详情页张数（站点列表里的 pic-text 全是 0P，只能进详情数页数） */
+  async picPages(id) {
+    const html = await this.getHtml(BASE + "/artdetail-" + id + "-1/");
+    if (!html) return 0;
+    return maxPage(html, id);
+  }
+
+  /** 给前 limit 条补 `NP` 角标（有界 + 硬截止） */
+  async fillCounts(cards, limit, deadlineMs) {
+    const todo = cards.slice(0, limit);
+    const jobs = todo.map((c) => (async () => {
+      try {
+        const n = await this.picPages(c.id);
+        if (n > 0) c.remark = n + "P";
+      } catch (e) { }
+    })());
+    try {
+      await Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, deadlineMs))]);
+    } catch (e) { }
+    return cards;
+  }
+
   cardsToList(cards) {
     return cards.map((c) => ({
       vod_id: c.url,
@@ -264,6 +286,9 @@ export default class Tb28 extends Spider {
     const html = await this.getHtml(url);
     if (!html) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
     const cards = parseCards(html);
+    // 纯图集站：列表没有张数（站点 pic-text 全 0P）→ 首页前 12 条补抓，给出 NP 角标，
+    // 这样卡片才有「图集」按钮、点卡片能直达图集
+    if (p === 1 && cards.length) await this.fillCounts(cards, 12, 3500);
     const more = html.indexOf("page=" + (p + 1)) >= 0 || html.indexOf("下一页") >= 0;
     const total = more ? (p + 1) * PAGE_SIZE : (p - 1) * PAGE_SIZE + cards.length;
     return this.page(this.cardsToList(cards), p, PAGE_SIZE, total);
