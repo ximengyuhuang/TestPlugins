@@ -206,6 +206,33 @@ function parsePlay(html) {
   }
 }
 
+// @bili-helpers BEGIN v2026-11-26（由 tools/inject.mjs 注入，可安全整块替换）
+function titleDuration(title) {
+  const m = String(title || "").match(/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/);
+  return m ? m[1] : "";
+}
+
+/**
+ * 角标：站点结构化字段 > 标题里的 P/V/时长 > 留空。
+ * 用法：vod_remarks: badgeOf(title, { photos: 12, videos: 1, duration: "12:34" })
+ * 返回形态只有三种合法：NP、NP·MV、时长；无效值（0P/1P 占位）自动忽略。
+ */
+
+function badgeOf(title, info) {
+  const i = info || {};
+  const pv = titlePV(title);
+  let p = Number(i.photos) > 0 ? Number(i.photos) : pv.p;
+  let v = Number(i.videos) > 0 ? Number(i.videos) : pv.v;
+  if (p === 1 && v > 0) p = 0;              // 「1P·1V」里的 1P 多半是封面占位
+  if (p > 0 && v > 0) return p + "P·" + v + "V";
+  if (v > 0) return v + "V";
+  if (p > 0) return p + "P";
+  const dur = i.duration || titleDuration(title);
+  return dur || "";
+}
+
+// @bili-helpers END
+
 export default class Ne6m extends Spider {
   init() {
     this.cache = {};

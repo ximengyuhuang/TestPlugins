@@ -535,6 +535,32 @@ function headLetter(name) {
   return /[A-Z]/.test(c) ? c : "#";
 }
 
+// @bili-helpers BEGIN v2026-11-26（由 tools/inject.mjs 注入，可安全整块替换）
+function titlePV(title) {
+  const t = String(title || "");
+  const both = t.match(/([0-9０-９]{1,3})\s*[PpＰｐ]\s*([0-9０-９]{1,2})\s*[VvＶｖ]/);
+  const toHalf = (x) => Number(String(x).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))) || 0;
+  if (both) return { p: toHalf(both[1]), v: toHalf(both[2]) };
+  const onlyV = t.match(/([0-9０-９]{1,2})\s*[VvＶｖ]/);
+  const onlyP = t.match(/([0-9０-９]{1,3})\s*[PpＰｐ]/);
+  return { p: onlyP ? toHalf(onlyP[1]) : 0, v: onlyV ? toHalf(onlyV[1]) : 0 };
+}
+
+/** 标题里的时长（12:34 / 01:47:35），取不到给空串 */
+
+function titleDuration(title) {
+  const m = String(title || "").match(/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/);
+  return m ? m[1] : "";
+}
+
+/**
+ * 角标：站点结构化字段 > 标题里的 P/V/时长 > 留空。
+ * 用法：vod_remarks: badgeOf(title, { photos: 12, videos: 1, duration: "12:34" })
+ * 返回形态只有三种合法：NP、NP·MV、时长；无效值（0P/1P 占位）自动忽略。
+ */
+
+// @bili-helpers END
+
 export default class Mitaku extends Spider {
   init(extend) {
     this.htmlCache = {};
