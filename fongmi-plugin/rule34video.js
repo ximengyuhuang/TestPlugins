@@ -1,4 +1,4 @@
-﻿// Rule34Video（rule34video.com）—— BiliTV / catvod QuickJS 插件
+// Rule34Video（rule34video.com）—— BiliTV / catvod QuickJS 插件
 //
 // 站类型：纯视频（单画质 360p mp4 直链，带 acctoken）
 //   列表  /                                    路径式分页 /N/   24 条/页
