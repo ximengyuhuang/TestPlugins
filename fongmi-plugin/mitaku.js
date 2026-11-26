@@ -667,6 +667,7 @@ export default class Mitaku extends Spider {
         vod_name: c.title,
         vod_pic: c.pic,
         vod_remarks: badgeOf(info.n, info.hasVideo),
+      vod_type: (info.n) > 0 ? ((info.hasVideo) ? "mixed" : "gallery") : ((info.hasVideo) ? "video" : ""),
       };
     }));
 
@@ -714,6 +715,7 @@ export default class Mitaku extends Spider {
       vod_pic: cover ? coverUrl(safeUrl(cover[1])) : "",
       vod_content: lines.join("\n"),
       vod_remarks: badgeOf(imgs.length, info.hasVideo),
+      vod_type: (imgs.length) > 0 ? ((info.hasVideo) ? "mixed" : "gallery") : ((info.hasVideo) ? "video" : ""),
       gallery: imgs.length > 0,
     };
 
@@ -740,6 +742,7 @@ export default class Mitaku extends Spider {
         vod_name: x.title,
         vod_pic: x.pic,
         vod_remarks: badgeOf(ri.n, ri.hasVideo),
+      vod_type: (ri.n) > 0 ? ((ri.hasVideo) ? "mixed" : "gallery") : ((ri.hasVideo) ? "video" : ""),
       };
     }));
 

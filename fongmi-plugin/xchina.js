@@ -153,6 +153,8 @@ function parseCards(html) {
       vod_name: name || (marks[i].kind + " " + marks[i].id),
       vod_pic: img ? decode(img[1]) : "",
       vod_remarks: badge,
+      // bili289：显式类型（站点角标已归一化成 NP / NP·MV / 1V）
+      vod_type: /·/.test(badge) ? "mixed" : /V$/.test(badge) ? "video" : /P$/.test(badge) ? "gallery" : "",
     });
   }
   return out;

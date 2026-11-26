@@ -141,6 +141,8 @@ function parseCards(html) {
       vod_remarks: (cat && !isBlog ? strip(cat[1]) + "|" : "") + (isVideo ? "1V" : ""),
       kindVideo: isVideo,
       isBlog: isBlog,
+      // bili289：显式类型
+      vod_type: isVideo ? "video" : (isBlog ? "" : "gallery"),
     });
   }
   return out;

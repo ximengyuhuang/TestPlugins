@@ -388,6 +388,10 @@ export default class Ne6m extends Spider {
       vod_pic: c.pic,
       // 优先用补抓到的 1V/1P/1P·1V，没有就退回日期
       vod_remarks: c.badge || c.remark || "",
+      // bili289：路由不再靠角标 —— 有 badge 时顺便显式声明类型（· → mixed，V 尾 → video，P 尾 → gallery）
+      vod_type: c.badge
+        ? (c.badge.indexOf("·") >= 0 ? "mixed" : /V$/.test(c.badge) ? "video" : /P$/.test(c.badge) ? "gallery" : "")
+        : "",
     }));
   }
 

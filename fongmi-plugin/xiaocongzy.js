@@ -111,6 +111,8 @@ function parseCards(html) {
       vod_name: title,
       vod_pic: pic,
       vod_remarks: remarks,
+      // bili289：显式类型（isVideo 已知；图集帖张数拿不到时也算 gallery）
+      vod_type: isVideo ? "video" : "gallery",
       // 封面跟随站点 style.ratio（config 里是 0.75，<1 → App 走自适应，按原图比例显示，不裁切）；
       // 所以这里显式写 vod_ratio: 0 表示「不覆盖站点比例」。站点封面本来就是 2×2 拼图，裁切会看不到全貌。
       vod_ratio: 0,
@@ -345,6 +347,7 @@ export default class Xiaocong extends Spider {
           vod_content: lines.join("\n"),
           vod_remarks: "",
           gallery: false,
+          vod_type: "video",
           vod_play_from: "小葱资源",
           vod_play_url: "正片$" + d.video,
         }, ...rel],
@@ -377,6 +380,7 @@ export default class Xiaocong extends Spider {
         vod_content: lines.join("\n"),
         vod_remarks: d.imgs.length + "P",
         gallery: true,
+          vod_type: "gallery",
         vod_play_from: "小葱资源",
         vod_play_url: "图集$" + url,
       }, ...rel],
