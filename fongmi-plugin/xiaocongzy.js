@@ -111,7 +111,8 @@ function parseCards(html) {
       vod_name: title,
       vod_pic: pic,
       vod_remarks: remarks,
-      // 封面一律按原图比例显示（站点的视频封面本身就是 2×2 拼图，裁切反而看不到全貌）
+      // 封面跟随站点 style.ratio（config 里是 0.75，<1 → App 走自适应，按原图比例显示，不裁切）；
+      // 所以这里显式写 vod_ratio: 0 表示「不覆盖站点比例」。站点封面本来就是 2×2 拼图，裁切会看不到全貌。
       vod_ratio: 0,
     });
   }
