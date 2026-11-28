@@ -48,6 +48,11 @@ function abs(u) {
 
 const IMG_RE = /(?:data-src|src)="(https?:\/\/[^"]+?\.(?:webp|jpe?g|png|gif))"/gi;
 
+/** 站点封面是 3 图拼图（文件名带 -Cover-），图集里不该出现 → 剔掉 */
+function isCover(u) {
+  return /-Cover-/i.test(String(u || ""));
+}
+
 /** 从 HTML 片段里按顺序取图（去重） */
 function imagesOf(html) {
   const out = [];
@@ -123,7 +128,8 @@ export default class NudeCosplayBiz extends Spider {
   toCards(arr) {
     return (arr || []).map((x) => {
       const content = (x.content && x.content.rendered) || "";
-      const imgs = imagesOf(content);
+      const allImgs = imagesOf(content);
+      const imgs = allImgs.filter((u) => !isCover(u));
       const slug = String(x.slug || "");
       const link = String(x.link || BASE + "/" + slug + "/");
       const title = x.title && x.title.rendered ? strip(x.title.rendered) : slug;
@@ -131,7 +137,7 @@ export default class NudeCosplayBiz extends Spider {
         url: link,
         slug: slug,
         title: title,
-        pic: imgs.length ? imgs[0] : "",
+        pic: allImgs.length ? allImgs[0] : "",
         photos: imgs.length,
       };
     });
@@ -187,7 +193,9 @@ export default class NudeCosplayBiz extends Spider {
       if (arr && arr.length) {
         const x = arr[0];
         title = strip((x.title && x.title.rendered) || slug);
-        imgs = imagesOf((x.content && x.content.rendered) || "");
+        const allD = imagesOf((x.content && x.content.rendered) || "");
+        imgs = allD.filter((u) => !isCover(u));
+        if (!imgs.length) imgs = allD;
         const ids2 = (x.categories || []).map(String);
         cats = ids2.map((id) => (CATS.find((c) => c.id === id) || {}).name).filter(Boolean).join(" / ");
       }
@@ -199,7 +207,9 @@ export default class NudeCosplayBiz extends Spider {
       const og = html.match(/<meta\s+property="og:title"\s+content="([^"]{1,200})"/i);
       if (og && !title) title = strip(og[1]);
       const body = html.substring(Math.max(0, html.indexOf("entry-content")));
-      imgs = imagesOf(body);
+      const allH = imagesOf(body);
+      imgs = allH.filter((u) => !isCover(u));
+      if (!imgs.length) imgs = allH;
       const cs = [];
       const cre = /\/category\/([a-z0-9\-]+)\//gi;
       let m;
@@ -237,8 +247,10 @@ export default class NudeCosplayBiz extends Spider {
       const arr = await this.json(BASE + "/wp-json/wp/v2/posts?slug=" + encodeURIComponent(slug) +
         "&_fields=content");
       if (arr && arr.length) {
-        const imgs = imagesOf((arr[0].content && arr[0].content.rendered) || "");
+        const all = imagesOf((arr[0].content && arr[0].content.rendered) || "");
+        const imgs = all.filter((u) => !isCover(u));
         if (imgs.length) return imgs;
+        if (all.length) return all;
       }
     }
     const html = await this.req(pageUrl);
