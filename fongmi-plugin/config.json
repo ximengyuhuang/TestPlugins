@@ -373,6 +373,19 @@
         "kind": "video"
       },
       "ext": {}
+    },
+    {
+      "key": "misskon",
+      "name": "MissKon",
+      "type": 3,
+      "api": "./misskon.js",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78,
+        "masonry": false,
+        "kind": "gallery"
+      },
+      "ext": {}
     }
   ]
 }
