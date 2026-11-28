@@ -100,6 +100,43 @@ function parseCards(html) {
   return out;
 }
 
+/** 相关推荐：站点自带 YARPP（a.yarpp-thumbnail），按站点为准不补满 */
+function parseRelated(html) {
+  const src = String(html || "");
+  const out = [];
+  const seen = {};
+  const re = /<a[^>]+class=['"]yarpp-thumbnail['"][^>]*>/gi;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const tag = m[0];
+    const href = tag.match(/href=['"]([^'"]+)['"]/i);
+    if (!href) continue;
+    const url = href[1];
+    if (seen[url]) continue;
+    seen[url] = 1;
+
+    const slug = (url.replace(/^https?:\/\/[^/]+\//, "").split("/")[0] || "");
+    let title = "";
+    const at = tag.match(/title=['"]([^'"]{1,200})['"]/i);
+    if (at) title = strip(at[1]);
+    if (!title) {
+      const st = src.substring(m.index, m.index + 800)
+        .match(/<span[^>]*class=['"]yarpp-thumbnail-title['"][^>]*>([\s\S]{0,200}?)<\/span>/i);
+      if (st) title = strip(st[1]);
+    }
+    if (!title) title = slug;
+
+    // 缩略图：紧跟的 <img data-src=...>
+    let pic = "";
+    const seg = src.substring(m.index, m.index + 900);
+    const im = seg.match(/<img[^>]+data-src=['"]([^'"]+)['"]/i) || seg.match(/<img[^>]+src=['"]([^'"]+)['"]/i);
+    if (im) pic = abs(im[1]);
+
+    out.push({ url: url, slug: slug, title: title, pic: pic, photos: photosFromSlug(slug) });
+  }
+  return out;
+}
+
 export default class MissKon extends Spider {
   init() {
     this.tagCache = null;
@@ -230,19 +267,29 @@ export default class MissKon extends Spider {
     }
     if (desc) lines.push(desc);
 
-    return {
-      list: [{
-        vod_id: pageUrl,
-        vod_name: title || slug,
-        vod_pic: pic,
-        vod_remarks: photos > 0 ? photos + "P" : "",
-        vod_content: lines.join("\n"),
-        // 图集站：没有播放列表，靠 gallery + gal|
-        vod_play_from: "",
-        vod_play_url: "",
-        gallery: true,
-      }],
+    const self = {
+      vod_id: pageUrl,
+      vod_name: title || slug,
+      vod_pic: pic,
+      vod_remarks: photos > 0 ? photos + "P" : "",
+      vod_content: lines.join("\n"),
+      // 图集站：没有播放列表，靠 gallery + gal|
+      vod_play_from: "",
+      vod_play_url: "",
+      gallery: true,
     };
+
+    // 相关推荐：用站点自己的 YARPP 结果（有几个给几个，不补满）
+    const rel = parseRelated(html).filter((x) => x.url !== pageUrl).slice(0, 8)
+      .map((x) => ({
+        vod_id: x.url,
+        vod_name: x.title,
+        vod_pic: x.pic,
+        vod_remarks: x.photos > 0 ? x.photos + "P" : "图集",
+        vod_type: "gallery",
+      }));
+
+    return { list: [self].concat(rel) };
   }
 
   /** 图集：帖子内部有分页（/slug/2/ …），逐页取 data-src 原图 */
