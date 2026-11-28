@@ -22,6 +22,15 @@ const BASE = "https://misskon.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE_SIZE = 20;
 
+// 分类 id → WP 分类 slug（用于 /category/<slug>/ 列表页，带封面）
+const SLUGS = {
+  "158": "models",
+  "2400": "chinese-models",
+  "1": "asian-models",
+  "398": "korean-models",
+  "163": "video",
+};
+
 // 一级分类（id 来自 /wp-json/wp/v2/categories）
 const CATS = [
   { id: "158", name: "Models" },
@@ -158,23 +167,14 @@ export default class MissKon extends Spider {
     const t = String(tid || "latest");
 
     if (t.indexOf("cat:") === 0) {
-      // 走 REST：分类过滤 + 分页（比抓 HTML 快且稳）
       const id = t.substring(4);
-      const arr = await this.getJson(
-        BASE + "/wp-json/wp/v2/posts?categories=" + id +
-        "&per_page=" + PAGE_SIZE + "&page=" + p +
-        "&_fields=id,slug,link,title,date");
-      if (!arr || !arr.length) return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
-      const cards = arr.map((x) => {
-        const slug = String(x.slug || "");
-        const link = String(x.link || BASE + "/" + slug + "/");
-        const title = x.title && x.title.rendered ? strip(x.title.rendered) : slug;
-        const n = photosFromSlug(slug);
-        return { url: link, slug: slug, title: title, pic: "", photos: n };
-      });
-      const list = this.cardsToList(cards);
-      const total = arr.length >= PAGE_SIZE ? p * PAGE_SIZE + 1 : (p - 1) * PAGE_SIZE + arr.length;
-      return this.page(list, p, PAGE_SIZE, total);
+      // 分类页 HTML 带封面：/category/<slug>/（slug 用 WP 分类 slug，见 SLUGS）
+      const catSlug = SLUGS[id];
+      if (catSlug) {
+        const url = BASE + "/category/" + catSlug + "/" + (p > 1 ? "page/" + p + "/" : "");
+        return this.listFrom(url, p);
+      }
+      return this.page([], p, PAGE_SIZE, (p - 1) * PAGE_SIZE);
     }
 
     // 最新：直接抓列表页（有封面）
