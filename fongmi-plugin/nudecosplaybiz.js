@@ -89,6 +89,40 @@ function parseCards(html) {
   return out;
 }
 
+/** 相关推荐：站点自带「Related Posts」块（jnews_related_post_container，实测 6 条）
+ *  注意标题在 HTML 里是 Related<strong> Posts</strong>，直接搜 "Related Posts" 搜不到 */
+function parseRelated(html) {
+  const src = String(html || "");
+  const i = src.indexOf('jnews_related_post_container');
+  if (i < 0) return [];
+  let end = src.indexOf('<script', i);
+  if (end < 0) end = Math.min(src.length, i + 30000);
+  const blk = src.substring(i, end);
+
+  const out = [];
+  const seen = {};
+  const re = /<(?:article|div)[^>]*class="[^"]*jeg_post\b[^"]*"[\s\S]*?(?=<(?:article|div)[^>]*class="[^"]*jeg_post\b|$)/g;
+  let m;
+  while ((m = re.exec(blk)) !== null) {
+    const b = m[0];
+    const a = b.match(/<a[^>]+href="(https:\/\/nudecosplay\.biz\/[a-z0-9\-]+\/)"/i);
+    if (!a) continue;
+    const url = a[1];
+    if (seen[url]) continue;
+    seen[url] = 1;
+
+    let title = "";
+    const tt = b.match(/class="jeg_post_title"[^>]*>[\s\S]{0,80}?<a[^>]*>([\s\S]{0,200}?)<\/a>/i)
+      || b.match(/<img[^>]+alt="([^"]{1,200})"/i);
+    if (tt) title = strip(tt[1]);
+    if (!title) title = url.replace(/\/$/, "").split("/").pop();
+
+    const im = b.match(/<img[^>]+(?:data-src|src)="(https?:\/\/[^"]+\.(?:webp|jpe?g|png))"/i);
+    out.push({ url: url, title: title, pic: im ? abs(im[1]) : "" });
+  }
+  return out;
+}
+
 export default class NudeCosplayBiz extends Spider {
   init() {
     this.cache = {};
@@ -225,19 +259,31 @@ export default class NudeCosplayBiz extends Spider {
     if (cats) lines.push("分类：" + cats);
     lines.push("共 " + imgs.length + " 张");
 
-    return {
-      list: [{
-        vod_id: pageUrl,
-        vod_name: title || slug,
-        vod_pic: imgs.length ? imgs[0] : "",
-        vod_remarks: imgs.length + "P",
-        vod_content: lines.join("\n"),
-        vod_play_from: "",
-        vod_play_url: "",
-        gallery: true,
-      }],
-      // 站点没有相关推荐块 → 不补（第 1 卷有记录）
+    const self = {
+      vod_id: pageUrl,
+      vod_name: title || slug,
+      vod_pic: imgs.length ? imgs[0] : "",
+      vod_remarks: imgs.length + "P",
+      vod_content: lines.join("\n"),
+      vod_play_from: "",
+      vod_play_url: "",
+      gallery: true,
     };
+
+    // 相关推荐：站点自带 Related Posts 块，有几个给几个
+    let rel = [];
+    try {
+      const html = await this.req(pageUrl);
+      rel = parseRelated(html).filter((x) => x.url !== pageUrl).slice(0, 8).map((x) => ({
+        vod_id: x.url,
+        vod_name: x.title,
+        vod_pic: x.pic,
+        vod_remarks: "",
+        vod_type: "gallery",
+      }));
+    } catch (e) { }
+
+    return { list: [self].concat(rel) };
   }
 
   /** 图集：REST 一次拿全（无内部分页） */
